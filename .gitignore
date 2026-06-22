@@ -1,6 +1,48 @@
-node_modules
-dist
-.vercel
+# Node
+node_modules/
+dist/
+
+# Env files
 .env
 .env.local
+.env.*.local
+tts-service/.env
+
+# Python
+.venv/
+venv/
+tts-service/.venv/
+__pycache__/
+*.pyc
+tts-service/__pycache__/
+tts-service/**/*.pyc
+
+# TTS cache / generated files
+tts_cache/
+tts-service/tts_cache/
+logs/
 *.log
+*.mp3
+*.wav
+*.pdf
+
+# Local Hugging Face Space clone
+hf-audioevaluaciones-tts/
+
+# Accidental local files
+cd
+
+# Local docs / scratch
+docscode/
+# Accidental files from dependency/version output
+tts-service/0.*
+tts-service/1.*
+tts-service/3.*
+tts-service/4.*
+tts-service/5.*
+tts-service/20.*
+tts-service/pip
+tts-service/python
+tts-service/tokenizers
+tts-service/transformers
+tts-service/[*

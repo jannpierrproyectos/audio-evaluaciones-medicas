@@ -1,0 +1,17 @@
+.env
+.env.*
+.venv
+venv
+__pycache__
+*.pyc
+tts_cache
+*.log
+uvicorn.out.log
+uvicorn.err.log
+*.pdf
+*.mp3
+*.wav
+*.m4a
+*.ogg
+node_modules
+dist
