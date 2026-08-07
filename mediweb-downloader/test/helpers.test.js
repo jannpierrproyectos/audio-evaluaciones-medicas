@@ -17,10 +17,18 @@ import {
 
 test("parsea los argumentos del MVP", () => {
   assert.deepEqual(parseArgs(["--mode", "both", "--limit", "1", "--delay", "500"]), {
-    mode: "both", limit: 1, output: null, delay: 500,
+    mode: "both", limit: 1, perPageLimit: null, output: null, delay: 500, maxPages: null, singlePage: false,
   });
   assert.throws(() => parseArgs(["--mode", "invalid"]));
   assert.throws(() => parseArgs(["--limit", "0"]));
+  assert.equal(parseArgs(["--max-pages", "2"]).maxPages, 2);
+  assert.equal(parseArgs(["--single-page"]).singlePage, true);
+  assert.throws(() => parseArgs(["--max-pages", "0"]));
+  assert.throws(() => parseArgs(["--max-pages", "2.5"]));
+  assert.throws(() => parseArgs(["--single-page", "--max-pages", "2"]));
+  assert.equal(parseArgs(["--per-page-limit", "3"]).perPageLimit, 3);
+  assert.throws(() => parseArgs(["--per-page-limit", "0"]), /entero mayor que cero/);
+  assert.throws(() => parseArgs(["--per-page-limit", "2.5"]), /entero mayor que cero/);
 });
 
 test("normaliza encabezados con tildes, puntos y espacios", () => {
@@ -36,6 +44,7 @@ test("sanitiza nombres incompatibles con Windows", () => {
 test("CSV escapa comillas, comas y saltos de linea", () => {
   const csv = createCsv([{ orden: 1, empresa: 'Empresa, "Uno"\nLima' }]);
   assert.ok(csv.startsWith("\uFEFForden,"));
+  assert.ok(csv.includes("orden,paginaMediWeb,codigo"));
   assert.ok(csv.includes("aptitud,categoriaAptitud"));
   assert.ok(csv.includes('"Empresa, ""Uno""\nLima"'));
 });
@@ -82,6 +91,14 @@ test("flujo posterior a confirmar conserva los totales al aplicar limit", () => 
   assert.equal(manifest.totalExcluido, 0);
   assert.equal(manifest.totalSeleccionado, 1);
   assert.equal(manifest.totalProcesado, 0);
+  assert.equal(manifest.totalPaginasVisitadas, 1);
+  assert.equal(manifest.totalUnico, 3);
+  assert.equal(manifest.perPageLimit, null);
+  assert.deepEqual(manifest.pages, []);
+  assert.deepEqual(manifest.pagination, {
+    enabled: true, singlePage: false, maxPages: null, paginasVisitadas: 1, ultimaPaginaCompletada: 1,
+    motivoFinalizacion: null,
+  });
   assert.deepEqual(manifest.atenciones, []);
 });
 

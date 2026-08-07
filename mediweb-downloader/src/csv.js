@@ -1,5 +1,5 @@
 const COLUMNS = [
-  "orden", "codigo", "fecha", "empresa", "subcontrata", "paciente", "tipoExamen", "tipoDocumento", "aptitud", "categoriaAptitud",
+  "orden", "paginaMediWeb", "codigo", "fecha", "empresa", "subcontrata", "paciente", "tipoExamen", "tipoDocumento", "aptitud", "categoriaAptitud",
   "idcomprobante", "idpaciente", "estado", "archivoCompleto", "paginaConsolidado", "intentos", "mensajeError",
 ];
 

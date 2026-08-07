@@ -12,12 +12,16 @@ import {
   printProcessingSummary,
 } from "./cli.js";
 import { extractVisibleReports } from "./mediwebTable.js";
+import { goToNextResultsPage } from "./pagination.js";
+import { runPaginatedWorkflow } from "./paginationWorkflow.js";
 import { isSessionExpired, restoreSession } from "./session.js";
 import { waitForReportReady } from "./reportLoader.js";
 import { appendFirstPage, createReportPdf, validatePdf } from "./pdfGenerator.js";
 import { uniqueReportPath } from "./fileNames.js";
 import { createOutputPaths, removeTmpIfEmpty } from "./paths.js";
 import {
+  applyPaginationTotals,
+  createExcludedEntry,
   createManifest,
   isAptitudExtractionFailure,
   relativeOutputPath,
@@ -27,7 +31,16 @@ import {
 } from "./manifest.js";
 
 const moduleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const state = { cli: null, context: null, mainPage: null, manifest: null, paths: null, interrupted: false, shuttingDown: false };
+const state = {
+  cli: null,
+  context: null,
+  mainPage: null,
+  manifest: null,
+  paths: null,
+  interrupted: false,
+  shuttingDown: false,
+  sessionRecoveryPending: false,
+};
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
@@ -36,51 +49,129 @@ async function main() {
   printManualNavigationInstructions();
   await state.cli.enter("");
 
-  const extraction = await detectReportsWithRetry();
-  if (!extraction) return;
-  const selection = selectAttentions(extraction.atenciones, options.limit);
-  console.log(`\nAtenciones con Imp S.F encontradas: ${selection.totalDetectado}`);
-  printAptitudDiagnostic(selection);
-  if (isAptitudExtractionFailure(selection)) {
-    printAptitudExtractionError(selection.totalDetectado, extraction.encabezadosEncontrados);
+  const firstExtraction = await detectReportsWithRetry();
+  if (!firstExtraction) return;
+  const firstSelection = selectAttentions(firstExtraction.atenciones, null);
+  console.log(`\nAtenciones con Imp S.F encontradas en la página actual: ${firstSelection.totalDetectado}`);
+  printAptitudDiagnostic(firstSelection);
+  if (isAptitudExtractionFailure(firstSelection)) {
+    printAptitudExtractionError(firstSelection.totalDetectado, firstExtraction.encabezadosEncontrados);
     return;
   }
 
   const mode = options.mode ?? await state.cli.chooseMode();
   if (!mode) return;
   state.paths = await createOutputPaths(moduleRoot, options.output, mode);
-  printProcessingSummary({ selection, limit: options.limit, mode, outputDirectory: state.paths.root });
+  printProcessingSummary({
+    selection: firstSelection,
+    limit: options.limit,
+    perPageLimit: options.perPageLimit,
+    mode,
+    outputDirectory: state.paths.root,
+    singlePage: options.singlePage,
+    maxPages: options.maxPages,
+  });
   if (!await state.cli.confirm("\n¿Iniciar procesamiento?")) return;
 
   state.manifest = createManifest({
     mode,
     limit: options.limit,
-    selection,
+    perPageLimit: options.perPageLimit,
     outputDirectory: state.paths.root,
+    singlePage: options.singlePage,
+    maxPages: options.maxPages,
   });
   await saveControl(state.manifest, state.paths);
   const consolidated = mode === "first" || mode === "both" ? await PDFDocument.create() : null;
 
-  for (let index = 0; index < selection.totalSeleccionado && !state.interrupted; index += 1) {
-    const report = selection.atencionesSeleccionadas[index];
-    const processingOrder = index + 1;
-    console.log(`[${processingOrder}/${selection.totalSeleccionado}] Procesando ${report.codigo ? `código ${report.codigo}` : `atención ${processingOrder}`}`);
-    const result = await processReport({
-      report,
-      order: report.ordenDetectado,
-      fileOrder: processingOrder,
-      mode,
-      consolidated,
-    });
-    state.manifest.atenciones.push(result);
-    summarizeManifest(state.manifest);
-    if (consolidated && consolidated.getPageCount() > 0) await writeFile(state.paths.consolidated, await consolidated.save());
-    await saveControl(state.manifest, state.paths);
-    if (index < selection.totalSeleccionado - 1 && !state.interrupted) await new Promise((resolve) => setTimeout(resolve, options.delay));
-  }
+  const workflow = await runPaginatedWorkflow({
+    firstExtraction,
+    limit: options.limit,
+    perPageLimit: options.perPageLimit,
+    maxPages: options.maxPages,
+    singlePage: options.singlePage,
+    isInterrupted: () => state.interrupted,
+    onPageClassified: async (pageData, totals) => {
+      console.log(`\n================================\nPágina de MediWeb ${pageData.paginaMediWeb}\n================================`);
+      console.log(`\nDetectadas en página: ${pageData.detected}\nElegibles nuevas: ${pageData.eligible.length}\nSeleccionadas para esta página: ${pageData.selected.length}\nDuplicadas: ${pageData.duplicateCount}\nExcluidas: ${pageData.excluded.length}\n`);
+      state.manifest.atenciones.push(...pageData.excluded.map(createExcludedEntry));
+      state.manifest.pages.push({
+        paginaMediWeb: pageData.paginaMediWeb,
+        detectadas: pageData.detected,
+        elegibles: pageData.eligible.length,
+        seleccionadas: pageData.selected.length,
+        excluidas: pageData.excluded.length,
+        duplicadas: pageData.duplicateCount,
+      });
+      applyPaginationTotals(state.manifest, totals);
+      await saveControl(state.manifest, state.paths);
+    },
+    processAttention: async (report, { fileOrder, paginaMediWeb }) => {
+      console.log(`[${fileOrder}] Procesando ${report.codigo ? `código ${report.codigo}` : `atención ${fileOrder}`}`);
+      const result = await processReport({
+        report,
+        order: report.ordenDetectado,
+        fileOrder,
+        paginaMediWeb,
+        mode,
+        consolidated,
+      });
+      return result;
+    },
+    onAttentionProcessed: async (result, pageData, totals) => {
+      state.manifest.atenciones.push(result);
+      applyPaginationTotals(state.manifest, totals);
+      summarizeManifest(state.manifest);
+      if (consolidated && consolidated.getPageCount() > 0) {
+        await writeFile(state.paths.consolidated, await consolidated.save());
+      }
+      await saveControl(state.manifest, state.paths);
+      if (!state.interrupted) await new Promise((resolve) => setTimeout(resolve, options.delay));
+    },
+    onPageCompleted: async (pageData, totals) => {
+      applyPaginationTotals(state.manifest, totals);
+      state.manifest.pagination.ultimaPaginaCompletada = pageData.paginaMediWeb;
+      console.log(`Página ${pageData.paginaMediWeb} completada.`);
+      await saveControl(state.manifest, state.paths);
+    },
+    onWarning: async (warning) => {
+      console.warn(`\n${warning}`);
+      state.manifest.warnings.push(warning);
+      await saveControl(state.manifest, state.paths);
+    },
+    advance: async ({ previousSignature, pageNumber, recoveryTraversal }) => {
+      if (state.sessionRecoveryPending) {
+        state.sessionRecoveryPending = false;
+        const recovered = await detectReportsWithRetry();
+        return recovered
+          ? { status: "advanced", extraction: recovered, allowVisited: true }
+          : { status: "error" };
+      }
 
+      console.log(recoveryTraversal ? "Avanzando por una página ya registrada..." : "Avanzando a siguiente página...");
+      const next = await goToNextResultsPage(state.mainPage, previousSignature, {
+        expectedPageNumber: pageNumber + 1,
+      });
+      if (next.status !== "error" || !await isSessionExpired(state.mainPage)) {
+        return recoveryTraversal && next.status === "advanced" ? { ...next, allowVisited: true } : next;
+      }
+
+      await restoreSession({ mainPage: state.mainPage, cli: state.cli });
+      const recovered = await detectReportsWithRetry();
+      return recovered
+        ? { status: "advanced", extraction: recovered, allowVisited: true }
+        : { status: "error" };
+    },
+  });
+
+  applyPaginationTotals(state.manifest, workflow.totals);
+  state.manifest.pagination.motivoFinalizacion = workflow.motivoFinalizacion;
+  if (workflow.motivoFinalizacion === "error_paginacion") {
+    console.error("\nNo fue posible avanzar a la siguiente página de MediWeb.\nLos reportes ya procesados fueron conservados.");
+  }
   state.manifest.fechaFin = new Date().toISOString();
-  state.manifest.estadoEjecucion = state.interrupted ? "cancelado" : "completado";
+  state.manifest.estadoEjecucion = state.interrupted ? "cancelado"
+    : workflow.motivoFinalizacion === "error_paginacion" ? "error" : "completado";
   summarizeManifest(state.manifest);
   await saveControl(state.manifest, state.paths);
   await removeTmpIfEmpty(state.paths.tmp);
@@ -100,14 +191,26 @@ async function detectReportsWithRetry() {
   return null;
 }
 
-async function processReport({ report, order, fileOrder, mode, consolidated }) {
+async function processReport({ report, order, fileOrder, paginaMediWeb, mode, consolidated }) {
   const entry = {
-    orden: order, codigo: report.codigo, fecha: report.fecha, empresa: report.empresa,
-    subcontrata: report.subcontrata, paciente: report.paciente, tipoExamen: report.tipoExamen,
-    tipoDocumento: report.tipoDocumento, aptitud: report.aptitud,
-    categoriaAptitud: report.aptitudClassification.category, idcomprobante: report.idcomprobante,
-    idpaciente: report.idpaciente, estado: "error_carga", archivoCompleto: "", paginaConsolidado: "",
-    intentos: 0, mensajeError: "",
+    orden: order,
+    paginaMediWeb,
+    codigo: report.codigo,
+    fecha: report.fecha,
+    empresa: report.empresa,
+    subcontrata: report.subcontrata,
+    paciente: report.paciente,
+    tipoExamen: report.tipoExamen,
+    tipoDocumento: report.tipoDocumento,
+    aptitud: report.aptitud,
+    categoriaAptitud: report.aptitudClassification.category,
+    idcomprobante: report.idcomprobante,
+    idpaciente: report.idpaciente,
+    estado: "error_carga",
+    archivoCompleto: "",
+    paginaConsolidado: "",
+    intentos: 0,
+    mensajeError: "",
   };
   let lastCategory = "error_carga";
 
@@ -123,11 +226,12 @@ async function processReport({ report, order, fileOrder, mode, consolidated }) {
         await closeQuietly(reportPage);
         reportPage = null;
         await restoreSession({ mainPage: state.mainPage, cli: state.cli });
+        state.sessionRecoveryPending = true;
         continue;
       }
       if (!readiness.ready) {
         lastCategory = "error_validacion";
-        throw new ProcessingError("No aparecio el titulo esperado del reporte medico.", lastCategory);
+        throw new ProcessingError("No apareció el título esperado del reporte médico.", lastCategory);
       }
 
       const firstOnly = mode === "first";
@@ -181,9 +285,10 @@ async function shutdown(reason, exitCode = 0) {
   if (state.shuttingDown) return;
   state.shuttingDown = true;
   state.interrupted = reason === "SIGINT" || reason === "SIGTERM";
-  if (state.manifest && state.paths) {
+  if (reason !== "complete" && state.manifest && state.paths) {
     state.manifest.fechaFin = new Date().toISOString();
     state.manifest.estadoEjecucion = state.interrupted ? "cancelado" : "error";
+    if (state.interrupted && state.manifest.pagination) state.manifest.pagination.motivoFinalizacion = "cancelado";
     summarizeManifest(state.manifest);
     try { await saveControl(state.manifest, state.paths); } catch { /* conservar lo ya escrito */ }
   }

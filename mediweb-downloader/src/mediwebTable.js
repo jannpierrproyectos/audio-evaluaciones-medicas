@@ -117,7 +117,21 @@ export async function extractVisibleReports(page) {
     atenciones.push({ url: raw.href, ...extractRowData(raw.headers, raw.cells), ...ids });
   }
 
-  return { atenciones, encabezadosEncontrados };
+  return {
+    atenciones,
+    encabezadosEncontrados,
+    totalFilasDetectadas: rawRows.length,
+    duplicadosEnPagina: rawRows.length - atenciones.length,
+  };
+}
+
+export function createAttentionKey(atencion) {
+  if (atencion.idcomprobante) return `id:${atencion.idcomprobante}`;
+  if (atencion.codigo && atencion.idpaciente) return `codigo-paciente:${normalizeText(atencion.codigo)}:${atencion.idpaciente}`;
+  if (atencion.idpaciente && atencion.fecha) return `paciente-fecha:${atencion.idpaciente}:${normalizeText(atencion.fecha)}`;
+  const normalizedUrl = normalizeUrl(atencion.url);
+  if (normalizedUrl) return `url:${normalizedUrl}`;
+  return `fila:${[atencion.codigo, atencion.fecha, atencion.tipoExamen, atencion.aptitud].map(normalizeText).join("|")}`;
 }
 
 function extractIds(href) {

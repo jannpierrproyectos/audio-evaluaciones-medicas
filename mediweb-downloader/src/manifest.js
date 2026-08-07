@@ -54,35 +54,57 @@ export function isAptitudExtractionFailure(selection) {
     && selection.excluidosOtros === selection.totalDetectado;
 }
 
-export function createManifest({ mode, limit, selection, outputDirectory }) {
+export function createManifest({
+  mode, limit, perPageLimit = null, selection = null, outputDirectory, singlePage = false, maxPages = null,
+}) {
+  const initial = selection ?? {
+    totalDetectado: 0, totalElegible: 0, totalExcluido: 0, totalSeleccionado: 0,
+    excluidosObservado: 0, excluidosPendiente: 0, excluidosNoApto: 0, excluidosOtros: 0,
+    atencionesExcluidas: [],
+  };
   return {
     fechaInicio: new Date().toISOString(),
     fechaFin: null,
     modo: mode,
     limite: limit,
-    totalDetectado: selection.totalDetectado,
-    totalElegible: selection.totalElegible,
-    totalExcluido: selection.totalExcluido,
-    totalSeleccionado: selection.totalSeleccionado,
+    perPageLimit,
+    totalPaginasVisitadas: selection ? 1 : 0,
+    totalDetectado: initial.totalDetectado,
+    totalUnico: initial.totalDetectado,
+    totalElegible: initial.totalElegible,
+    totalExcluido: initial.totalExcluido,
+    totalSeleccionado: initial.totalSeleccionado,
     totalProcesado: 0,
-    excluidosObservado: selection.excluidosObservado,
-    excluidosPendiente: selection.excluidosPendiente,
-    excluidosNoApto: selection.excluidosNoApto,
-    excluidosOtros: selection.excluidosOtros,
+    totalDuplicado: 0,
+    excluidosObservado: initial.excluidosObservado,
+    excluidosPendiente: initial.excluidosPendiente,
+    excluidosNoApto: initial.excluidosNoApto,
+    excluidosOtros: initial.excluidosOtros,
     correctos: 0,
     errores: 0,
     reportesCompletosGenerados: 0,
     primerasHojasAgregadas: 0,
     carpetaSalida: outputDirectory,
     estadoEjecucion: "en_progreso",
-    atenciones: selection.atencionesExcluidas.map(createExcludedEntry),
+    pagination: {
+      enabled: !singlePage,
+      singlePage,
+      maxPages,
+      paginasVisitadas: selection ? 1 : 0,
+      ultimaPaginaCompletada: selection ? 1 : 0,
+      motivoFinalizacion: null,
+    },
+    warnings: [],
+    pages: [],
+    atenciones: initial.atencionesExcluidas.map(createExcludedEntry),
   };
 }
 
-function createExcludedEntry(atencion) {
+export function createExcludedEntry(atencion) {
   const category = atencion.aptitudClassification.category;
   return {
     orden: atencion.ordenDetectado,
+    paginaMediWeb: atencion.paginaMediWeb ?? 1,
     codigo: atencion.codigo,
     fecha: atencion.fecha,
     empresa: atencion.empresa,
@@ -100,6 +122,11 @@ function createExcludedEntry(atencion) {
     intentos: 0,
     mensajeError: "",
   };
+}
+
+export function applyPaginationTotals(manifest, totals) {
+  Object.assign(manifest, totals);
+  manifest.pagination.paginasVisitadas = totals.totalPaginasVisitadas;
 }
 
 export async function saveControl(manifest, paths) {

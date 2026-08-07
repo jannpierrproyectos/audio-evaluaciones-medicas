@@ -16,7 +16,7 @@ export function createCli() {
     async chooseMode() {
       while (true) {
         const answer = (await readline.question(
-          "\nModo de procesamiento:\n\n[1] Solo primeras hojas para AudioEvaluaciones\n[2] Solo reportes completos individuales\n[3] Ambos\n[C] Cancelar\n\nSelecciona una opcion: ",
+          "\nModo de procesamiento:\n\n[1] Solo primeras hojas para AudioEvaluaciones\n[2] Solo reportes completos individuales\n[3] Ambos\n[C] Cancelar\n\nSelecciona una opción: ",
         )).trim().toLowerCase();
         if ({ 1: true, 2: true, 3: true }[answer]) return ({ 1: "first", 2: "full", 3: "both" })[answer];
         if (answer === "c") return null;
@@ -41,8 +41,8 @@ export function modeLabel(mode) {
   return MODE_LABELS[mode] ?? mode;
 }
 
-export function printProcessingSummary({ selection, limit, mode, outputDirectory }) {
-  console.log(`\nResumen:\n- Atenciones con Imp S.F detectadas: ${selection.totalDetectado}\n- Elegibles para descarga: ${selection.totalElegible}\n- Excluidas: ${selection.totalExcluido}\n  - Observado: ${selection.excluidosObservado}\n  - Pendiente: ${selection.excluidosPendiente}\n  - No apto: ${selection.excluidosNoApto}\n  - Otros estados: ${selection.excluidosOtros}\n- Límite aplicado: ${limit ?? "sin límite"}\n- Seleccionadas para procesar: ${selection.totalSeleccionado}\n- Modo: ${modeLabel(mode)}\n- Carpeta de salida: ${outputDirectory}\n\nEsta versión procesa solamente las atenciones elegibles visibles en la página actual de MediWeb.`);
+export function printProcessingSummary({ selection, limit, perPageLimit, mode, outputDirectory, singlePage, maxPages }) {
+  console.log(`\nResumen inicial:\n- Página actual: 1\n- Atenciones detectadas en esta página: ${selection.totalDetectado}\n- Elegibles en esta página: ${selection.totalElegible}\n- Excluidas en esta página: ${selection.totalExcluido}\n  - Observado: ${selection.excluidosObservado}\n  - Pendiente: ${selection.excluidosPendiente}\n  - No apto: ${selection.excluidosNoApto}\n  - Otros estados: ${selection.excluidosOtros}\n- Modo: ${modeLabel(mode)}\n- Paginación automática: ${singlePage ? "No (--single-page)" : "Sí"}\n- Máximo de páginas: ${maxPages ?? "sin límite"}\n- Límite global: ${limit ?? "sin límite"}\n- Límite de elegibles por página: ${perPageLimit ?? "sin límite"}\n- Carpeta de salida: ${outputDirectory}`);
 }
 
 export function printAptitudDiagnostic(selection) {
@@ -57,5 +57,5 @@ export function printAptitudExtractionError(totalDetectado, encabezadosEncontrad
 }
 
 export function printManualNavigationInstructions() {
-  console.log(`\nMediWeb está abierto.\n\n1. Inicia sesión manualmente.\n2. Ingresa a Atenciones → Ocupacional.\n3. Selecciona los filtros.\n4. Pulsa Buscar.\n5. Comprueba que se muestre la tabla con la columna Imp S.F.\n6. Regresa a esta terminal y presiona Enter.\n\nEsta versión procesa solamente las atenciones visibles en la página actual de MediWeb.`);
+  console.log("\nMediWeb está abierto.\n\n1. Inicia sesión manualmente.\n2. Ingresa a Atenciones → Ocupacional.\n3. Selecciona los filtros.\n4. Pulsa Buscar.\n5. Comprueba que se muestre la tabla con la columna Imp S.F.\n6. Regresa a esta terminal y presiona Enter.\n\nLa paginación automática comienza después de confirmar el resumen inicial. No automatiza credenciales ni la búsqueda.");
 }

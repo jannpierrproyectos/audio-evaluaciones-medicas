@@ -6,6 +6,7 @@ import { isSessionExpired } from "../src/session.js";
 import { waitForReportReady } from "../src/reportLoader.js";
 import { createReportPdf, validatePdf } from "../src/pdfGenerator.js";
 import { createManifest, selectAttentions, summarizeManifest } from "../src/manifest.js";
+import { createPageSignature, findNextPageControl, goToNextResultsPage, isNextPageEnabled } from "../src/pagination.js";
 
 const HEADER = `<tr><th>Código.</th><th>Fecha</th><th>Criterios de aptitud</th><th>Empresa</th><th>Paciente</th><th>T. Doc</th><th>Aptitud</th><th>Imp S.F</th></tr>`;
 
@@ -68,6 +69,47 @@ test("flujo local: encabezados repetidos, aptitud exacta, sesion y PDF", async (
     assert.deepEqual(await waitForReportReady(page, 10_000), { ready: true, sessionExpired: false });
     const pdf = await createReportPdf(page, true);
     assert.equal((await validatePdf(pdf, 1)).pageCount, 1);
+
+    await page.setContent(`
+      <table><thead>${HEADER}</thead><tbody id="rows">
+        <tr><td>PQ10</td><td>2026-08-06</td><td>CRITERIO</td><td>Empresa</td><td>Paciente</td><td>DNI</td><td>APTO</td>
+          <td><a href="https://local.invalid/imprimirtodos.php?idcomprobante=100&idpaciente=200">Reporte</a></td></tr>
+      </tbody></table>
+      <button>Siguiente paso</button>
+      <nav aria-label="Paginación"><button id="next">Siguiente</button></nav>
+      <script>
+        document.querySelector('#next').addEventListener('click', () => {
+          document.querySelector('#rows').innerHTML = '<tr><td>PQ11</td><td>2026-08-06</td><td>CRITERIO</td><td>Empresa</td><td>Paciente</td><td>DNI</td><td>APTO</td><td><a href="https://local.invalid/imprimirtodos.php?idcomprobante=101&idpaciente=201">Reporte</a></td></tr>';
+          document.querySelector('#next').setAttribute('aria-disabled', 'true');
+        });
+      </script>`);
+    const nextControl = await findNextPageControl(page);
+    assert.equal(await nextControl.getAttribute("id"), "next");
+    assert.equal(await isNextPageEnabled(nextControl), true);
+    const current = await extractVisibleReports(page);
+    const advanced = await goToNextResultsPage(page, createPageSignature(current.atenciones), { timeout: 3_000 });
+    assert.equal(advanced.status, "advanced");
+    assert.deepEqual(advanced.extraction.atenciones.map((item) => item.idcomprobante), ["101"]);
+    assert.equal(await isNextPageEnabled(await findNextPageControl(page)), false);
+    assert.equal((await goToNextResultsPage(page, advanced.signature, { timeout: 500 })).status, "last_page");
+
+    await page.setContent(`
+      <table><thead>${HEADER}</thead><tbody id="rows">
+        <tr><td>PQ12</td><td>2026-08-06</td><td>CRITERIO</td><td>Empresa</td><td>Paciente</td><td>DNI</td><td>APTO</td>
+          <td><a href="https://local.invalid/imprimirtodos.php?idcomprobante=102&idpaciente=202">Reporte</a></td></tr>
+      </tbody></table>
+      <nav class="pagination"><button id="empty-next">Siguiente</button></nav>
+      <script>
+        document.querySelector('#empty-next').addEventListener('click', () => {
+          document.querySelector('#rows').innerHTML = '';
+          document.querySelector('nav').remove();
+        });
+      </script>`);
+    const beforeEmpty = await extractVisibleReports(page);
+    const emptyAdvance = await goToNextResultsPage(page, createPageSignature(beforeEmpty.atenciones), { timeout: 500 });
+    assert.equal(emptyAdvance.status, "advanced");
+    assert.equal(emptyAdvance.extraction.atenciones.length, 0);
+    assert.equal(await findNextPageControl(page), null);
   } finally {
     await browser.close();
   }
