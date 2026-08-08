@@ -1,12 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { File as NodeFile } from "node:buffer";
+import { readFile } from "node:fs/promises";
 import {
   MediwebServiceError,
   cancelMediwebJob,
   checkMediwebHealth,
+  classifyConnectorError,
   createMediwebJob,
   detectMediwebEvaluations,
+  diagnoseConnector,
+  getConnectorDiagnosticMessage,
   getMediwebFirstPages,
   getMediwebJob,
   openMediweb,
@@ -53,8 +57,42 @@ test("health distingue conector conectado y desconectado con timeout corto", asy
   }), async () => {
     await assert.rejects(
       checkMediwebHealth({ timeoutMs: 5 }),
-      (error) => error instanceof MediwebServiceError && error.code === "CONNECTOR_UNAVAILABLE",
+      (error) => error instanceof MediwebServiceError && error.code === "CONNECTOR_TIMEOUT",
     );
+  });
+});
+
+test("diagnostica health de producción, timeout, rechazo de origen y fallo recuperable", async () => {
+  let attempt = 0;
+  await withFetch(async (_url, options) => {
+    assert.equal(options.credentials, "omit");
+    attempt += 1;
+    if (attempt === 1) return jsonResponse({ ok: false, code: "ORIGIN_NOT_ALLOWED", message: "Origin no permitido." }, 403);
+    return jsonResponse({ ok: true, service: "mediweb-downloader", browserOpen: false, activeJob: false });
+  }, async () => {
+    const rejected = await diagnoseConnector();
+    assert.equal(rejected.status, "origin_rejected");
+    assert.match(getConnectorDiagnosticMessage(rejected.status), /no tiene permiso/);
+
+    const retried = await diagnoseConnector();
+    assert.equal(retried.status, "connected");
+    assert.equal(retried.health.ok, true);
+  });
+
+  const blocked = new MediwebServiceError("NETWORK_ERROR", "Bloqueado", {
+    cause: new DOMException("Acceso local denegado", "NotAllowedError"),
+  });
+  assert.equal(classifyConnectorError(blocked), "network_blocked");
+  assert.match(getConnectorDiagnosticMessage("network_blocked"), /permisos de acceso local/);
+  assert.equal(classifyConnectorError(new MediwebServiceError("NETWORK_ERROR", "Sin conexión")), "unavailable");
+  assert.match(getConnectorDiagnosticMessage("unavailable"), /no está disponible en esta computadora/);
+
+  await withFetch((_url, options) => new Promise((_resolve, reject) => {
+    options.signal.addEventListener("abort", () => reject(new DOMException("Abortado", "AbortError")), { once: true });
+  }), async () => {
+    const timedOut = await diagnoseConnector({ timeoutMs: 5 });
+    assert.equal(timedOut.status, "timeout");
+    assert.match(getConnectorDiagnosticMessage(timedOut.status), /no respondió a tiempo/);
   });
 });
 
@@ -248,4 +286,11 @@ test("tras importar desplaza y enfoca el lote de trabajadores", () => {
     ["scroll", { behavior: "smooth", block: "start" }],
     ["focus", { preventScroll: true }],
   ]);
+});
+
+test("la indisponibilidad del Connector no elimina la carga PDF manual", async () => {
+  const appSource = await readFile(new URL("../src/App.jsx", import.meta.url), "utf8");
+  assert.match(appSource, /setPdfSource\("manual"\)/);
+  assert.match(appSource, /id="pdf-primary-input"[\s\S]*accept="\.pdf,application\/pdf"/);
+  assert.match(appSource, /<MediwebImporter onPdfSelected=\{handlePdfSelected\}/);
 });

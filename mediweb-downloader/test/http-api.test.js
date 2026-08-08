@@ -165,9 +165,13 @@ test("API HTTP local: health, CORS, jobs, PDF y cancelación con motor falso", a
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "first" }),
     }).then((response) => response.json());
     await waitForStatus(baseUrl, firstCreated.jobId, "completed");
-    const pdf = await fetch(`${baseUrl}/jobs/${firstCreated.jobId}/first-pages`);
+    const pdf = await fetch(`${baseUrl}/jobs/${firstCreated.jobId}/first-pages`, {
+      headers: { Origin: "http://localhost:5173" },
+    });
     assert.equal(pdf.status, 200);
     assert.equal(pdf.headers.get("content-type"), "application/pdf");
+    assert.equal(pdf.headers.get("access-control-allow-origin"), "http://localhost:5173");
+    assert.equal(pdf.headers.get("cache-control"), "no-store");
     assert.match(Buffer.from(await pdf.arrayBuffer()).toString("utf8"), /^%PDF/);
 
     const sanitized = await fetch(`${baseUrl}/jobs/${firstCreated.jobId}/manifest`).then((response) => response.json());

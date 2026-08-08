@@ -187,13 +187,25 @@ Variables opcionales no sensibles:
 
 ```powershell
 $env:MEDIWEB_SERVICE_PORT="8765"
-$env:MEDIWEB_ALLOWED_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
+$env:MEDIWEB_ALLOWED_ORIGINS="http://localhost:5173,http://127.0.0.1:5173,https://ORIGEN-VERCEL-EXACTO"
 npm run service
 ```
 
 `MEDIWEB_SERVICE_PORT` usa `8765` de forma predeterminada. `MEDIWEB_ALLOWED_ORIGINS` es una lista separada por comas; sus valores predeterminados de desarrollo son `http://localhost:5173` y `http://127.0.0.1:5173`.
 
-La política CORS es estricta: no se emite `Access-Control-Allow-Origin: *`; un `Origin` no configurado recibe `403`. Las peticiones `OPTIONS` permiten solo `GET`, `POST`, `OPTIONS` y el encabezado `Content-Type`. Si un preflight de un origen permitido solicita acceso de red privada mediante `Access-Control-Request-Private-Network: true`, el servicio responde `Access-Control-Allow-Private-Network: true`. Esto es relevante para un frontend publicado que llame a `127.0.0.1`, aunque el navegador y la configuración HTTPS del frontend pueden imponer requisitos adicionales.
+La lista se normaliza eliminando espacios y el slash final; después se compara el origen serializado completo (`scheme + host + port`). La política CORS es estricta: no se emite `Access-Control-Allow-Origin: *`, no se aceptan `*.vercel.app` implícitamente y un `Origin` no configurado recibe `403`. Cada deployment preview debe añadirse por su origen exacto. Las peticiones HTTP sin `Origin` se permiten para PowerShell, CLI y pruebas locales; como el proceso escucha exclusivamente en loopback, siguen proviniendo de la misma PC. Cuando sí existe `Origin`, siempre se valida.
+
+Las peticiones `OPTIONS` no ejecutan rutas ni abren navegador o jobs. Solo autorizan los métodos `GET` y `POST` y, cuando se solicita, el header `Content-Type`. Si un preflight de un origen permitido incluye `Access-Control-Request-Private-Network: true`, el servicio responde `Access-Control-Allow-Private-Network: true`; un origen no permitido no recibe ese header. Todos los endpoints de estado/control y `first-pages` usan `Cache-Control: no-store`.
+
+Los navegadores modernos también pueden solicitar al usuario permiso de acceso a la red local para una web HTTPS que llama a loopback. Ese permiso pertenece al navegador y no puede concederse desde el Connector. Se conserva la compatibilidad de preflight PNA, pero la prueba definitiva requiere aceptar el permiso del sitio en el navegador real. No se configura HTTPS local ni certificados en esta fase.
+
+Primera comprobación sin abrir MediWeb:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8765/health
+```
+
+Después abre la URL publicada y confirma **Conectado**. Autoriza siempre la URL de producción estable; si se prueba una preview de Vercel, añade exactamente esa preview a `MEDIWEB_ALLOWED_ORIGINS`.
 
 La API usa `node:http` en lugar de Express porque el conjunto de rutas y middleware es pequeño; así se mantiene una implementación directa sin agregar dependencias de producción.
 

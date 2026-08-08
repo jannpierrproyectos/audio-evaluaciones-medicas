@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   cancelMediwebJob,
-  checkMediwebHealth,
   createMediwebJob,
   detectMediwebEvaluations,
+  diagnoseConnector,
+  getConnectorDiagnosticMessage,
   getMediwebErrorMessage,
   getMediwebJob,
   openMediweb,
@@ -38,6 +39,10 @@ const MODES = [
 ];
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
+
+function logMediwebDiagnostic(label, error) {
+  if (import.meta.env?.DEV) console.error(`[MEDIWEB] ${label}`, error);
+}
 
 function parseOptionalPositiveInteger(value, label) {
   if (String(value).trim() === "") return null;
@@ -125,17 +130,19 @@ export default function MediwebImporter({ onPdfSelected }) {
     const requestSignal = signal || localController.signal;
     setConnectorStatus("checking");
     setFeedback("Comprobando el conector MediWeb…");
+    const diagnosis = await diagnoseConnector({ signal: requestSignal });
     try {
-      const health = await checkMediwebHealth({ signal: requestSignal });
-      if (!health?.ok) throw new Error("El conector no confirmó su estado.");
+      if (diagnosis.error?.code === "REQUEST_ABORTED") return;
+      if (diagnosis.status !== "connected" || !diagnosis.health?.ok) {
+        setConnectorStatus(diagnosis.status === "unknown" ? "error" : "disconnected");
+        setFeedback(getConnectorDiagnosticMessage(diagnosis.status));
+        logMediwebDiagnostic(`health ${diagnosis.status}`, diagnosis.error);
+        return;
+      }
+      const health = diagnosis.health;
       setConnectorStatus("connected");
       setBrowserOpen(Boolean(health.browserOpen));
       setFeedback("Conector MediWeb conectado.");
-    } catch (error) {
-      if (error?.code === "REQUEST_ABORTED") return;
-      console.error("Error comprobando MediWeb Connector:", error);
-      setConnectorStatus(["NETWORK_ERROR", "CONNECTOR_UNAVAILABLE"].includes(error?.code) ? "disconnected" : "error");
-      setFeedback("Para importar directamente desde MediWeb, AudioEvaluaciones Connector debe estar activo en esta computadora.");
     } finally {
       if (localController) releaseController(localController);
     }
@@ -173,7 +180,7 @@ export default function MediwebImporter({ onPdfSelected }) {
         if (!TERMINAL_STATUSES.has(nextJob.status)) timerId = setTimeout(poll, 1000);
       } catch (error) {
         if (disposed || error?.code === "REQUEST_ABORTED") return;
-        console.error("Error consultando el procesamiento MediWeb:", error);
+        logMediwebDiagnostic("job polling failed", error);
         if (error?.code === "JOB_NOT_FOUND") {
           setJobId(null);
           setJobProgress(null);
@@ -204,7 +211,7 @@ export default function MediwebImporter({ onPdfSelected }) {
       setFeedback("En MediWeb, inicia sesión, entra a Atenciones → Ocupacional y realiza la búsqueda.");
     } catch (error) {
       if (error?.code !== "REQUEST_ABORTED") {
-        console.error("Error abriendo MediWeb:", error);
+        logMediwebDiagnostic("open failed", error);
         setFeedback(getMediwebErrorMessage(error));
         checkHealth();
       }
@@ -229,7 +236,7 @@ export default function MediwebImporter({ onPdfSelected }) {
       setFeedback(`${result.detected} evaluaciones detectadas; ${result.eligible} elegibles.`);
     } catch (error) {
       if (error?.code !== "REQUEST_ABORTED") {
-        console.error("Error detectando evaluaciones de MediWeb:", error);
+        logMediwebDiagnostic("detection failed", error);
         setBrowserOpen(true);
         setDetectionError(true);
         setFeedback("No fue posible leer los resultados. Comprueba que la tabla esté visible en MediWeb y vuelve a intentarlo.");
@@ -274,7 +281,7 @@ export default function MediwebImporter({ onPdfSelected }) {
       setFeedback("Procesamiento iniciado.");
     } catch (error) {
       if (error?.code !== "REQUEST_ABORTED") {
-        console.error("Error iniciando el procesamiento MediWeb:", error);
+        logMediwebDiagnostic("job creation failed", error);
         setFeedback(getMediwebErrorMessage(error));
       }
     } finally {
@@ -294,7 +301,7 @@ export default function MediwebImporter({ onPdfSelected }) {
       setFeedback("Procesamiento cancelado. Los archivos ya generados fueron conservados.");
     } catch (error) {
       if (error?.code !== "REQUEST_ABORTED") {
-        console.error("Error cancelando el procesamiento MediWeb:", error);
+        logMediwebDiagnostic("cancellation failed", error);
         setFeedback(getMediwebErrorMessage(error));
       }
     } finally {
@@ -320,7 +327,7 @@ export default function MediwebImporter({ onPdfSelected }) {
         focusPdfResults();
       } catch (error) {
         if (error?.code !== "REQUEST_ABORTED") {
-          console.error("Error cargando primeras hojas de MediWeb:", error);
+          logMediwebDiagnostic("first-pages import failed", error);
           setFeedback(getMediwebErrorMessage(error));
         }
       } finally {
@@ -374,7 +381,7 @@ export default function MediwebImporter({ onPdfSelected }) {
 
       {phase === "connector_unavailable" ? (
         <div className="mediweb-empty-state is-unavailable">
-          <div><h3>Conector MediWeb no disponible</h3><p>Para importar directamente desde MediWeb, AudioEvaluaciones Connector debe estar activo en esta computadora.</p></div>
+          <div><h3>AudioEvaluaciones Connector no está disponible en esta computadora</h3><p>{feedback}</p></div>
           <button type="button" className="secondary-button" onClick={() => checkHealth()} disabled={connectorStatus === "checking"}>Reintentar</button>
         </div>
       ) : null}

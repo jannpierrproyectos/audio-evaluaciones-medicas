@@ -18,6 +18,39 @@ export async function checkMediwebHealth({ signal, timeoutMs = HEALTH_TIMEOUT_MS
   return requestJson("/health", { signal, timeoutMs });
 }
 
+export async function diagnoseConnector(options = {}) {
+  try {
+    const health = await checkMediwebHealth(options);
+    return { status: "connected", health, error: null };
+  } catch (error) {
+    return { status: classifyConnectorError(error), health: null, error };
+  }
+}
+
+export function classifyConnectorError(error) {
+  if (error?.code === "CONNECTOR_TIMEOUT") return "timeout";
+  if (error?.code === "ORIGIN_NOT_ALLOWED" || error?.status === 403) return "origin_rejected";
+  if (["NotAllowedError", "SecurityError"].includes(error?.cause?.name)) return "network_blocked";
+  if (error?.code === "NETWORK_ERROR" || error?.code === "CONNECTOR_UNAVAILABLE") return "unavailable";
+  return "unknown";
+}
+
+export function getConnectorDiagnosticMessage(status) {
+  if (status === "timeout") {
+    return "AudioEvaluaciones Connector no respondió a tiempo. Comprueba que esté abierto y vuelve a intentarlo.";
+  }
+  if (status === "origin_rejected") {
+    return "Esta versión de AudioEvaluaciones no tiene permiso para usar el Connector. Comprueba su configuración y vuelve a intentarlo.";
+  }
+  if (status === "network_blocked") {
+    return "El navegador no permitió la comunicación con AudioEvaluaciones Connector. Comprueba los permisos de acceso local de este sitio y vuelve a intentarlo.";
+  }
+  if (status === "unknown") {
+    return "No fue posible comprobar AudioEvaluaciones Connector. Comprueba que esté abierto y vuelve a intentarlo.";
+  }
+  return "AudioEvaluaciones Connector no está disponible en esta computadora. Comprueba que el Connector esté abierto y vuelve a intentarlo.";
+}
+
 export async function openMediweb({ signal } = {}) {
   return requestJson("/mediweb/open", { method: "POST", signal });
 }
@@ -51,6 +84,7 @@ export async function getMediwebFirstPages(jobId, { signal } = {}) {
 export function getMediwebErrorMessage(error) {
   const messages = {
     CONNECTOR_UNAVAILABLE: "El conector local de MediWeb no está disponible.",
+    CONNECTOR_TIMEOUT: "El conector local de MediWeb no respondió a tiempo.",
     RESULTS_NOT_READY: "Realiza primero la búsqueda en MediWeb.",
     JOB_ALREADY_RUNNING: "Ya existe un procesamiento en curso.",
     JOB_NOT_FOUND: "El procesamiento ya no está disponible. Es posible que el conector haya sido reiniciado.",
@@ -82,11 +116,12 @@ async function request(path, { method = "GET", body, signal, timeoutMs } = {}) {
       method,
       headers: body === undefined ? undefined : { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
+      credentials: "omit",
       signal: requestControl.signal,
     });
   } catch (error) {
     if (requestControl.didTimeout()) {
-      throw new MediwebServiceError("CONNECTOR_UNAVAILABLE", "El conector no respondió a tiempo.", { cause: error });
+      throw new MediwebServiceError("CONNECTOR_TIMEOUT", "El conector no respondió a tiempo.", { cause: error });
     }
     if (signal?.aborted || error?.name === "AbortError") {
       throw new MediwebServiceError("REQUEST_ABORTED", "La solicitud fue cancelada.", { cause: error });
