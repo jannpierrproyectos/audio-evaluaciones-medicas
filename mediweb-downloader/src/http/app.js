@@ -1,7 +1,9 @@
 import { HttpError } from "./jobManager.js";
 import { createRoutes, json } from "./routes.js";
 
-export const DEFAULT_ALLOWED_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
+import { DEFAULT_CONFIG } from "../config.js";
+
+export const DEFAULT_ALLOWED_ORIGINS = [...DEFAULT_CONFIG.allowedOrigins];
 const ALLOWED_PREFLIGHT_METHODS = new Set(["GET", "POST"]);
 
 export function parseAllowedOrigins(value) {

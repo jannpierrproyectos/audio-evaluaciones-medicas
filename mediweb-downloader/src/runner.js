@@ -11,6 +11,7 @@ import { waitForReportReady } from "./reportLoader.js";
 import { appendFirstPage, createReportPdf, validatePdf } from "./pdfGenerator.js";
 import { uniqueReportPath } from "./fileNames.js";
 import { createOutputPaths, removeTmpIfEmpty } from "./paths.js";
+import { getRuntimePaths } from "./paths.js";
 import {
   applyPaginationTotals,
   createExcludedEntry,
@@ -32,9 +33,10 @@ export class ResultsNotReadyError extends Error {
 }
 
 export class DownloaderRunner {
-  constructor({ moduleRoot = defaultModuleRoot, logger = console } = {}) {
+  constructor({ moduleRoot = defaultModuleRoot, logger = console, runtimePaths = null } = {}) {
     this.moduleRoot = moduleRoot;
     this.logger = logger;
+    this.runtimePaths = runtimePaths ?? getRuntimePaths({ moduleRoot, packaged: false });
     this.context = null;
     this.mainPage = null;
     this.manifest = null;
@@ -51,7 +53,7 @@ export class DownloaderRunner {
   async open() {
     if (this.browserOpen) return { browserOpen: true };
     await closeQuietly(this.context);
-    ({ context: this.context, mainPage: this.mainPage } = await launchBrowser(this.moduleRoot));
+    ({ context: this.context, mainPage: this.mainPage } = await launchBrowser(this.runtimePaths));
     return { browserOpen: true };
   }
 
@@ -112,7 +114,7 @@ export class DownloaderRunner {
       : await this.inspectResults();
     if (!inspection.ready || inspection.extraction.atenciones.length === 0) throw new ResultsNotReadyError();
 
-    this.paths = hooks.paths ?? await createOutputPaths(this.moduleRoot, options.output ?? null, options.mode);
+    this.paths = hooks.paths ?? await createOutputPaths(this.moduleRoot, options.output ?? null, options.mode, this.runtimePaths);
     this.manifest = createManifest({
       mode: options.mode,
       limit: options.limit,

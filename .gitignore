@@ -54,3 +54,5 @@ mediweb-downloader/downloads/
 mediweb-downloader/logs/
 mediweb-downloader/tmp/
 mediweb-downloader/*.log
+mediweb-downloader/build-windows/
+mediweb-downloader/dist-windows/

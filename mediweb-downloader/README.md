@@ -2,7 +2,7 @@
 
 Módulo local e independiente que convierte los reportes `Imp S.F` de MediWeb a PDF. El inicio de sesión, la navegación hasta **Atenciones → Ocupacional**, los filtros y la búsqueda siguen siendo manuales. Después de confirmar el resumen inicial, la paginación automática está activada por defecto y recorre todas las páginas de resultados.
 
-## Requisitos e instalación
+## Requisitos para desarrollador
 
 - Windows con PowerShell.
 - Node.js 20 o posterior.
@@ -16,6 +16,22 @@ npx playwright install chromium
 ```
 
 Playwright usa un perfil local en `.auth/mediweb-profile`. La herramienta no lee ni almacena usuario o contraseña y no automatiza el inicio de sesión.
+
+## Requisitos para usuario final
+
+El usuario final solo necesita Windows x64 y Microsoft Edge o Google Chrome instalado. El Setup incluye Node.js y las dependencias de producción; no requiere Node, npm, VS Code, Git, PowerShell, CMD, Playwright CLI ni Inno Setup. Tras instalar, se abre **AudioEvaluaciones Connector** desde el menú Inicio y se mantiene su ventana abierta durante el uso.
+
+La versión instalada usa estas rutas mutables, siempre fuera de `Program Files`:
+
+```text
+%LOCALAPPDATA%\AudioEvaluacionesConnector\auth
+%LOCALAPPDATA%\AudioEvaluacionesConnector\config.json
+%LOCALAPPDATA%\AudioEvaluacionesConnector\tmp
+%LOCALAPPDATA%\AudioEvaluacionesConnector\logs
+%USERPROFILE%\Documents\AudioEvaluaciones\Descargas\YYYY-MM-DD_HH-mm-ss
+```
+
+El perfil `auth` es exclusivo del Connector y conserva la sesión/cookies del navegador, pero el Connector no guarda la contraseña. Al desinstalar se elimina LocalAppData, incluido `auth`; los reportes en Documentos se conservan.
 
 ## Flujo de ejecución
 
@@ -191,7 +207,7 @@ $env:MEDIWEB_ALLOWED_ORIGINS="http://localhost:5173,http://127.0.0.1:5173,https:
 npm run service
 ```
 
-`MEDIWEB_SERVICE_PORT` usa `8765` de forma predeterminada. `MEDIWEB_ALLOWED_ORIGINS` es una lista separada por comas; sus valores predeterminados de desarrollo son `http://localhost:5173` y `http://127.0.0.1:5173`.
+`MEDIWEB_SERVICE_PORT` usa `8765` de forma predeterminada. `MEDIWEB_ALLOWED_ORIGINS` es una lista separada por comas. La precedencia es: variable de entorno explícita, `config.json` local y defaults seguros. Los origins predeterminados son exactamente `http://localhost:5173`, `http://127.0.0.1:5173` y `https://audio-evaluaciones-medicas.vercel.app`.
 
 La lista se normaliza eliminando espacios y el slash final; después se compara el origen serializado completo (`scheme + host + port`). La política CORS es estricta: no se emite `Access-Control-Allow-Origin: *`, no se aceptan `*.vercel.app` implícitamente y un `Origin` no configurado recibe `403`. Cada deployment preview debe añadirse por su origen exacto. Las peticiones HTTP sin `Origin` se permiten para PowerShell, CLI y pruebas locales; como el proceso escucha exclusivamente en loopback, siguen proviniendo de la misma PC. Cuando sí existe `Origin`, siempre se valida.
 
@@ -212,7 +228,8 @@ La API usa `node:http` en lugar de Express porque el conjunto de rutas y middlew
 ## Solución de problemas
 
 - **No se encuentran enlaces:** verifica que la tabla tenga filas reales y una acción `Imp S.F`.
-- **Chromium no abre:** ejecuta `npx playwright install chromium` desde esta carpeta.
+- **Navegador no abre en desarrollo:** ejecuta `npx playwright install chromium` desde esta carpeta.
+- **Navegador no abre en la versión instalada:** instala o repara Microsoft Edge o Google Chrome. No se descarga un navegador automáticamente.
 - **El reporte queda en blanco:** espera a MediWeb y reintenta; cada atención admite hasta dos intentos.
 - **Falla la paginación:** usa temporalmente `--single-page` y conserva el manifest para diagnóstico.
 - **PDF diferente al manual:** compara saltos de página, imágenes y CSS de impresión con una descarga manual autorizada.
@@ -223,3 +240,73 @@ La API usa `node:http` en lugar de Express porque el conjunto de rutas y middlew
 cd C:\Users\USER\Documents\AudioEvaluaciones\mediweb-downloader
 npm run start -- --mode both --max-pages 2 --per-page-limit 3
 ```
+
+## Build del instalador Windows
+
+### Arquitectura
+
+El paquete no usa Electron: no necesita una segunda interfaz ni otro navegador embebido. El staging contiene `runtime\node.exe`, el código del Connector, dependencias npm de producción, configuración predeterminada y licencias. Para producción se incluye `playwright-core` y se usa `launchPersistentContext()` con `channel: "msedge"`; si Edge no puede iniciar, se prueba `channel: "chrome"`. Chromium administrado por Playwright queda solo para desarrollo y no se empaqueta.
+
+El nombre visible y publisher neutral del instalador son **AudioEvaluaciones Connector** y **AudioEvaluaciones**. No se atribuye el paquete a una empresa inexistente.
+
+El runtime copiado es `process.execPath`. Se requiere Node.js 20 como mínimo para construir; se recomienda una versión LTS x64 vigente. La PC destino no necesita Node instalado.
+
+### Requisitos para construir
+
+- Windows x64.
+- Node.js 20 o posterior y npm.
+- Dependencias instaladas con `npm ci`.
+- Inno Setup 6 para generar el `.exe` final. Puede instalarse manualmente con `winget install JRSoftware.InnoSetup`.
+
+Si `ISCC.exe` está en una ubicación no estándar, define `ISCC_PATH` con su ruta completa. El build no instala Inno Setup automáticamente.
+
+### Comandos
+
+Desde `mediweb-downloader`, en PowerShell o CMD:
+
+```powershell
+npm run build:windows:staging
+npm run smoke:windows:staging
+npm run build:windows:installer
+```
+
+O ejecuta todo en secuencia:
+
+```powershell
+npm run build:windows
+```
+
+El staging queda en `build-windows\staging`. El smoke test arranca explícitamente `build-windows\staging\runtime\node.exe`, usa un puerto temporal y solo consulta `/health`; no abre MediWeb. El instalador final queda en `dist-windows\AudioEvaluacionesConnector-<version>-Setup.exe`.
+
+El build ejecuta `npm ci --omit=dev`, omite descargas de browser y falla si el staging contiene `.auth`, `.env*`, descargas, logs, temporales, tests, PDF, CSV o manifests reales. La estructura resultante es:
+
+```text
+staging\
+  runtime\node.exe
+  app\package.json
+  app\package-lock.json
+  app\src\
+  app\node_modules\
+  config\default-config.json
+  licenses\
+```
+
+En el primer inicio instalado se crea `%LOCALAPPDATA%\AudioEvaluacionesConnector\config.json`. Puede editarse sin privilegios administrativos. El instalador solicita UAC únicamente para escribir en `Program Files`; el uso diario no requiere elevación ni crea reglas de Firewall.
+
+### Prueba manual del Setup en esta PC
+
+1. Detén cualquier Connector de desarrollo.
+2. Instala `dist-windows\AudioEvaluacionesConnector-<version>-Setup.exe`.
+3. Abre **AudioEvaluaciones Connector** desde Inicio, sin abrir VS Code ni ejecutar npm.
+4. Abre `https://audio-evaluaciones-medicas.vercel.app`.
+5. Ve a **Importar desde MediWeb** y confirma **Conectado**.
+6. Pulsa **Abrir MediWeb** y confirma que abre Edge o Chrome con el perfil exclusivo del Connector. No descargues reportes para este smoke manual.
+
+### Prueba en una segunda PC
+
+1. Copia únicamente `AudioEvaluacionesConnector-<version>-Setup.exe`.
+2. Instálalo y abre **AudioEvaluaciones Connector**.
+3. Abre la web publicada y confirma **Conectado**.
+4. No copies el repositorio, `node_modules`, Node.js ni herramientas de desarrollo.
+
+El instalador aún no está firmado y Windows SmartScreen puede mostrar una advertencia. Esto es esperado en esta fase; no se modifican políticas de Windows. Inicio automático, tray icon, servicio de Windows, actualizador y firma de código quedan fuera de esta versión.

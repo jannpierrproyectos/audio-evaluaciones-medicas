@@ -1,0 +1,10 @@
+AudioEvaluaciones Connector - avisos de redistribución
+
+El paquete incluye un runtime oficial de Node.js copiado desde la instalación de
+desarrollo usada para construirlo. Node.js se distribuye bajo la licencia MIT e
+incluye componentes de terceros con licencias permisivas:
+https://github.com/nodejs/node/blob/main/LICENSE
+
+Las licencias y avisos disponibles de las dependencias npm de producción se
+copian a este directorio durante el build. Este archivo no constituye una marca
+ni una firma digital del instalador.

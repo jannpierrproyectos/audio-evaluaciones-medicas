@@ -1,6 +1,7 @@
 import { createReadStream } from "node:fs";
 import { HttpError, validateJobOptions } from "./jobManager.js";
 import { ResultsNotReadyError } from "../runner.js";
+import { BrowserUnavailableError } from "../browser.js";
 
 const JSON_LIMIT = 16 * 1024;
 
@@ -16,8 +17,15 @@ export function createRoutes({ engine, jobManager, version }) {
       });
     }
     if (request.method === "POST" && url.pathname === "/mediweb/open") {
-      const result = await engine.open();
-      return json(response, 200, { ok: true, browserOpen: result.browserOpen });
+      try {
+        const result = await engine.open();
+        return json(response, 200, { ok: true, browserOpen: result.browserOpen });
+      } catch (error) {
+        if (error instanceof BrowserUnavailableError || error?.code === "BROWSER_UNAVAILABLE") {
+          throw new HttpError(503, "BROWSER_UNAVAILABLE", "No se encontró Microsoft Edge ni Google Chrome en esta computadora.");
+        }
+        throw error;
+      }
     }
     if (request.method === "POST" && url.pathname === "/mediweb/detect") {
       try {

@@ -2,6 +2,14 @@
 
 Proyecto web para generar texto y audio a partir de Google Sheets, Excel o PDF de evaluaciones medicas.
 
+## AudioEvaluaciones Connector para Windows
+
+**AudioEvaluaciones Connector** es el componente local que permite a la web importar reportes desde MediWeb. Solo debe instalarse en las PC Windows que usarán esa integración; la carga de archivos locales y las demás funciones de AudioEvaluaciones no lo necesitan.
+
+El Connector escucha únicamente en `127.0.0.1`, abre Microsoft Edge (o Google Chrome como respaldo) con un perfil exclusivo y mantiene la sesión local. El inicio de sesión es manual: no solicita, lee ni almacena la contraseña de MediWeb. Los reportes se guardan en `Documentos\AudioEvaluaciones\Descargas`, no en la instalación ni en Vercel.
+
+El instalador incluye su propio runtime de Node.js. El usuario final abre **AudioEvaluaciones Connector** desde el menú Inicio y no necesita Node.js, npm, Git, VS Code, PowerShell ni Inno Setup. Consulta [mediweb-downloader/README.md](mediweb-downloader/README.md) para construir y probar el instalador.
+
 ## TTS externo
 
 La web no ejecuta el motor TTS directamente. Consume un endpoint interno `/api/tts/synthesize`, que a su vez reenvia la solicitud a un microservicio externo configurado con `TTS_SERVICE_URL`.
@@ -35,7 +43,7 @@ VITE_MEDIWEB_SERVICE_URL=http://127.0.0.1:8765
 
 El código usa ese mismo valor por defecto si la variable no existe. La variable no es secreta y no se mezcla con la configuración TTS.
 
-Antes de iniciar el Connector, el origen exacto y estable de la aplicación publicada debe añadirse a `MEDIWEB_ALLOWED_ORIGINS`. No se aceptan comodines ni todos los subdominios de Vercel; una URL preview distinta debe autorizarse de forma explícita. Si posteriormente se utiliza, por ejemplo, `https://audio.innomedic.pe`, ese origen también deberá añadirse.
+El origen estable `https://audio-evaluaciones-medicas.vercel.app` ya está autorizado por la configuración segura predeterminada. No se aceptan comodines ni todos los subdominios de Vercel; una URL preview distinta debe autorizarse de forma explícita. Si posteriormente se utiliza, por ejemplo, `https://audio.innomedic.pe`, ese origen también deberá añadirse.
 
 ```powershell
 cd C:\Users\USER\Documents\AudioEvaluaciones\mediweb-downloader
