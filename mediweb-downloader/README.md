@@ -136,7 +136,7 @@ El manifest contiene `perPageLimit`, un arreglo `pages` con detectadas, elegible
 Definiciones de contadores:
 
 - `totalPaginasVisitadas`: páginas de resultados distintas registradas durante la ejecución.
-- `totalDetectado`: filas con `Imp S.F` vistas, incluidos duplicados.
+- `totalDetectado`: filas DOM con `Imp S.F` vistas una vez por página lógica; varios enlaces de reporte dentro de la misma fila no la duplican.
 - `totalUnico`: atenciones únicas después de la deduplicación global.
 - `totalElegible`: atenciones únicas con aptitud elegible encontradas.
 - `totalExcluido`: atenciones únicas no elegibles encontradas.
@@ -151,6 +151,51 @@ Definiciones de contadores:
 ## Privacidad y alcance
 
 La ejecución es local, secuencial y sin telemetría. El progreso no muestra DNI, nombre completo, URL ni contenido clínico. No incluye envío por WhatsApp/correo, frontend, AudioEvaluaciones, narrativa, audio, nube, cron ni automatización de credenciales.
+
+## Integración con AudioEvaluaciones
+
+El módulo ofrece dos formas de ejecución que usan el mismo motor de descarga:
+
+- CLI interactiva: `npm run start`
+- Servicio HTTP local: `npm run service`
+
+Para iniciar el servicio en Windows:
+
+```powershell
+cd C:\Users\USER\Documents\AudioEvaluaciones\mediweb-downloader
+npm run service
+```
+
+El servicio escucha exclusivamente en `http://127.0.0.1:8765`; nunca en `0.0.0.0`. Debe permanecer abierto durante todo el tiempo que AudioEvaluaciones lo utilice. `GET http://127.0.0.1:8765/health` permite comprobar si el conector está disponible sin abrir MediWeb.
+
+El flujo previsto es: iniciar el servicio, llamar `POST /mediweb/open`, iniciar sesión manualmente en la ventana Playwright, navegar a **Atenciones → Ocupacional**, aplicar los filtros, pulsar **Buscar** y llamar `POST /mediweb/detect`. La API no acepta usuario, contraseña, cookies ni tokens, y no existe un endpoint de login.
+
+Endpoints disponibles:
+
+- `GET /health`: estado no clínico del servicio, navegador y job activo.
+- `POST /mediweb/open`: abre o reutiliza el navegador persistente con el perfil `.auth`.
+- `POST /mediweb/detect`: devuelve solo conteos agregados de la tabla visible.
+- `POST /jobs`: inicia un job en memoria con `mode`, `limit`, `maxPages`, `perPageLimit` y `singlePage`.
+- `GET /jobs/:jobId`: devuelve estado y contadores reales; no calcula porcentajes ficticios.
+- `POST /jobs/:jobId/cancel`: solicita cancelación cooperativa en el siguiente punto seguro.
+- `GET /jobs/:jobId/first-pages`: transmite `primeras-hojas.pdf` al completar un job `first` o `both`.
+- `GET /jobs/:jobId/manifest`: devuelve únicamente el resumen sanitizado, sin la lista de pacientes.
+
+Solo se admite un job activo. Los jobs y su estado existen únicamente en la memoria del proceso de `npm run service`; no hay Redis, cola externa, worker remoto ni persistencia de jobs. Los PDF, manifest y CSV generados sí se conservan progresivamente en `downloads` como en la CLI.
+
+Variables opcionales no sensibles:
+
+```powershell
+$env:MEDIWEB_SERVICE_PORT="8765"
+$env:MEDIWEB_ALLOWED_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
+npm run service
+```
+
+`MEDIWEB_SERVICE_PORT` usa `8765` de forma predeterminada. `MEDIWEB_ALLOWED_ORIGINS` es una lista separada por comas; sus valores predeterminados de desarrollo son `http://localhost:5173` y `http://127.0.0.1:5173`.
+
+La política CORS es estricta: no se emite `Access-Control-Allow-Origin: *`; un `Origin` no configurado recibe `403`. Las peticiones `OPTIONS` permiten solo `GET`, `POST`, `OPTIONS` y el encabezado `Content-Type`. Si un preflight de un origen permitido solicita acceso de red privada mediante `Access-Control-Request-Private-Network: true`, el servicio responde `Access-Control-Allow-Private-Network: true`. Esto es relevante para un frontend publicado que llame a `127.0.0.1`, aunque el navegador y la configuración HTTPS del frontend pueden imponer requisitos adicionales.
+
+La API usa `node:http` en lugar de Express porque el conjunto de rutas y middleware es pequeño; así se mantiene una implementación directa sin agregar dependencias de producción.
 
 ## Solución de problemas
 

@@ -52,6 +52,14 @@ test("recorre 100 + 100 + 47 filas, filtra y conserva orden/numeración global",
   assert.equal(run.clicks, 3);
 });
 
+test("acumula 100 + 80 detectadas sin mezclar una detección previa", async () => {
+  const page = (start, count) => extraction(Array.from({ length: count }, (_, index) => report(start + index)));
+  const run = await simulate([page(1, 100), page(101, 80)]);
+  assert.equal(run.totals.totalDetectado, 180);
+  assert.equal(run.totals.totalUnico, 180);
+  assert.equal(run.totals.totalElegible, 180);
+});
+
 test("--limit es global y evita visitar la tercera página", async () => {
   const run = await simulate([
     extraction([report("A"), report("B"), report("C")]),

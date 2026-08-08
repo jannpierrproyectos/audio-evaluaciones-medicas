@@ -692,6 +692,493 @@ h1 {
   gap: 12px;
 }
 
+.pdf-source-selector {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: var(--panel);
+  box-shadow: var(--shadow-card);
+}
+
+.pdf-source-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.pdf-source-option {
+  display: grid;
+  gap: 3px;
+  min-height: 64px;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background: var(--panel-muted);
+  color: var(--text-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pdf-source-option strong {
+  color: var(--text-strong);
+  font-size: 14px;
+}
+
+.pdf-source-option span {
+  font-size: 12px;
+}
+
+.pdf-source-option.is-active {
+  border-color: var(--accent-border);
+  background: var(--selected-soft);
+  box-shadow: inset 3px 0 0 var(--color-cyan);
+}
+
+.pdf-source-option:focus-visible,
+.mediweb-cancel-button:focus-visible,
+.mediweb-advanced summary:focus-visible {
+  outline: 3px solid rgba(31, 164, 216, 0.22);
+  outline-offset: 2px;
+}
+
+.mediweb-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.mediweb-panel__header {
+  align-items: center;
+  margin-bottom: 0;
+}
+
+.connector-status,
+.job-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.connector-status.is-connected,
+.job-status-badge.is-completed {
+  background: var(--success-soft);
+  color: var(--success-text);
+}
+
+.connector-status.is-checking,
+.job-status-badge.is-running {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+
+.connector-status.is-disconnected,
+.connector-status.is-error,
+.job-status-badge.is-failed,
+.job-status-badge.is-cancelled {
+  background: var(--error-soft);
+  color: var(--error-text);
+}
+
+.mediweb-live-region {
+  min-height: 42px;
+  padding: 11px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: var(--panel-muted);
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.mediweb-empty-state,
+.mediweb-setup,
+.mediweb-detection,
+.mediweb-modes,
+.mediweb-advanced,
+.mediweb-job {
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  background: #ffffff;
+}
+
+.mediweb-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px;
+  color: var(--text-muted);
+}
+
+.mediweb-flow,
+.mediweb-configuration {
+  display: grid;
+  gap: 14px;
+}
+
+.mediweb-primary-step {
+  display: grid;
+  gap: 14px;
+  justify-items: start;
+  padding: 18px;
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  background: var(--panel-muted);
+  color: var(--text-muted);
+}
+
+.mediweb-help {
+  width: 100%;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 12px;
+}
+
+.mediweb-help summary {
+  width: fit-content;
+  color: var(--text-strong);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.mediweb-help ol {
+  margin: 12px 0 0;
+  padding-left: 22px;
+}
+
+.mediweb-detected-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 14px;
+}
+
+.mediweb-setup {
+  display: grid;
+  grid-template-columns: minmax(260px, auto) minmax(320px, 1fr);
+  gap: 20px;
+  padding: 18px;
+  background: var(--panel-muted);
+}
+
+.mediweb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: start;
+  gap: 10px;
+}
+
+.mediweb-instructions {
+  margin: 0;
+  padding-left: 22px;
+  color: var(--text-muted);
+}
+
+.mediweb-instructions li + li {
+  margin-top: 5px;
+}
+
+.mediweb-detection {
+  padding: 18px;
+}
+
+.mediweb-detection.is-compact .mediweb-stats {
+  margin-top: 0;
+}
+
+.mediweb-breakdown-line {
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.mediweb-stats,
+.mediweb-progress-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.mediweb-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.mediweb-stats div,
+.mediweb-progress-grid div {
+  padding: 11px 12px;
+  border-radius: 13px;
+  background: var(--panel-muted);
+}
+
+.mediweb-stats span,
+.mediweb-progress-grid span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mediweb-stats strong,
+.mediweb-progress-grid strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-strong);
+  font-size: 18px;
+}
+
+.mediweb-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 14px 0 0;
+}
+
+.mediweb-breakdown div {
+  display: flex;
+  gap: 6px;
+}
+
+.mediweb-breakdown dt {
+  color: var(--text-muted);
+}
+
+.mediweb-breakdown dd {
+  margin: 0;
+  color: var(--text-strong);
+  font-weight: 800;
+}
+
+.mediweb-modes {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 16px;
+}
+
+.mediweb-modes legend {
+  padding: 0 6px;
+  color: var(--text-strong);
+  font-weight: 800;
+}
+
+.mediweb-mode {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  cursor: pointer;
+}
+
+.mediweb-mode.is-selected {
+  border-color: var(--accent-border);
+  background: var(--selected-soft);
+}
+
+.mediweb-mode.is-primary-mode {
+  padding: 15px 14px;
+  border-color: rgba(31, 164, 216, 0.32);
+  background: linear-gradient(180deg, rgba(142, 216, 232, 0.13), rgba(255, 255, 255, 0.98));
+}
+
+.mediweb-mode.is-primary-mode.is-selected {
+  border-color: var(--accent-border);
+  box-shadow: inset 4px 0 0 var(--color-cyan);
+}
+
+.mediweb-mode input {
+  margin-top: 4px;
+  accent-color: var(--color-teal);
+}
+
+.mediweb-mode strong,
+.mediweb-mode small {
+  display: block;
+}
+
+.mediweb-mode small {
+  margin-top: 3px;
+  color: var(--text-muted);
+}
+
+.mediweb-advanced {
+  overflow: hidden;
+}
+
+.mediweb-advanced summary {
+  padding: 14px 16px;
+  color: var(--text-strong);
+  font-weight: 800;
+  cursor: pointer;
+  background: var(--panel-muted);
+}
+
+.mediweb-advanced summary small {
+  margin-left: 8px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.mediweb-advanced__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+
+.mediweb-advanced__grid label:not(.mediweb-checkbox) {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mediweb-advanced input[type="number"] {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: var(--text-strong);
+}
+
+.mediweb-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  grid-column: 1 / -1;
+  color: var(--text-strong);
+  font-weight: 700;
+}
+
+.mediweb-checkbox input {
+  accent-color: var(--color-teal);
+}
+
+.mediweb-start-button {
+  justify-self: start;
+}
+
+.mediweb-start-button:disabled,
+.mediweb-cancel-button:disabled {
+  cursor: not-allowed;
+}
+
+.mediweb-job {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.mediweb-job.is-completed {
+  border-color: rgba(8, 120, 122, 0.28);
+  background: linear-gradient(180deg, rgba(8, 120, 122, 0.055), #ffffff 45%);
+}
+
+.mediweb-job__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.mediweb-progress-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.indeterminate-progress {
+  height: 5px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--accent-soft);
+}
+
+.indeterminate-progress span {
+  display: block;
+  width: 36%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--color-teal), var(--color-cyan));
+  animation: mediweb-progress 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes mediweb-progress {
+  from { transform: translateX(-10%); }
+  to { transform: translateX(190%); }
+}
+
+.mediweb-cancel-button {
+  justify-self: start;
+  border: 1px solid rgba(185, 28, 28, 0.25);
+  border-radius: 14px;
+  padding: 11px 15px;
+  background: var(--error-soft);
+  color: var(--error-text);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.mediweb-completion-copy {
+  color: var(--text-muted);
+}
+
+.mediweb-completion-copy.is-error {
+  color: var(--error-text);
+}
+
+.mediweb-outcome {
+  padding: 22px;
+}
+
+.mediweb-outcome > p,
+.mediweb-imported-summary p {
+  color: var(--text-muted);
+}
+
+.mediweb-outcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.secondary-button.is-quiet {
+  border: 1px solid var(--border);
+  background: #ffffff;
+  color: var(--text-strong);
+  box-shadow: none;
+}
+
+.mediweb-imported-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid rgba(8, 120, 122, 0.28);
+  border-radius: 18px;
+  background: var(--success-soft);
+}
+
+.mediweb-imported-summary .mediweb-progress-grid {
+  grid-column: 1 / -1;
+}
+
+.pdf-results-focus-target:focus-visible {
+  outline: 3px solid rgba(31, 164, 216, 0.3);
+  outline-offset: 5px;
+  border-radius: 20px;
+}
+
 .pdf-workspace {
   display: grid;
   gap: 14px;
@@ -1162,9 +1649,28 @@ h1 {
   }
 
   .pdf-import-panel,
+  .pdf-source-selector,
   .pdf-detail-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .pdf-source-options {
+    width: 100%;
+  }
+
+  .mediweb-setup {
+    grid-template-columns: 1fr;
+  }
+
+  .mediweb-detected-header,
+  .mediweb-imported-summary {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .mediweb-progress-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .pdf-summary-bar {
@@ -1219,8 +1725,30 @@ h1 {
   }
 
   .pdf-summary-bar,
-  .key-grid {
+  .key-grid,
+  .pdf-source-options,
+  .mediweb-stats,
+  .mediweb-progress-grid,
+  .mediweb-advanced__grid {
     grid-template-columns: 1fr;
+  }
+
+  .mediweb-empty-state,
+  .mediweb-job__header,
+  .mediweb-outcome-actions,
+  .mediweb-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .mediweb-actions > button,
+  .mediweb-outcome-actions > button {
+    width: 100%;
+  }
+
+  .mediweb-advanced summary small {
+    display: block;
+    margin: 4px 0 0;
   }
 
   .key-grid--worker-summary .key-grid__item--span-4,

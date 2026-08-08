@@ -70,10 +70,13 @@ export async function extractVisibleReports(page) {
       return values.includes("PACIENTE") && hasDocument && values.includes("APTITUD");
     };
 
-    return anchors.map((anchor) => {
+    const reportRows = [];
+    const seenDomRows = new Set();
+    for (const anchor of anchors) {
       const row = anchor.closest("tr");
       const table = row?.closest("table");
-      if (!row || !table) return null;
+      if (!row || !table || seenDomRows.has(row)) continue;
+      seenDomRows.add(row);
 
       // table.rows puede incluir secciones de la tabla, pero se excluyen filas de tablas internas.
       const tableRows = [...table.rows].filter((candidate) => candidate.closest("table") === table);
@@ -84,13 +87,14 @@ export async function extractVisibleReports(page) {
       const headerRow = previousExactHeaders.at(-1) ?? exactHeaderRows[0]
         ?? previousHeaders.at(-1) ?? headerRows[0] ?? null;
 
-      return {
+      reportRows.push({
         href: anchor.href,
         cells: cellTexts(row),
         headers: headerRow ? cellTexts(headerRow) : [],
         headerRows: headerRows.map(cellTexts),
-      };
-    }).filter(Boolean);
+      });
+    }
+    return reportRows;
   });
 
   const seen = new Set();
@@ -120,6 +124,8 @@ export async function extractVisibleReports(page) {
   return {
     atenciones,
     encabezadosEncontrados,
+    // Una fila DOM con Imp S.F cuenta una vez aunque contenga varios enlaces
+    // imprimirtodos.php. La deduplicacion por atencion se mantiene separada.
     totalFilasDetectadas: rawRows.length,
     duplicadosEnPagina: rawRows.length - atenciones.length,
   };

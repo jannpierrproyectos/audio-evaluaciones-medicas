@@ -3,6 +3,12 @@ import { createAttentionKey } from "./mediwebTable.js";
 import { createPageSignature } from "./pagination.js";
 
 function emptyTotals() {
+  // Definiciones operativas del job:
+  // - totalDetectado: filas Imp S.F vistas una vez por pagina logica.
+  // - totalUnico: atenciones unicas tras deduplicacion global.
+  // - totalElegible/totalExcluido: unicas clasificadas por aptitud.
+  // - totalSeleccionado: elegibles elegidas tras limit/perPageLimit.
+  // - totalProcesado: seleccionadas cuyo intento termino, con exito o error.
   return {
     totalPaginasVisitadas: 0,
     totalDetectado: 0,

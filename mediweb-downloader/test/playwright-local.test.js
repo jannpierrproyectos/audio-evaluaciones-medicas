@@ -10,6 +10,26 @@ import { createPageSignature, findNextPageControl, goToNextResultsPage, isNextPa
 
 const HEADER = `<tr><th>Código.</th><th>Fecha</th><th>Criterios de aptitud</th><th>Empresa</th><th>Paciente</th><th>T. Doc</th><th>Aptitud</th><th>Imp S.F</th></tr>`;
 
+test("cuenta cada fila Imp S.F una vez aunque tenga dos enlaces de reporte", async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    const rows = Array.from({ length: 100 }, (_, index) => `
+      <tr><td>PQ${index + 1}</td><td>2026-08-07</td><td>CRITERIO</td><td>Empresa</td><td>Paciente</td><td>DNI</td><td>APTO</td>
+        <td>
+          <a href="https://local.invalid/imprimirtodos.php?idcomprobante=${index + 1}&idpaciente=${index + 1000}">Reporte</a>
+          <a href="https://local.invalid/imprimirtodos.php?idcomprobante=${index + 1}&idpaciente=${index + 1000}">Icono</a>
+        </td></tr>`).join("");
+    await page.setContent(`<table>${HEADER}${rows}</table>`);
+    const extraction = await extractVisibleReports(page);
+    assert.equal(extraction.totalFilasDetectadas, 100);
+    assert.equal(extraction.atenciones.length, 100);
+    assert.equal(extraction.duplicadosEnPagina, 0);
+  } finally {
+    await browser.close();
+  }
+});
+
 test("flujo local: encabezados repetidos, aptitud exacta, sesion y PDF", async () => {
   const browser = await chromium.launch({ headless: true });
   try {
