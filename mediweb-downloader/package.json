@@ -1,0 +1,17 @@
+{
+  "name": "mediweb-downloader",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Descarga local y secuencial de reportes MediWeb mediante una sesion manual.",
+  "scripts": {
+    "start": "node src/index.js",
+    "service": "node src/service.js",
+    "check": "node --check src/index.js && node --check src/runner.js && node --check src/service.js && node --check src/http/app.js && node --check src/http/routes.js && node --check src/http/jobManager.js",
+    "test": "node --test --test-isolation=none"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "playwright": "^1.54.2"
+  }
+}

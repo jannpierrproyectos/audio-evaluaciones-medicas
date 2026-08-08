@@ -4,6 +4,7 @@ import SheetsWorkspace from "./components/SheetsWorkspace.jsx";
 import Tabs from "./components/Tabs.jsx";
 import UploadZone from "./components/UploadZone.jsx";
 import PdfWorkersPreview from "./components/PdfWorkersPreview.jsx";
+import MediwebImporter from "./components/MediwebImporter.jsx";
 import { analyzePdfBatch } from "./lib/data/pdf/analyzePdfBatch.js";
 import { validateExtractedWorker } from "./lib/data/validateExtractedWorker.js";
 
@@ -32,6 +33,8 @@ function App() {
   const [pdfAnalysis, setPdfAnalysis] = useState(null);
   const [selectedPdfWorkerIndex, setSelectedPdfWorkerIndex] = useState(0);
   const [isPdfProcessing, setIsPdfProcessing] = useState(false);
+  const [pdfSource, setPdfSource] = useState("manual");
+  const [mediwebActivated, setMediwebActivated] = useState(false);
 
   async function handlePdfSelected(file) {
     try {
@@ -47,6 +50,7 @@ function App() {
       setPdfAnalysis(analysis);
       setSelectedPdfWorkerIndex(0);
       setPdfPreview("");
+      return analysis;
     } catch (error) {
       console.error("Error analizando PDF:", error);
       setPdfAnalysis(null);
@@ -57,6 +61,7 @@ function App() {
 Detalle:
 ${error?.message || "Error desconocido"}`
       );
+      return null;
     } finally {
       setIsPdfProcessing(false);
     }
@@ -181,42 +186,79 @@ ${error?.message || "Error desconocido"}`
             </div>
           )}
 
-          {activeTab === "pdf" && (
-            <div className="tab-content">
-              <section
-                className="panel pdf-import-panel"
-                id="panel-pdf"
-                role="tabpanel"
-                aria-labelledby="tab-pdf"
-              >
-                <div className="pdf-import-copy">
-                  <p className="section-label">Carga documental</p>
-                  <h2>Importar PDF</h2>
-                  <p className="section-text">
-                    Extrae trabajadores desde PDFs digitales con plantilla Innomedic, revisa el texto final y genera audio desde un panel operativo.
-                  </p>
+          <div className="tab-content" hidden={activeTab !== "pdf"}>
+              <section className="pdf-source-selector" aria-labelledby="pdf-source-title">
+                <div>
+                  <p className="section-label">Origen de evaluaciones</p>
+                  <h2 id="pdf-source-title">Selecciona cómo importar</h2>
                 </div>
-
-                <div className="pdf-import-actions">
-                  <input
-                    id="pdf-primary-input"
-                    type="file"
-                    accept=".pdf,application/pdf"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (file) {
-                        handlePdfSelected(file);
-                      }
-                      event.target.value = "";
+                <div className="pdf-source-options" role="group" aria-label="Origen del PDF">
+                  <button
+                    type="button"
+                    className={`pdf-source-option${pdfSource === "manual" ? " is-active" : ""}`}
+                    onClick={() => setPdfSource("manual")}
+                    aria-pressed={pdfSource === "manual"}
+                  >
+                    <strong>Cargar PDF</strong>
+                    <span>Seleccionar un archivo de esta computadora</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`pdf-source-option${pdfSource === "mediweb" ? " is-active" : ""}`}
+                    onClick={() => {
+                      setPdfSource("mediweb");
+                      setMediwebActivated(true);
                     }}
-                    style={{ display: "none" }}
-                  />
-                  <label htmlFor="pdf-primary-input" className="primary-button">
-                    {isPdfProcessing ? "Procesando PDF..." : "Seleccionar PDF"}
-                  </label>
-                  <span className="upload-hint">Formato esperado: .pdf</span>
+                    aria-pressed={pdfSource === "mediweb"}
+                  >
+                    <strong>Importar desde MediWeb</strong>
+                    <span>Usar AudioEvaluaciones Connector</span>
+                  </button>
                 </div>
               </section>
+
+              <div hidden={pdfSource !== "manual"}>
+                <section
+                  className="panel pdf-import-panel"
+                  id="panel-pdf"
+                  role="tabpanel"
+                  aria-labelledby="tab-pdf"
+                >
+                  <div className="pdf-import-copy">
+                    <p className="section-label">Carga documental</p>
+                    <h2>Importar PDF</h2>
+                    <p className="section-text">
+                      Extrae trabajadores desde PDFs digitales con plantilla Innomedic, revisa el texto final y genera audio desde un panel operativo.
+                    </p>
+                  </div>
+
+                  <div className="pdf-import-actions">
+                    <input
+                      id="pdf-primary-input"
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) {
+                          handlePdfSelected(file);
+                        }
+                        event.target.value = "";
+                      }}
+                      style={{ display: "none" }}
+                    />
+                    <label htmlFor="pdf-primary-input" className="primary-button">
+                      {isPdfProcessing ? "Procesando PDF..." : "Seleccionar PDF"}
+                    </label>
+                    <span className="upload-hint">Formato esperado: .pdf</span>
+                  </div>
+                </section>
+              </div>
+
+              {mediwebActivated ? (
+                <div hidden={pdfSource !== "mediweb"}>
+                  <MediwebImporter onPdfSelected={handlePdfSelected} />
+                </div>
+              ) : null}
 
               {pdfPreview && (
                 <div className="preview-placeholder placeholder-box--narrative">
@@ -225,14 +267,16 @@ ${error?.message || "Error desconocido"}`
               )}
 
               {pdfAnalysis ? (
-                <PdfWorkersPreview
-                  analysis={pdfAnalysis}
-                  selectedWorkerIndex={selectedPdfWorkerIndex}
-                  onSelectWorker={setSelectedPdfWorkerIndex}
-                  onChangeWorker={handlePdfWorkerChange}
-                  onConfirmWorker={handlePdfWorkerConfirm}
-                  onUpdateWorker={updatePdfWorkerAtIndex}
-                />
+                <div id="pdf-workers-results" tabIndex="-1" className="pdf-results-focus-target">
+                  <PdfWorkersPreview
+                    analysis={pdfAnalysis}
+                    selectedWorkerIndex={selectedPdfWorkerIndex}
+                    onSelectWorker={setSelectedPdfWorkerIndex}
+                    onChangeWorker={handlePdfWorkerChange}
+                    onConfirmWorker={handlePdfWorkerConfirm}
+                    onUpdateWorker={updatePdfWorkerAtIndex}
+                  />
+                </div>
               ) : (
                 !pdfPreview && (
                   <div className="preview-placeholder">
@@ -240,8 +284,7 @@ ${error?.message || "Error desconocido"}`
                   </div>
                 )
               )}
-            </div>
-          )}
+          </div>
         </section>
       </main>
     </div>

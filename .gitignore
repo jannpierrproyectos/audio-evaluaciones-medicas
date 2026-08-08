@@ -46,3 +46,11 @@ tts-service/python
 tts-service/tokenizers
 tts-service/transformers
 tts-service/[*
+
+# MediWeb downloader (sesion y datos clinicos locales)
+mediweb-downloader/node_modules/
+mediweb-downloader/.auth/
+mediweb-downloader/downloads/
+mediweb-downloader/logs/
+mediweb-downloader/tmp/
+mediweb-downloader/*.log
