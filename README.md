@@ -10,6 +10,16 @@ El Connector escucha únicamente en `127.0.0.1`, abre Microsoft Edge (o Google C
 
 El instalador incluye su propio runtime de Node.js. El usuario final abre **AudioEvaluaciones Connector** desde el menú Inicio y no necesita Node.js, npm, Git, VS Code, PowerShell ni Inno Setup. Consulta [mediweb-downloader/README.md](mediweb-downloader/README.md) para construir y probar el instalador.
 
+### Uso diario
+
+1. Instala AudioEvaluaciones Connector una sola vez.
+2. Comprueba que su icono aparezca junto al reloj de Windows.
+3. Abre AudioEvaluaciones desde el navegador o desde el menú del icono.
+4. Usa **Importar desde MediWeb**.
+5. No elijas **Salir** mientras se procesa; cerrar la web no detiene el Connector.
+
+El menú de bandeja permite abrir AudioEvaluaciones, abrir MediWeb, localizar los reportes, cambiar configuración, activar el inicio con Windows, reiniciar o salir de forma segura. El arranque automático no abre navegadores.
+
 ## TTS externo
 
 La web no ejecuta el motor TTS directamente. Consume un endpoint interno `/api/tts/synthesize`, que a su vez reenvia la solicitud a un microservicio externo configurado con `TTS_SERVICE_URL`.

@@ -3,6 +3,9 @@ import { ensureRuntimeDirectories } from "./paths.js";
 
 export const DEFAULT_CONFIG = Object.freeze({
   port: 8765,
+  audioEvaluacionesUrl: "https://audio-evaluaciones-medicas.vercel.app",
+  downloadsDir: "",
+  startWithWindows: true,
   allowedOrigins: Object.freeze([
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -29,10 +32,36 @@ export async function loadConnectorConfig({ runtimePaths, env = process.env, cre
   const originsValue = env.MEDIWEB_ALLOWED_ORIGINS
     ?? (Array.isArray(localConfig.allowedOrigins) ? localConfig.allowedOrigins.join(",") : undefined)
     ?? DEFAULT_CONFIG.allowedOrigins.join(",");
+  const audioEvaluacionesUrl = validateWebUrl(localConfig.audioEvaluacionesUrl ?? DEFAULT_CONFIG.audioEvaluacionesUrl);
+  const configuredOrigins = originsValue.split(",").map((value) => value.trim()).filter(Boolean);
+  for (const safeDefault of DEFAULT_CONFIG.allowedOrigins) {
+    if (!configuredOrigins.includes(safeDefault)) configuredOrigins.push(safeDefault);
+  }
+  if (!configuredOrigins.includes(audioEvaluacionesUrl)) configuredOrigins.push(audioEvaluacionesUrl);
   return {
     port: parsePort(portValue),
-    allowedOrigins: originsValue,
+    allowedOrigins: configuredOrigins.join(","),
+    audioEvaluacionesUrl,
+    downloadsDir: String(localConfig.downloadsDir ?? DEFAULT_CONFIG.downloadsDir).trim() || runtimePaths.downloadsDir,
+    startWithWindows: localConfig.startWithWindows ?? DEFAULT_CONFIG.startWithWindows,
   };
+}
+
+export function validateWebUrl(value) {
+  try {
+    const url = new URL(String(value));
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== "/") throw new Error();
+    return url.origin;
+  } catch {
+    throw new Error("La URL de AudioEvaluaciones debe ser un origen HTTP o HTTPS válido.");
+  }
+}
+
+export function configurationRequiresRestart(before, after) {
+  return before.port !== after.port
+    || before.audioEvaluacionesUrl !== after.audioEvaluacionesUrl
+    || before.downloadsDir !== after.downloadsDir
+    || before.allowedOrigins !== after.allowedOrigins;
 }
 
 export function parsePort(value) {

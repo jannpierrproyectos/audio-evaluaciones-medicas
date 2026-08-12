@@ -8,7 +8,7 @@ import { spawn } from "node:child_process";
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const stagingRoot = path.join(projectRoot, "build-windows", "staging");
 const runtime = path.join(stagingRoot, "runtime", "node.exe");
-const launcher = path.join(stagingRoot, "app", "src", "windowsLauncher.js");
+const launcher = path.join(stagingRoot, "app", "src", "trayService.js");
 const isolatedUser = path.join(os.tmpdir(), `audioevaluaciones-smoke-${process.pid}-${Date.now()}`);
 const port = await availablePort();
 await mkdir(isolatedUser, { recursive: true });
@@ -21,7 +21,7 @@ const child = spawn(runtime, [launcher], {
     USERPROFILE: isolatedUser,
     MEDIWEB_SERVICE_PORT: String(port),
   },
-  stdio: ["ignore", "pipe", "pipe"],
+  stdio: ["pipe", "pipe", "pipe"],
   windowsHide: true,
 });
 let stdout = "";
@@ -36,7 +36,7 @@ try {
 } catch (error) {
   throw new Error(`${error.message}\nstdout:\n${stdout}\nstderr:\n${stderr}`);
 } finally {
-  child.kill("SIGTERM");
+  child.stdin.write("shutdown\n");
   await Promise.race([new Promise((resolve) => child.once("exit", resolve)), new Promise((resolve) => setTimeout(resolve, 3000))]);
   await rm(isolatedUser, { recursive: true, force: true });
 }

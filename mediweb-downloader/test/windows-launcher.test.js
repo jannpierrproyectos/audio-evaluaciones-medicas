@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { runWindowsLauncher } from "../src/windowsLauncher.js";
+import { friendlyStartupError, runWindowsLauncher } from "../src/windowsLauncher.js";
 
 test("un segundo lanzamiento detecta /health y no inicia otro servidor", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "connector-launcher-"));
@@ -19,6 +19,22 @@ test("un segundo lanzamiento detecta /health y no inicia otro servidor", async (
     assert.equal(result.alreadyRunning, true);
     assert.equal(starts, 0);
     assert.ok(messages.some((message) => message.includes("ya está activo")));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("puerto ocupado por otro proceso produce error amigable y no se confunde con Connector", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "connector-foreign-port-"));
+  const conflict = Object.assign(new Error("listen failed"), { code: "EADDRINUSE" });
+  try {
+    await assert.rejects(runWindowsLauncher({
+      env: { LOCALAPPDATA: path.join(directory, "local"), USERPROFILE: path.join(directory, "user") },
+      logger: { log() {} },
+      probe: async () => false,
+      startService: async () => { throw conflict; },
+    }), (error) => error === conflict);
+    assert.match(friendlyStartupError(conflict), /puerto configurado.*utilizado/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

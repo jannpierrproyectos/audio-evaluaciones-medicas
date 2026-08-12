@@ -6,9 +6,11 @@ const FORBIDDEN_FILES = new Set([".env", ".env.local", "manifest.json", "resulta
 
 export async function validateStaging(stagingRoot) {
   const required = [
+    "AudioEvaluacionesConnector.exe",
+    "assets/AudioEvaluacionesConnector.ico",
     "runtime/node.exe",
     "app/package.json",
-    "app/src/windowsLauncher.js",
+    "app/src/trayService.js",
     "app/src/service.js",
     "app/node_modules/playwright-core/package.json",
     "config/default-config.json",

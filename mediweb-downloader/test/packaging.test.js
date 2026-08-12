@@ -9,8 +9,10 @@ test("validador exige runtime/app/config y rechaza datos sensibles o tests", asy
   const staging = await mkdtemp(path.join(os.tmpdir(), "connector-staging-"));
   try {
     const requiredFiles = [
+      "AudioEvaluacionesConnector.exe",
+      "assets/AudioEvaluacionesConnector.ico",
       "app/package.json",
-      "app/src/windowsLauncher.js",
+      "app/src/trayService.js",
       "app/src/service.js",
       "app/node_modules/playwright-core/package.json",
       "config/default-config.json",

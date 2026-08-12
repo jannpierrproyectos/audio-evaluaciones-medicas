@@ -33,10 +33,11 @@ export class ResultsNotReadyError extends Error {
 }
 
 export class DownloaderRunner {
-  constructor({ moduleRoot = defaultModuleRoot, logger = console, runtimePaths = null } = {}) {
+  constructor({ moduleRoot = defaultModuleRoot, logger = console, runtimePaths = null, events = null } = {}) {
     this.moduleRoot = moduleRoot;
     this.logger = logger;
     this.runtimePaths = runtimePaths ?? getRuntimePaths({ moduleRoot, packaged: false });
+    this.events = events;
     this.context = null;
     this.mainPage = null;
     this.manifest = null;
@@ -51,9 +52,19 @@ export class DownloaderRunner {
   }
 
   async open() {
-    if (this.browserOpen) return { browserOpen: true };
+    if (this.browserOpen) {
+      await this.mainPage.bringToFront().catch(() => {});
+      this.events?.emit("browser:opened");
+      return { browserOpen: true };
+    }
     await closeQuietly(this.context);
-    ({ context: this.context, mainPage: this.mainPage } = await launchBrowser(this.runtimePaths));
+    try {
+      ({ context: this.context, mainPage: this.mainPage } = await launchBrowser(this.runtimePaths));
+      this.events?.emit("browser:opened");
+    } catch (error) {
+      this.events?.emit("browser:error", { code: error?.code ?? "BROWSER_ERROR" });
+      throw error;
+    }
     return { browserOpen: true };
   }
 

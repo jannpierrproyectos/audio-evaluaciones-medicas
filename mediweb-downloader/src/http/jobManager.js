@@ -40,8 +40,10 @@ export function validateJobOptions(body) {
 }
 
 export class JobManager {
-  constructor({ engine }) {
+  constructor({ engine, events = null, logger = null }) {
     this.engine = engine;
+    this.events = events;
+    this.logger = logger;
     this.jobs = new Map();
     this.activeJobId = null;
   }
@@ -78,6 +80,7 @@ export class JobManager {
     };
     this.jobs.set(id, job);
     this.activeJobId = id;
+    this.events?.emit("job:started", { id });
     this.engine.resetCancellation?.();
     job.completion = Promise.resolve().then(() => this.#execute(job));
     return this.publicJob(job);
@@ -173,12 +176,14 @@ export class JobManager {
       job.status = job.controller.signal.aborted || result.status === "cancelled" ? "cancelled" : result.status;
       job.finalReason = result.manifest?.pagination?.motivoFinalizacion ?? null;
       this.#updateFromManifest(job, result.manifest);
-    } catch {
+    } catch (error) {
       job.status = job.controller.signal.aborted ? "cancelled" : "failed";
       job.finalReason = job.status === "cancelled" ? "cancelado" : "error_ejecucion";
+      this.logger?.error?.("El procesamiento terminó con error.", error);
     } finally {
       job.finishedAt = new Date().toISOString();
       if (this.activeJobId === job.id) this.activeJobId = null;
+      this.events?.emit(`job:${job.status}`, { id: job.id, status: job.status });
     }
   }
 

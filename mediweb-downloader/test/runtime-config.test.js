@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { DEFAULT_CONFIG, loadConnectorConfig } from "../src/config.js";
+import { configurationRequiresRestart, DEFAULT_CONFIG, loadConnectorConfig } from "../src/config.js";
 import { createOutputPaths, getRuntimePaths } from "../src/paths.js";
 import { parseAllowedOrigins } from "../src/http/app.js";
 
@@ -49,18 +49,48 @@ test("crea config inicial segura y respeta precedencia env > config > defaults",
   try {
     const initial = await loadConnectorConfig({ runtimePaths, env: {}, createIfMissing: true });
     assert.equal(initial.port, DEFAULT_CONFIG.port);
+    assert.equal(initial.audioEvaluacionesUrl, DEFAULT_CONFIG.audioEvaluacionesUrl);
+    assert.equal(initial.downloadsDir, runtimePaths.downloadsDir);
+    assert.equal(initial.startWithWindows, true);
     assert.deepEqual(initial.allowedOrigins.split(","), DEFAULT_CONFIG.allowedOrigins);
     assert.deepEqual(JSON.parse(await readFile(runtimePaths.configPath, "utf8")), DEFAULT_CONFIG);
 
     await writeFile(runtimePaths.configPath, JSON.stringify({ port: 9001, allowedOrigins: ["https://configured.example"] }));
     const configured = await loadConnectorConfig({ runtimePaths, env: {} });
-    assert.deepEqual(configured, { port: 9001, allowedOrigins: "https://configured.example" });
+    assert.equal(configured.port, 9001);
+    assert.deepEqual(configured.allowedOrigins.split(","), ["https://configured.example", ...DEFAULT_CONFIG.allowedOrigins]);
 
     const overridden = await loadConnectorConfig({
       runtimePaths,
       env: { MEDIWEB_SERVICE_PORT: "9002", MEDIWEB_ALLOWED_ORIGINS: "https://env.example" },
     });
-    assert.deepEqual(overridden, { port: 9002, allowedOrigins: "https://env.example" });
+    assert.equal(overridden.port, 9002);
+    assert.deepEqual(overridden.allowedOrigins.split(","), ["https://env.example", ...DEFAULT_CONFIG.allowedOrigins]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("config personalizada añade su URL exacta a origins y marca cambios operativos para reinicio", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "connector-custom-config-"));
+  const runtimePaths = {
+    packaged: true, authDir: path.join(directory, "auth"), downloadsDir: path.join(directory, "default-downloads"),
+    tmpDir: path.join(directory, "tmp"), logsDir: path.join(directory, "logs"), configDir: directory,
+    configPath: path.join(directory, "config.json"),
+  };
+  try {
+    await writeFile(runtimePaths.configPath, JSON.stringify({
+      port: 8765, audioEvaluacionesUrl: "https://audio.example", downloadsDir: "D:\\Reportes", startWithWindows: false,
+      allowedOrigins: ["http://localhost:5173", "http://127.0.0.1:5173"],
+    }));
+    const loaded = await loadConnectorConfig({ runtimePaths, env: {} });
+    assert.equal(loaded.audioEvaluacionesUrl, "https://audio.example");
+    assert.equal(loaded.downloadsDir, "D:\\Reportes");
+    assert.equal(loaded.startWithWindows, false);
+    assert.ok(loaded.allowedOrigins.split(",").includes("https://audio.example"));
+    assert.ok(loaded.allowedOrigins.split(",").includes(DEFAULT_CONFIG.audioEvaluacionesUrl));
+    assert.equal(configurationRequiresRestart(loaded, { ...loaded, startWithWindows: true }), false);
+    assert.equal(configurationRequiresRestart(loaded, { ...loaded, port: 9000 }), true);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

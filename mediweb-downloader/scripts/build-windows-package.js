@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { directorySize, formatMegabytes, validateStaging } from "./packaging.js";
+import { buildWindowsHost } from "./build-windows-host.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const buildRoot = path.join(projectRoot, "build-windows");
@@ -24,7 +25,11 @@ await Promise.all([
   mkdir(path.join(stagingRoot, "licenses"), { recursive: true }),
 ]);
 
+const nativeHost = await buildWindowsHost();
+
 await Promise.all([
+  cp(nativeHost, path.join(stagingRoot, "AudioEvaluacionesConnector.exe")),
+  cp(path.join(projectRoot, "assets"), path.join(stagingRoot, "assets"), { recursive: true }),
   cp(process.execPath, path.join(stagingRoot, "runtime", "node.exe")),
   cp(path.join(projectRoot, "src"), path.join(appRoot, "src"), { recursive: true }),
   cp(path.join(projectRoot, "package.json"), path.join(appRoot, "package.json")),

@@ -19,7 +19,7 @@ Playwright usa un perfil local en `.auth/mediweb-profile`. La herramienta no lee
 
 ## Requisitos para usuario final
 
-El usuario final solo necesita Windows x64 y Microsoft Edge o Google Chrome instalado. El Setup incluye Node.js y las dependencias de producción; no requiere Node, npm, VS Code, Git, PowerShell, CMD, Playwright CLI ni Inno Setup. Tras instalar, se abre **AudioEvaluaciones Connector** desde el menú Inicio y se mantiene su ventana abierta durante el uso.
+El usuario final solo necesita Windows x64 y Microsoft Edge o Google Chrome instalado. El Setup incluye Node.js y las dependencias de producción; no requiere Node, npm, VS Code, Git, PowerShell, CMD, Playwright CLI ni Inno Setup. Tras instalar, **AudioEvaluaciones Connector** permanece en la bandeja del sistema sin consola negra.
 
 La versión instalada usa estas rutas mutables, siempre fuera de `Program Files`:
 
@@ -32,6 +32,19 @@ La versión instalada usa estas rutas mutables, siempre fuera de `Program Files`
 ```
 
 El perfil `auth` es exclusivo del Connector y conserva la sesión/cookies del navegador, pero el Connector no guarda la contraseña. Al desinstalar se elimina LocalAppData, incluido `auth`; los reportes en Documentos se conservan.
+
+### Uso diario del icono de bandeja
+
+El icono junto al reloj expresa con texto los estados **Iniciando**, **Activo**, **MediWeb abierto**, **Procesando evaluaciones**, **Se produjo un error** y **Detenido**. Su menú ofrece:
+
+- abrir AudioEvaluaciones en el navegador predeterminado;
+- abrir o reutilizar MediWeb mediante el motor existente;
+- abrir la carpeta de reportes;
+- activar/desactivar el inicio con Windows;
+- editar configuración y abrir diagnóstico;
+- ver versión, iniciar/detener, reiniciar y salir.
+
+Si hay un job activo, reiniciar, detener o salir exige confirmación y usa la cancelación cooperativa antes de cerrar. No se muestran nombres, DNI, aptitudes ni datos clínicos en tray, notificaciones o logs.
 
 ## Flujo de ejecución
 
@@ -247,6 +260,10 @@ npm run start -- --mode both --max-pages 2 --per-page-limit 3
 
 El paquete no usa Electron: no necesita una segunda interfaz ni otro navegador embebido. El staging contiene `runtime\node.exe`, el código del Connector, dependencias npm de producción, configuración predeterminada y licencias. Para producción se incluye `playwright-core` y se usa `launchPersistentContext()` con `channel: "msedge"`; si Edge no puede iniciar, se prueba `channel: "chrome"`. Chromium administrado por Playwright queda solo para desarrollo y no se empaqueta.
 
+La experiencia de bandeja usa un host WinForms x64 compilado como `winexe` con el compilador de .NET Framework incluido en Windows. No se añadió una dependencia npm nativa: esto evita ABI binario con Node y evita `systray2`, cuyo último release publicado es antiguo. El host es un adaptador pequeño; inicia `runtime\node.exe` con `CreateNoWindow`, recibe eventos operativos JSON por stdout privado y envía `shutdown` por stdin. `trayService.js`, `service.js`, `JobManager` y `Runner` comparten un `EventEmitter`; no existe un segundo servidor ni un segundo JobManager.
+
+No se usa Windows Service porque Playwright y su sesión requieren el escritorio interactivo del usuario. El autoarranque por usuario utiliza `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` y puede cambiarse sin elevación. En inicio automático solo aparece el tray: no abre AudioEvaluaciones ni MediWeb.
+
 El nombre visible y publisher neutral del instalador son **AudioEvaluaciones Connector** y **AudioEvaluaciones**. No se atribuye el paquete a una empresa inexistente.
 
 El runtime copiado es `process.execPath`. Se requiere Node.js 20 como mínimo para construir; se recomienda una versión LTS x64 vigente. La PC destino no necesita Node instalado.
@@ -257,6 +274,7 @@ El runtime copiado es `process.execPath`. Se requiere Node.js 20 como mínimo pa
 - Node.js 20 o posterior y npm.
 - Dependencias instaladas con `npm ci`.
 - Inno Setup 6 para generar el `.exe` final. Puede instalarse manualmente con `winget install JRSoftware.InnoSetup`.
+- El compilador `csc.exe` de .NET Framework 4.x disponible en Windows para construir el host WinForms.
 
 Si `ISCC.exe` está en una ubicación no estándar, define `ISCC_PATH` con su ruta completa. El build no instala Inno Setup automáticamente.
 
@@ -282,6 +300,8 @@ El build ejecuta `npm ci --omit=dev`, omite descargas de browser y falla si el s
 
 ```text
 staging\
+  AudioEvaluacionesConnector.exe
+  assets\AudioEvaluacionesConnector.ico
   runtime\node.exe
   app\package.json
   app\package-lock.json
@@ -292,6 +312,18 @@ staging\
 ```
 
 En el primer inicio instalado se crea `%LOCALAPPDATA%\AudioEvaluacionesConnector\config.json`. Puede editarse sin privilegios administrativos. El instalador solicita UAC únicamente para escribir en `Program Files`; el uso diario no requiere elevación ni crea reglas de Firewall.
+
+La configuración incluye `port`, `audioEvaluacionesUrl`, `downloadsDir`, `startWithWindows` y `allowedOrigins`. Cambiar puerto, URL/origins o descargas requiere reinicio y el diálogo lo ofrece. Una URL configurada se normaliza a un origin exacto; nunca se introduce `*` ni se autorizan todos los subdominios Vercel.
+
+Los logs locales están en `%LOCALAPPDATA%\AudioEvaluacionesConnector\logs`. El host y Node conservan como máximo cinco archivos de 2 MB por componente. Los logs empaquetados omiten el progreso detallado del Runner y sanitizan URLs e identificadores; no hay telemetría ni crash reporting cloud.
+
+### Versionado y upgrade
+
+La versión proviene de `package.json` y se inyecta en `/health`, el host nativo, los metadatos Inno y `AudioEvaluacionesConnector-<version>-Setup.exe`. El `AppId` de Inno permanece estable para que 0.2.0 actualice 0.1.0 en la misma entrada de Aplicaciones instaladas.
+
+Durante upgrade, Inno solicita cierre cooperativo al host nuevo. Para 0.1.0 conserva además un fallback restringido a la ventana cuyo título exacto es **AudioEvaluaciones Connector**; nunca termina procesos Node arbitrarios. La actualización reemplaza Program Files, pero no ejecuta la limpieza de desinstalación: conserva `auth`, `config.json` y Documentos. Una desinstalación real elimina LocalAppData y conserva los reportes.
+
+Preparación futura de actualizaciones: el frontend ya puede comparar semánticamente la versión expuesta por `/health` y, en una fase posterior, informar al usuario de un instalador nuevo. Esta versión no descarga ni ejecuta actualizaciones.
 
 ### Prueba manual del Setup en esta PC
 
@@ -309,4 +341,12 @@ En el primer inicio instalado se crea `%LOCALAPPDATA%\AudioEvaluacionesConnector
 3. Abre la web publicada y confirma **Conectado**.
 4. No copies el repositorio, `node_modules`, Node.js ni herramientas de desarrollo.
 
-El instalador aún no está firmado y Windows SmartScreen puede mostrar una advertencia. Esto es esperado en esta fase; no se modifican políticas de Windows. Inicio automático, tray icon, servicio de Windows, actualizador y firma de código quedan fuera de esta versión.
+El instalador aún no está firmado y Windows SmartScreen puede mostrar una advertencia. Esto es esperado en esta fase; no se modifican políticas de Windows. Windows Service, actualización automática y firma de código quedan fuera de esta versión.
+
+### Prueba de upgrade 0.1.0 → 0.2.0
+
+1. Con 0.1.0 instalada, anota que existe una sola entrada en Aplicaciones instaladas.
+2. Cierra cualquier procesamiento y ejecuta el Setup 0.2.0 sin desinstalar primero.
+3. Abre el Connector y confirma el icono junto al reloj, `/health` versión 0.2.0 y **Conectado** en Vercel.
+4. Comprueba que `config.json` y el perfil `auth` siguen presentes.
+5. Comprueba que Documentos conserva las descargas y que sigue existiendo una sola entrada instalada.
