@@ -8,11 +8,9 @@ import {
   getMediwebErrorMessage,
   getMediwebJob,
   openMediweb,
-  checkConnectorUpdate,
-  downloadConnectorUpdate,
-  installConnectorUpdate,
 } from "../services/mediwebService.js";
 import { classifyConnectorCompatibility, getConnectorReleaseManifest } from "../lib/connectorRelease.js";
+import { startConnectorUpdateFlow, supportsLocalUpdater } from "../lib/connectorCapabilities.js";
 import { importMediwebPdfIntoExistingFlow } from "../lib/importMediwebPdf.js";
 import {
   EMPTY_MEDIWEB_ADVANCED_OPTIONS,
@@ -107,6 +105,8 @@ export default function MediwebImporter({ onPdfSelected }) {
   const [releaseManifest, setReleaseManifest] = useState(null);
   const [updateCompatibility, setUpdateCompatibility] = useState("unknown");
   const [updateDismissed, setUpdateDismissed] = useState(false);
+  const [manualUpdate, setManualUpdate] = useState(null);
+  const [manualDownloadStarted, setManualDownloadStarted] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [detectionSummary, setDetectionSummary] = useState(null);
   const [mode, setMode] = useState("first");
@@ -160,6 +160,10 @@ export default function MediwebImporter({ onPdfSelected }) {
       setConnectorVersion(health.version || "");
       setReleaseManifest(effectiveManifest);
       setUpdateCompatibility(classifyConnectorCompatibility(health.version, effectiveManifest));
+      if (supportsLocalUpdater(health.version)) {
+        setManualUpdate(null);
+        setManualDownloadStarted(false);
+      }
       setBrowserOpen(Boolean(health.browserOpen));
       setFeedback("Conector MediWeb conectado.");
     } finally {
@@ -172,19 +176,32 @@ export default function MediwebImporter({ onPdfSelected }) {
     setPendingAction("update");
     setFeedback("Preparando la actualización segura del Connector…");
     try {
-      const status = await checkConnectorUpdate({ signal: controller.signal });
-      setUpdateCompatibility(status.compatibility);
-      if (status.compatibility === "up_to_date") {
+      const result = await startConnectorUpdateFlow({
+        installedVersion: connectorVersion,
+        compatibility: updateCompatibility,
+        manifest: releaseManifest,
+        signal: controller.signal,
+      });
+      if (["legacy_manual", "required_legacy"].includes(result.mode)) {
+        setManualUpdate(result);
+        setManualDownloadStarted(false);
+        setFeedback("Esta versión utiliza la actualización manual de transición.");
+        return;
+      }
+      if (result.status?.compatibility) setUpdateCompatibility(result.status.compatibility);
+      if (result.mode === "up_to_date") {
         setFeedback("AudioEvaluaciones Connector ya está actualizado.");
         return;
       }
-      if (!["update_available", "update_required"].includes(status.compatibility)) {
+      if (result.mode === "unknown") {
         setFeedback("No se pudo consultar la actualización. Puedes continuar usando la versión actual.");
         return;
       }
-      await downloadConnectorUpdate({ signal: controller.signal });
-      await installConnectorUpdate({ signal: controller.signal });
-      setFeedback("La actualización está verificada. Confirma la instalación en AudioEvaluaciones Connector.");
+      if (result.mode === "local_install_requested") {
+        setFeedback("La actualización está verificada. Confirma la instalación en AudioEvaluaciones Connector.");
+        return;
+      }
+      setFeedback("No fue necesario iniciar una actualización.");
     } catch (error) {
       if (error?.code !== "REQUEST_ABORTED") setFeedback(getMediwebErrorMessage(error));
     } finally {
@@ -439,14 +456,29 @@ export default function MediwebImporter({ onPdfSelected }) {
       {phase === "connector_incompatible" ? (
         <div className="mediweb-update-notice is-required" role="alert">
           <div><h3>AudioEvaluaciones Connector necesita actualizarse</h3><p>Necesita actualizarse para continuar usando la integración con MediWeb. La carga manual de PDF y Sheets siguen disponibles.</p></div>
-          <button type="button" className="primary-button" onClick={handleUpdateConnector} disabled={pendingAction === "update"}>{pendingAction === "update" ? "Preparando…" : "Actualizar Connector"}</button>
+          {!manualUpdate ? <button type="button" className="primary-button" onClick={handleUpdateConnector} disabled={pendingAction === "update"}>{pendingAction === "update" ? "Preparando…" : "Actualizar Connector"}</button> : null}
         </div>
       ) : null}
 
-      {updateCompatibility === "update_available" && !updateDismissed ? (
+      {updateCompatibility === "update_available" && !updateDismissed && !manualUpdate ? (
         <div className="mediweb-update-notice">
           <div><strong>Hay una nueva versión de AudioEvaluaciones Connector disponible.</strong><p>Puedes seguir usando MediWeb y actualizar cuando te resulte conveniente.</p></div>
           <div className="mediweb-actions"><button type="button" className="primary-button" onClick={handleUpdateConnector} disabled={pendingAction === "update"}>Actualizar</button><button type="button" className="secondary-button is-quiet" onClick={() => setUpdateDismissed(true)}>Más tarde</button></div>
+        </div>
+      ) : null}
+
+      {manualUpdate ? (
+        <div className={`mediweb-update-notice${manualUpdate.mode === "required_legacy" ? " is-required" : ""}`}>
+          <div>
+            <strong>Actualización manual del Connector</strong>
+            <p>Para actualizar esta versión debes instalar manualmente la nueva versión. No necesitas desinstalar la versión actual.</p>
+            {manualDownloadStarted ? <p>Cuando termine la instalación, vuelve a esta página y pulsa Reintentar.</p> : <p>La descarga comenzará al pulsar el botón. Cuando termine, abre el instalador.</p>}
+          </div>
+          <div className="mediweb-actions">
+            {!manualDownloadStarted ? <a className="primary-button" href={manualUpdate.downloadUrl} target="_blank" rel="noreferrer" onClick={() => { setManualDownloadStarted(true); setFeedback("Descarga iniciada. Abre el instalador y después pulsa Reintentar."); }}>Descargar actualización</a> : null}
+            {manualDownloadStarted ? <button type="button" className="primary-button" onClick={() => checkHealth()}>Reintentar</button> : null}
+            <button type="button" className="secondary-button is-quiet" onClick={() => { setManualUpdate(null); setManualDownloadStarted(false); }}>Cancelar</button>
+          </div>
         </div>
       ) : null}
 

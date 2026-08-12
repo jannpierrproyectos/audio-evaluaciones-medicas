@@ -25,6 +25,10 @@ export function validateConnectorReleaseManifest(value) {
   return value;
 }
 
+export function getLegacyConnectorDownloadUrl(manifest) {
+  return validateConnectorReleaseManifest(manifest).windows.downloadUrl;
+}
+
 export async function getConnectorReleaseManifest({ signal, url = CONNECTOR_RELEASE_MANIFEST_URL } = {}) {
   const response = await fetch(url, { method: "GET", credentials: "omit", cache: "no-cache", signal });
   if (!response.ok) throw new Error("Manifest no disponible");

@@ -22,6 +22,10 @@ export async function checkConnectorUpdate({ signal } = {}) {
   return requestJson("/update/check", { method: "POST", signal, timeoutMs: 20000 });
 }
 
+export async function getConnectorUpdateStatus({ signal } = {}) {
+  return requestJson("/update/status", { signal, timeoutMs: 10000 });
+}
+
 export async function downloadConnectorUpdate({ signal } = {}) {
   return requestJson("/update/download", { method: "POST", signal, timeoutMs: 10 * 60 * 1000 });
 }

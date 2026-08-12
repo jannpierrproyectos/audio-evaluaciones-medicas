@@ -8,6 +8,7 @@ import {
   checkMediwebHealth,
   checkConnectorUpdate,
   downloadConnectorUpdate,
+  getConnectorUpdateStatus,
   installConnectorUpdate,
   classifyConnectorError,
   createMediwebJob,
@@ -27,7 +28,14 @@ import {
   getMediwebCompletionSummary,
   getMediwebStartLabel,
 } from "../src/lib/mediwebUiState.js";
-import { classifyConnectorCompatibility, validateConnectorReleaseManifest } from "../src/lib/connectorRelease.js";
+import { classifyConnectorCompatibility, getLegacyConnectorDownloadUrl, validateConnectorReleaseManifest } from "../src/lib/connectorRelease.js";
+import {
+  LOCAL_UPDATER_MIN_VERSION,
+  classifyLocalUpdaterError,
+  getConnectorUpdateMode,
+  startConnectorUpdateFlow,
+  supportsLocalUpdater,
+} from "../src/lib/connectorCapabilities.js";
 
 const originalFetch = globalThis.fetch;
 const originalFile = globalThis.File;
@@ -333,6 +341,119 @@ test("frontend pide check, download e install al Connector sin enviar una URL", 
   assert.ok(calls.every((call) => call.method === "POST" && call.body === undefined));
 });
 
+test("capacidad del updater local empieza en SemVer 0.3.0", () => {
+  assert.equal(LOCAL_UPDATER_MIN_VERSION, "0.3.0");
+  assert.equal(supportsLocalUpdater("0.2.0"), false);
+  assert.equal(supportsLocalUpdater("0.2.9"), false);
+  assert.equal(supportsLocalUpdater("0.3.0"), true);
+  assert.equal(supportsLocalUpdater("0.3.1"), true);
+  assert.equal(supportsLocalUpdater("1.0.0"), true);
+  assert.equal(supportsLocalUpdater("invalid"), false);
+});
+
+test("0.2.0 a 0.3.0 usa fallback manual sin llamar ningún endpoint update", async () => {
+  const release = createConnectorRelease();
+  const calls = [];
+  const api = createUpdateApi(calls);
+  const result = await startConnectorUpdateFlow({
+    installedVersion: "0.2.0",
+    compatibility: "update_available",
+    manifest: release,
+    api,
+  });
+  assert.equal(getConnectorUpdateMode({ installedVersion: "0.2.0", compatibility: "update_available" }), "legacy_manual");
+  assert.equal(result.mode, "legacy_manual");
+  assert.equal(result.downloadUrl, release.windows.downloadUrl);
+  assert.deepEqual(calls, []);
+});
+
+test("0.3.0 actual no inicia updater y 0.3.0 a 0.3.1 conserva el flujo local seguro", async () => {
+  assert.equal(getConnectorUpdateMode({ installedVersion: "0.3.0", compatibility: "up_to_date" }), "up_to_date");
+  const currentCalls = [];
+  const current = await startConnectorUpdateFlow({
+    installedVersion: "0.3.0",
+    compatibility: "up_to_date",
+    manifest: createConnectorRelease(),
+    api: createUpdateApi(currentCalls),
+  });
+  assert.equal(current.mode, "up_to_date");
+  assert.deepEqual(currentCalls, []);
+  const release = createConnectorRelease({ latestVersion: "0.3.1", minimumSupportedVersion: "0.2.0" });
+  const calls = [];
+  const result = await startConnectorUpdateFlow({
+    installedVersion: "0.3.0",
+    compatibility: "update_available",
+    manifest: release,
+    api: createUpdateApi(calls, { compatibility: "update_available" }),
+  });
+  assert.equal(result.mode, "local_install_requested");
+  assert.deepEqual(calls, ["status", "check", "download", "install"]);
+});
+
+test("update obligatorio legacy bloquea MediWeb pero usa descarga manual", async () => {
+  const calls = [];
+  const result = await startConnectorUpdateFlow({
+    installedVersion: "0.2.0",
+    compatibility: "update_required",
+    manifest: createConnectorRelease({ minimumSupportedVersion: "0.3.0" }),
+    api: createUpdateApi(calls),
+  });
+  assert.equal(result.mode, "required_legacy");
+  assert.deepEqual(calls, []);
+});
+
+test("404 de update status activa fallback; 500, timeout, red y 403 no se ocultan", async () => {
+  const release = createConnectorRelease({ latestVersion: "0.3.1" });
+  const calls404 = [];
+  const fallback = await startConnectorUpdateFlow({
+    installedVersion: "0.3.0",
+    compatibility: "update_available",
+    manifest: release,
+    api: createUpdateApi(calls404, { statusError: new MediwebServiceError("NOT_FOUND", "Endpoint no encontrado.", { status: 404 }) }),
+  });
+  assert.equal(fallback.mode, "legacy_manual");
+  assert.equal(fallback.reason, "updater_unavailable");
+  assert.deepEqual(calls404, ["status"]);
+
+  const errors = [
+    [new MediwebServiceError("INTERNAL_ERROR", "Error interno", { status: 500 }), "connector_error"],
+    [new MediwebServiceError("CONNECTOR_TIMEOUT", "Timeout"), "timeout"],
+    [new MediwebServiceError("NETWORK_ERROR", "Red"), "network_error"],
+    [new MediwebServiceError("ORIGIN_NOT_ALLOWED", "Origin", { status: 403 }), "origin_rejected"],
+  ];
+  for (const [error, classification] of errors) {
+    assert.equal(classifyLocalUpdaterError(error), classification);
+    await assert.rejects(startConnectorUpdateFlow({
+      installedVersion: "0.3.0",
+      compatibility: "update_available",
+      manifest: release,
+      api: createUpdateApi([], { statusError: error }),
+    }), (received) => received === error);
+  }
+});
+
+test("fallback legacy rechaza manifest inválido, HTTP y repositorio GitHub diferente", async () => {
+  const valid = createConnectorRelease();
+  assert.equal(getLegacyConnectorDownloadUrl(valid), valid.windows.downloadUrl);
+  for (const downloadUrl of [
+    "http://github.com/jannpierrproyectos/audio-evaluaciones-medicas/releases/download/v0.3.0/AudioEvaluacionesConnector-0.3.0-Setup.exe",
+    "https://github.com/otro/repo/releases/download/v0.3.0/AudioEvaluacionesConnector-0.3.0-Setup.exe",
+    "javascript:alert(1)",
+  ]) {
+    const invalid = { ...valid, windows: { ...valid.windows, downloadUrl } };
+    assert.throws(() => getLegacyConnectorDownloadUrl(invalid), /Manifest inválido/);
+  }
+});
+
+test("servicio expone status sin confundir su 404 con otros errores", async () => {
+  await withFetch(async (url) => {
+    assert.equal(new URL(url).pathname, "/update/status");
+    return jsonResponse({ ok: false, code: "NOT_FOUND", message: "Endpoint no encontrado." }, 404);
+  }, async () => {
+    await assert.rejects(getConnectorUpdateStatus(), (error) => error.status === 404 && error.code === "NOT_FOUND");
+  });
+});
+
 test("update obligatorio bloquea solo el panel MediWeb y conserva PDF manual y Sheets", async () => {
   const importer = await readFile(new URL("../src/components/MediwebImporter.jsx", import.meta.url), "utf8");
   const app = await readFile(new URL("../src/App.jsx", import.meta.url), "utf8");
@@ -341,3 +462,27 @@ test("update obligatorio bloquea solo el panel MediWeb y conserva PDF manual y S
   assert.match(app, /setPdfSource\("manual"\)/);
   assert.match(app, /<SheetsWorkspace/);
 });
+
+function createConnectorRelease({ latestVersion = "0.3.0", minimumSupportedVersion = "0.2.0" } = {}) {
+  const fileName = `AudioEvaluacionesConnector-${latestVersion}-Setup.exe`;
+  return {
+    product: "AudioEvaluaciones Connector",
+    latestVersion,
+    minimumSupportedVersion,
+    windows: {
+      architecture: "x64",
+      fileName,
+      downloadUrl: `https://github.com/jannpierrproyectos/audio-evaluaciones-medicas/releases/download/v${latestVersion}/${fileName}`,
+      sha256: "a".repeat(64),
+    },
+  };
+}
+
+function createUpdateApi(calls, { compatibility = "update_available", statusError = null } = {}) {
+  return {
+    async getStatus() { calls.push("status"); if (statusError) throw statusError; return { ok: true }; },
+    async check() { calls.push("check"); return { ok: true, compatibility }; },
+    async download() { calls.push("download"); return { ok: true }; },
+    async install() { calls.push("install"); return { ok: true }; },
+  };
+}
