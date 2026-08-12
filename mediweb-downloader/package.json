@@ -1,6 +1,6 @@
 {
   "name": "mediweb-downloader",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Descarga local y secuencial de reportes MediWeb mediante una sesion manual.",
@@ -14,11 +14,15 @@
     "build:windows:host": "node scripts/build-windows-host.js",
     "smoke:windows:staging": "node scripts/smoke-windows-staging.js",
     "build:windows:installer": "node scripts/build-windows-installer.js",
-    "build:windows": "npm run build:windows:icon && npm run build:windows:staging && npm run smoke:windows:staging && npm run build:windows:installer"
+    "sign:windows:host": "node scripts/sign-windows.js host",
+    "sign:windows:setup": "node scripts/sign-windows.js setup",
+    "release:prepare": "node scripts/prepare-release.js",
+    "build:windows": "npm run build:windows:icon && npm run build:windows:staging && npm run sign:windows:host && npm run smoke:windows:staging && npm run build:windows:installer && npm run sign:windows:setup"
   },
   "dependencies": {
     "pdf-lib": "^1.17.1",
-    "playwright-core": "^1.54.2"
+    "playwright-core": "^1.54.2",
+    "semver": "^7.8.5"
   },
   "devDependencies": {
     "playwright": "^1.54.2"

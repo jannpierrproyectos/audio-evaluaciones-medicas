@@ -1,0 +1,10 @@
+{
+  "headers": [
+    {
+      "source": "/connector-release.json",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=300, must-revalidate" }
+      ]
+    }
+  ]
+}

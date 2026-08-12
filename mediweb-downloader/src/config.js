@@ -2,10 +2,18 @@ import { readFile, writeFile } from "node:fs/promises";
 import { ensureRuntimeDirectories } from "./paths.js";
 
 export const DEFAULT_CONFIG = Object.freeze({
+  configVersion: 1,
   port: 8765,
   audioEvaluacionesUrl: "https://audio-evaluaciones-medicas.vercel.app",
   downloadsDir: "",
   startWithWindows: true,
+  releaseManifestUrl: "https://audio-evaluaciones-medicas.vercel.app/connector-release.json",
+  releaseRepository: "jannpierrproyectos/audio-evaluaciones-medicas",
+  allowedDownloadHosts: Object.freeze([
+    "github.com",
+    "objects.githubusercontent.com",
+    "githubusercontent.com",
+  ]),
   allowedOrigins: Object.freeze([
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -33,18 +41,50 @@ export async function loadConnectorConfig({ runtimePaths, env = process.env, cre
     ?? (Array.isArray(localConfig.allowedOrigins) ? localConfig.allowedOrigins.join(",") : undefined)
     ?? DEFAULT_CONFIG.allowedOrigins.join(",");
   const audioEvaluacionesUrl = validateWebUrl(localConfig.audioEvaluacionesUrl ?? DEFAULT_CONFIG.audioEvaluacionesUrl);
+  const releaseManifestUrl = validateHttpsUrl(localConfig.releaseManifestUrl ?? DEFAULT_CONFIG.releaseManifestUrl, "manifest de actualizaciones");
+  const releaseRepository = validateReleaseRepository(localConfig.releaseRepository ?? DEFAULT_CONFIG.releaseRepository);
+  const allowedDownloadHosts = validateDownloadHosts(localConfig.allowedDownloadHosts ?? DEFAULT_CONFIG.allowedDownloadHosts);
   const configuredOrigins = originsValue.split(",").map((value) => value.trim()).filter(Boolean);
   for (const safeDefault of DEFAULT_CONFIG.allowedOrigins) {
     if (!configuredOrigins.includes(safeDefault)) configuredOrigins.push(safeDefault);
   }
   if (!configuredOrigins.includes(audioEvaluacionesUrl)) configuredOrigins.push(audioEvaluacionesUrl);
   return {
+    configVersion: DEFAULT_CONFIG.configVersion,
     port: parsePort(portValue),
     allowedOrigins: configuredOrigins.join(","),
     audioEvaluacionesUrl,
     downloadsDir: String(localConfig.downloadsDir ?? DEFAULT_CONFIG.downloadsDir).trim() || runtimePaths.downloadsDir,
     startWithWindows: localConfig.startWithWindows ?? DEFAULT_CONFIG.startWithWindows,
+    releaseManifestUrl,
+    releaseRepository,
+    allowedDownloadHosts,
   };
+}
+
+export function validateReleaseRepository(value) {
+  const repository = String(value).trim();
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) throw new Error("releaseRepository no es válido.");
+  return repository;
+}
+
+export function validateHttpsUrl(value, label = "URL") {
+  try {
+    const url = new URL(String(value));
+    if (url.protocol !== "https:" || url.username || url.password) throw new Error();
+    return url.href;
+  } catch {
+    throw new Error(`La URL del ${label} debe usar HTTPS y ser válida.`);
+  }
+}
+
+export function validateDownloadHosts(value) {
+  if (!Array.isArray(value) || value.length === 0) throw new Error("allowedDownloadHosts debe contener al menos un host.");
+  const hosts = value.map((item) => String(item).trim().toLowerCase());
+  if (hosts.some((host) => !/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(host))) {
+    throw new Error("allowedDownloadHosts contiene un host no válido.");
+  }
+  return [...new Set(hosts)];
 }
 
 export function validateWebUrl(value) {

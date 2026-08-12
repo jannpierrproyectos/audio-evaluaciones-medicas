@@ -323,7 +323,36 @@ La versión proviene de `package.json` y se inyecta en `/health`, el host nativo
 
 Durante upgrade, Inno solicita cierre cooperativo al host nuevo. Para 0.1.0 conserva además un fallback restringido a la ventana cuyo título exacto es **AudioEvaluaciones Connector**; nunca termina procesos Node arbitrarios. La actualización reemplaza Program Files, pero no ejecuta la limpieza de desinstalación: conserva `auth`, `config.json` y Documentos. Una desinstalación real elimina LocalAppData y conserva los reportes.
 
-Preparación futura de actualizaciones: el frontend ya puede comparar semánticamente la versión expuesta por `/health` y, en una fase posterior, informar al usuario de un instalador nuevo. Esta versión no descarga ni ejecuta actualizaciones.
+## Actualizaciones seguras y distribución (0.3.0)
+
+La versión se obtiene únicamente de `package.json`. `/health` la expone como `version`; React y el Connector consultan por HTTPS el contrato público `https://audio-evaluaciones-medicas.vercel.app/connector-release.json`. Las comparaciones usan `semver`, no comparación lexicográfica. El contrato distingue `latestVersion` y `minimumSupportedVersion`: una versión compatible anterior muestra un aviso opcional, mientras una versión inferior al mínimo bloquea solamente la integración MediWeb. Una caída del manifest no bloquea el uso del Connector actual.
+
+El Connector comprueba al iniciar y cada 12 horas, con caché de cinco minutos y una sola notificación por versión. No descarga en background. El usuario puede iniciar el flujo desde **Buscar actualizaciones** en el tray o desde la web. El API loopback mínimo es:
+
+- `GET /update/status`: estado no destructivo;
+- `POST /update/check`: consulta controlada del manifest;
+- `POST /update/download`: descarga el asset definido por el manifest, nunca una URL enviada por React;
+- `POST /update/download/cancel`: cancela una descarga activa;
+- `POST /update/install`: pide instalar el Setup ya verificado.
+
+Todas estas rutas reutilizan el bind `127.0.0.1` y la misma allowlist CORS exacta. La descarga requiere HTTPS, valida cada redirect, permite únicamente `github.com`, `objects.githubusercontent.com` y subdominios de `githubusercontent.com`, limita el archivo a 200 MB, aplica timeout de conexión y timeout global, y comprueba SHA-256. Un hash distinto elimina el `.partial` o Setup alterado. Antes del consentimiento de instalación, Node y el host WinForms vuelven a calcular el hash. Un job activo devuelve conflicto y no se cancela automáticamente.
+
+Los archivos verificados quedan en `%LOCALAPPDATA%\AudioEvaluacionesConnector\updates\<version>\`. Se conservan la versión pendiente y, como máximo, una anterior. Inno se abre en modo normal después del cierre cooperativo de Playwright, HTTP y Node. El upgrade conserva `auth`, `config.json`, la preferencia HKCU Run y `Documents\AudioEvaluaciones\Descargas`; `configVersion: 1` y la combinación defaults + config existente permiten añadir campos sin invalidar configuraciones 0.2.0.
+
+### Preparar v0.3.0 sin publicarla
+
+```powershell
+cd C:\Users\USER\Documents\AudioEvaluaciones\mediweb-downloader
+npm test
+npm run build:windows
+npm run release:prepare
+```
+
+`build:windows` sigue el orden host → firma opcional del host → Inno Setup → firma opcional del Setup. `release:prepare` calcula el hash después de cualquier firma, valida versión y nombre, y genera en `dist-windows`: el Setup, `SHA256SUMS.txt`, `connector-release.json` y las notas. También actualiza `..\public\connector-release.json` con una URL inmutable predecible bajo `releases/download/v<version>/...`. No publica ni usa credenciales.
+
+Para firma Authenticode futura, configura fuera del repositorio `WINDOWS_SIGN_CERT_PATH`, `WINDOWS_SIGN_CERT_PASSWORD` y, opcionalmente, `WINDOWS_SIGN_TIMESTAMP_URL`/`SIGNTOOL_PATH`. Sin certificado el build continúa con una advertencia. La firma ayuda a identificar al editor; SmartScreen también depende de reputación y no se promete que sus avisos desaparezcan de inmediato.
+
+Publicación manual: revisa los cuatro artifacts, crea manualmente el Release `v0.3.0` en `jannpierrproyectos/audio-evaluaciones-medicas`, sube únicamente Setup y `SHA256SUMS.txt`, copia las notas generadas, publica el Release y despliega después el manifest ya generado en Vercel. No reemplaces un binario publicado bajo la misma versión: cualquier cambio exige incrementar SemVer.
 
 ### Prueba manual del Setup en esta PC
 

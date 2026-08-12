@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { configurationRequiresRestart, DEFAULT_CONFIG, loadConnectorConfig } from "../src/config.js";
@@ -32,6 +32,7 @@ test("resuelve auth/config/tmp/logs en LocalAppData y descargas en Documents par
   assert.equal(paths.configPath, "C:\\Users\\Ana\\AppData\\Local\\AudioEvaluacionesConnector\\config.json");
   assert.equal(paths.tmpDir, "C:\\Users\\Ana\\AppData\\Local\\AudioEvaluacionesConnector\\tmp");
   assert.equal(paths.logsDir, "C:\\Users\\Ana\\AppData\\Local\\AudioEvaluacionesConnector\\logs");
+  assert.equal(paths.updatesDir, "C:\\Users\\Ana\\AppData\\Local\\AudioEvaluacionesConnector\\updates");
   assert.equal(paths.downloadsDir, "C:\\Users\\Ana\\Documents\\AudioEvaluaciones\\Descargas");
 });
 
@@ -52,6 +53,9 @@ test("crea config inicial segura y respeta precedencia env > config > defaults",
     assert.equal(initial.audioEvaluacionesUrl, DEFAULT_CONFIG.audioEvaluacionesUrl);
     assert.equal(initial.downloadsDir, runtimePaths.downloadsDir);
     assert.equal(initial.startWithWindows, true);
+    assert.equal(initial.configVersion, 1);
+    assert.equal(initial.releaseManifestUrl, DEFAULT_CONFIG.releaseManifestUrl);
+    assert.deepEqual(initial.allowedDownloadHosts, DEFAULT_CONFIG.allowedDownloadHosts);
     assert.deepEqual(initial.allowedOrigins.split(","), DEFAULT_CONFIG.allowedOrigins);
     assert.deepEqual(JSON.parse(await readFile(runtimePaths.configPath, "utf8")), DEFAULT_CONFIG);
 

@@ -22,7 +22,7 @@ export async function runTrayService({ env = process.env, output = process.stdou
   let service = null;
   let closing = false;
 
-  for (const type of ["connector:ready", "browser:opened", "browser:error", "job:started", "job:completed", "job:failed", "job:cancelled"]) {
+  for (const type of ["connector:ready", "browser:opened", "browser:error", "job:started", "job:completed", "job:failed", "job:cancelled", "update:available", "update:download-progress", "update:downloaded", "update:install-requested"]) {
     events.on(type, (details = {}) => writeTrayEvent(output, type, details));
   }
 

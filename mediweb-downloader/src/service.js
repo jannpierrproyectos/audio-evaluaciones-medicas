@@ -8,6 +8,7 @@ import { DownloaderRunner } from "./runner.js";
 import { loadConnectorConfig } from "./config.js";
 import { getRuntimePaths } from "./paths.js";
 import { EventEmitter } from "node:events";
+import { UpdateService } from "./updateService.js";
 
 export const moduleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -29,12 +30,24 @@ export async function startConnectorService({
   } : logger;
   const engine = new DownloaderRunner({ moduleRoot, runtimePaths, logger: engineLogger, events });
   const jobManager = new JobManager({ engine, events, logger });
-  const server = createServer(createApp({ engine, jobManager, version: packageJson.version, allowedOrigins }));
+  const updateService = new UpdateService({
+    installedVersion: packageJson.version,
+    manifestUrl: resolvedConfig.releaseManifestUrl,
+    releaseRepository: resolvedConfig.releaseRepository,
+    allowedHosts: resolvedConfig.allowedDownloadHosts,
+    updatesDir: runtimePaths.updatesDir,
+    hasActiveJob: () => jobManager.hasActiveJob,
+    events,
+    logger,
+  });
+  const server = createServer(createApp({ engine, jobManager, updateService, version: packageJson.version, allowedOrigins }));
   let shuttingDown = false;
+  let updateTimer = null;
 
   const shutdown = async (signal = "cierre") => {
     if (shuttingDown) return;
     shuttingDown = true;
+    if (updateTimer) clearInterval(updateTimer);
     logger.log(`\nCerrando servicio (${signal})...`);
     await new Promise((resolve) => server.close(resolve));
     if (jobManager.hasActiveJob) await jobManager.cancel(jobManager.activeJobId);
@@ -55,12 +68,15 @@ export async function startConnectorService({
   logger.log(`mediweb-downloader escuchando en http://127.0.0.1:${resolvedConfig.port}`);
   logger.log(`Origins permitidos: ${[...allowedOrigins].join(", ")}`);
   events.emit("connector:ready", { port: resolvedConfig.port, version: packageJson.version });
+  updateService.check().catch(() => {});
+  updateTimer = setInterval(() => updateService.check({ force: true }).catch(() => {}), 12 * 60 * 60 * 1000);
+  updateTimer.unref?.();
 
   if (registerSignalHandlers) {
     process.once("SIGINT", () => { shutdown("SIGINT").finally(() => { process.exitCode = 130; }); });
     process.once("SIGTERM", () => { shutdown("SIGTERM").finally(() => { process.exitCode = 143; }); });
   }
-  return { server, engine, jobManager, shutdown, port: resolvedConfig.port, version: packageJson.version, events };
+  return { server, engine, jobManager, updateService, shutdown, port: resolvedConfig.port, version: packageJson.version, events };
 }
 
 async function main() {

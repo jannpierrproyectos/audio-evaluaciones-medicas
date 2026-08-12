@@ -183,3 +183,31 @@ test("API HTTP local: health, CORS, jobs, PDF y cancelación con motor falso", a
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("API update usa GET solo para estado y POST para acciones bajo el mismo CORS", async () => {
+  const engine = { browserOpen: false };
+  const jobManager = { hasActiveJob: false };
+  const calls = [];
+  const status = { ok: true, installedVersion: "0.3.0", compatibility: "up_to_date" };
+  const updateService = {
+    publicStatus: () => status,
+    async check() { calls.push("check"); return status; },
+    async downloadUpdate() { calls.push("download"); return status; },
+    async requestInstall() { calls.push("install"); return { ok: true, accepted: true }; },
+    cancelDownload() { calls.push("cancel"); },
+  };
+  const server = createServer(createApp({ engine, jobManager, updateService, version: "0.3.0", allowedOrigins: new Set(["https://audio-evaluaciones-medicas.vercel.app"]) }));
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const headers = { Origin: "https://audio-evaluaciones-medicas.vercel.app" };
+  try {
+    assert.equal((await fetch(`${baseUrl}/update/status`, { headers })).status, 200);
+    assert.equal((await fetch(`${baseUrl}/update/check`, { method: "POST", headers })).status, 200);
+    assert.equal((await fetch(`${baseUrl}/update/download`, { method: "POST", headers })).status, 200);
+    assert.equal((await fetch(`${baseUrl}/update/install`, { method: "POST", headers })).status, 202);
+    assert.equal((await fetch(`${baseUrl}/update/install`, { headers })).status, 404);
+    assert.deepEqual(calls, ["check", "download", "install"]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

@@ -2,10 +2,11 @@ import { createReadStream } from "node:fs";
 import { HttpError, validateJobOptions } from "./jobManager.js";
 import { ResultsNotReadyError } from "../runner.js";
 import { BrowserUnavailableError } from "../browser.js";
+import { UpdateError } from "../updateService.js";
 
 const JSON_LIMIT = 16 * 1024;
 
-export function createRoutes({ engine, jobManager, version }) {
+export function createRoutes({ engine, jobManager, updateService, version }) {
   return async function route(request, response, url) {
     if (request.method === "GET" && url.pathname === "/health") {
       return json(response, 200, {
@@ -15,6 +16,21 @@ export function createRoutes({ engine, jobManager, version }) {
         browserOpen: engine.browserOpen,
         activeJob: jobManager.hasActiveJob,
       });
+    }
+    if (updateService && request.method === "GET" && url.pathname === "/update/status") {
+      return json(response, 200, updateService.publicStatus());
+    }
+    if (updateService && request.method === "POST" && url.pathname === "/update/check") {
+      return updateAction(response, () => updateService.check({ force: true }));
+    }
+    if (updateService && request.method === "POST" && url.pathname === "/update/download") {
+      return updateAction(response, () => updateService.downloadUpdate());
+    }
+    if (updateService && request.method === "POST" && url.pathname === "/update/download/cancel") {
+      return updateAction(response, async () => { updateService.cancelDownload(); return { ok: true, cancelled: true }; });
+    }
+    if (updateService && request.method === "POST" && url.pathname === "/update/install") {
+      return updateAction(response, () => updateService.requestInstall(), 202);
     }
     if (request.method === "POST" && url.pathname === "/mediweb/open") {
       try {
@@ -66,6 +82,15 @@ export function createRoutes({ engine, jobManager, version }) {
     }
     throw new HttpError(404, "NOT_FOUND", "Endpoint no encontrado.");
   };
+}
+
+async function updateAction(response, operation, status = 200) {
+  try {
+    return json(response, status, await operation());
+  } catch (error) {
+    if (error instanceof UpdateError) throw new HttpError(error.status, error.code, error.message);
+    throw error;
+  }
 }
 
 async function readJson(request) {

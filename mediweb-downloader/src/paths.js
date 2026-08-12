@@ -13,6 +13,7 @@ export function getRuntimePaths({ moduleRoot, packaged = false, env = process.en
       downloadsDir: path.join(moduleRoot, "downloads"),
       tmpDir: path.join(moduleRoot, "tmp"),
       logsDir: path.join(moduleRoot, "logs"),
+      updatesDir: path.join(moduleRoot, "updates"),
       configDir: path.join(moduleRoot, "config"),
       configPath: path.join(moduleRoot, "config", "config.json"),
     };
@@ -27,6 +28,7 @@ export function getRuntimePaths({ moduleRoot, packaged = false, env = process.en
     downloadsDir: path.join(userProfile, "Documents", "AudioEvaluaciones", "Descargas"),
     tmpDir: path.join(dataRoot, "tmp"),
     logsDir: path.join(dataRoot, "logs"),
+    updatesDir: path.join(dataRoot, "updates"),
     configDir: dataRoot,
     configPath: path.join(dataRoot, "config.json"),
   };
@@ -38,6 +40,7 @@ export async function ensureRuntimeDirectories(paths) {
     mkdir(paths.downloadsDir, { recursive: true }),
     mkdir(paths.tmpDir, { recursive: true }),
     mkdir(paths.logsDir, { recursive: true }),
+    paths.updatesDir ? mkdir(paths.updatesDir, { recursive: true }) : null,
     mkdir(paths.configDir, { recursive: true }),
   ]);
 }

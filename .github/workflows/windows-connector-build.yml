@@ -1,0 +1,47 @@
+name: Windows Connector build
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "mediweb-downloader/**"
+      - "src/**"
+      - "public/connector-release.json"
+      - "package*.json"
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            mediweb-downloader/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm ci
+        working-directory: mediweb-downloader
+      - run: npm test
+        working-directory: mediweb-downloader
+      - run: choco install innosetup --no-progress -y
+      - run: npm run build:windows
+        working-directory: mediweb-downloader
+      - run: npm run release:prepare
+        working-directory: mediweb-downloader
+      - uses: actions/upload-artifact@v6
+        with:
+          name: AudioEvaluacionesConnector-${{ github.sha }}
+          path: |
+            mediweb-downloader/dist-windows/AudioEvaluacionesConnector-*-Setup.exe
+            mediweb-downloader/dist-windows/SHA256SUMS.txt
+            mediweb-downloader/dist-windows/connector-release.json
+            mediweb-downloader/dist-windows/RELEASE_NOTES-*.md
+          if-no-files-found: error

@@ -27,8 +27,8 @@ export function normalizeOrigin(value) {
   }
 }
 
-export function createApp({ engine, jobManager, version, allowedOrigins = parseAllowedOrigins(process.env.MEDIWEB_ALLOWED_ORIGINS) }) {
-  const route = createRoutes({ engine, jobManager, version });
+export function createApp({ engine, jobManager, updateService = null, version, allowedOrigins = parseAllowedOrigins(process.env.MEDIWEB_ALLOWED_ORIGINS) }) {
+  const route = createRoutes({ engine, jobManager, updateService, version });
   const normalizedAllowedOrigins = new Set([...allowedOrigins].map(normalizeOrigin));
   return async function app(request, response) {
     try {

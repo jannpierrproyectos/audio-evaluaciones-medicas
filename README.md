@@ -62,3 +62,6 @@ npm run service
 ```
 
 Chrome puede solicitar al usuario permiso para que el sitio publicado acceda a servicios de la red local. AudioEvaluaciones muestra un mensaje recuperable si el navegador deniega la comunicación, pero la autorización final solo puede validarse en un navegador real. No se almacenan en React usuario, contraseña, cookies ni tokens de MediWeb; la sesión manual permanece exclusivamente en el navegador local controlado por el Connector.
+# Distribución del Connector
+
+El frontend publica `public/connector-release.json` como `/connector-release.json` con caché de cinco minutos. Este manifest permite mostrar la versión instalada, una actualización opcional u obligatoria y el enlace de primera instalación. La descarga de updates de una instalación existente se delega al Connector para validar HTTPS, origen, tamaño y SHA-256. Consulta `mediweb-downloader/README.md` para el procedimiento de build y publicación manual; ningún script publica GitHub Releases.

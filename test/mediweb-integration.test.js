@@ -6,6 +6,9 @@ import {
   MediwebServiceError,
   cancelMediwebJob,
   checkMediwebHealth,
+  checkConnectorUpdate,
+  downloadConnectorUpdate,
+  installConnectorUpdate,
   classifyConnectorError,
   createMediwebJob,
   detectMediwebEvaluations,
@@ -24,6 +27,7 @@ import {
   getMediwebCompletionSummary,
   getMediwebStartLabel,
 } from "../src/lib/mediwebUiState.js";
+import { classifyConnectorCompatibility, validateConnectorReleaseManifest } from "../src/lib/connectorRelease.js";
 
 const originalFetch = globalThis.fetch;
 const originalFile = globalThis.File;
@@ -293,4 +297,47 @@ test("la indisponibilidad del Connector no elimina la carga PDF manual", async (
   assert.match(appSource, /setPdfSource\("manual"\)/);
   assert.match(appSource, /id="pdf-primary-input"[\s\S]*accept="\.pdf,application\/pdf"/);
   assert.match(appSource, /<MediwebImporter onPdfSelected=\{handlePdfSelected\}/);
+});
+
+test("frontend clasifica Connector actualizado, update opcional, obligatorio y manifest caído", () => {
+  const release = {
+    product: "AudioEvaluaciones Connector",
+    latestVersion: "0.3.0",
+    minimumSupportedVersion: "0.2.0",
+    windows: {
+      architecture: "x64",
+      fileName: "AudioEvaluacionesConnector-0.3.0-Setup.exe",
+      downloadUrl: "https://github.com/jannpierrproyectos/audio-evaluaciones-medicas/releases/download/v0.3.0/AudioEvaluacionesConnector-0.3.0-Setup.exe",
+      sha256: "a".repeat(64),
+    },
+  };
+  assert.equal(validateConnectorReleaseManifest(release), release);
+  assert.equal(classifyConnectorCompatibility("0.3.0", release), "up_to_date");
+  assert.equal(classifyConnectorCompatibility("0.2.0", release), "update_available");
+  assert.equal(classifyConnectorCompatibility("0.1.0", release), "update_required");
+  assert.equal(classifyConnectorCompatibility("0.3.0", null), "unknown");
+  assert.throws(() => validateConnectorReleaseManifest({ ...release, windows: { ...release.windows, downloadUrl: "http://evil.example/setup.exe" } }));
+});
+
+test("frontend pide check, download e install al Connector sin enviar una URL", async () => {
+  const calls = [];
+  await withFetch(async (url, options) => {
+    calls.push({ path: new URL(url).pathname, method: options.method, body: options.body });
+    return jsonResponse({ ok: true, compatibility: "update_available" }, options.method === "POST" ? 200 : 405);
+  }, async () => {
+    await checkConnectorUpdate();
+    await downloadConnectorUpdate();
+    await installConnectorUpdate();
+  });
+  assert.deepEqual(calls.map(({ path }) => path), ["/update/check", "/update/download", "/update/install"]);
+  assert.ok(calls.every((call) => call.method === "POST" && call.body === undefined));
+});
+
+test("update obligatorio bloquea solo el panel MediWeb y conserva PDF manual y Sheets", async () => {
+  const importer = await readFile(new URL("../src/components/MediwebImporter.jsx", import.meta.url), "utf8");
+  const app = await readFile(new URL("../src/App.jsx", import.meta.url), "utf8");
+  assert.match(importer, /connectorIncompatible[\s\S]*connector_incompatible/);
+  assert.match(importer, /La carga manual de PDF y Sheets siguen disponibles/);
+  assert.match(app, /setPdfSource\("manual"\)/);
+  assert.match(app, /<SheetsWorkspace/);
 });

@@ -788,6 +788,49 @@ h1 {
   color: var(--error-text);
 }
 
+.connector-status {
+  flex-wrap: wrap;
+}
+
+.connector-status small {
+  width: 100%;
+  color: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.connector-status.is-outdated {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+
+.connector-status.is-incompatible {
+  background: var(--error-soft);
+  color: var(--error-text);
+}
+
+.mediweb-update-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+
+.mediweb-update-notice.is-required {
+  background: var(--error-soft);
+  color: var(--error-text);
+}
+
+.mediweb-update-notice p {
+  margin: 4px 0 0;
+}
+
 .mediweb-live-region {
   min-height: 42px;
   padding: 11px 14px;

@@ -8,7 +8,11 @@ import {
   getMediwebErrorMessage,
   getMediwebJob,
   openMediweb,
+  checkConnectorUpdate,
+  downloadConnectorUpdate,
+  installConnectorUpdate,
 } from "../services/mediwebService.js";
+import { classifyConnectorCompatibility, getConnectorReleaseManifest } from "../lib/connectorRelease.js";
 import { importMediwebPdfIntoExistingFlow } from "../lib/importMediwebPdf.js";
 import {
   EMPTY_MEDIWEB_ADVANCED_OPTIONS,
@@ -99,6 +103,10 @@ function JobMetrics({ job }) {
 
 export default function MediwebImporter({ onPdfSelected }) {
   const [connectorStatus, setConnectorStatus] = useState("checking");
+  const [connectorVersion, setConnectorVersion] = useState("");
+  const [releaseManifest, setReleaseManifest] = useState(null);
+  const [updateCompatibility, setUpdateCompatibility] = useState("unknown");
+  const [updateDismissed, setUpdateDismissed] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [detectionSummary, setDetectionSummary] = useState(null);
   const [mode, setMode] = useState("first");
@@ -113,6 +121,7 @@ export default function MediwebImporter({ onPdfSelected }) {
   const [importedWorkerCount, setImportedWorkerCount] = useState(0);
   const [showImportedDetails, setShowImportedDetails] = useState(false);
   const requestControllers = useRef(new Set());
+  const releaseManifestRef = useRef(null);
   const importGuard = useRef(createSingleFlight());
 
   const createTrackedController = useCallback(() => {
@@ -130,23 +139,59 @@ export default function MediwebImporter({ onPdfSelected }) {
     const requestSignal = signal || localController.signal;
     setConnectorStatus("checking");
     setFeedback("Comprobando el conector MediWeb…");
-    const diagnosis = await diagnoseConnector({ signal: requestSignal });
+    const [diagnosis, manifest] = await Promise.all([
+      diagnoseConnector({ signal: requestSignal }),
+      getConnectorReleaseManifest({ signal: requestSignal }).catch(() => null),
+    ]);
+    if (manifest) releaseManifestRef.current = manifest;
+    const effectiveManifest = manifest || releaseManifestRef.current;
     try {
       if (diagnosis.error?.code === "REQUEST_ABORTED") return;
       if (diagnosis.status !== "connected" || !diagnosis.health?.ok) {
         setConnectorStatus(diagnosis.status === "unknown" ? "error" : "disconnected");
         setFeedback(getConnectorDiagnosticMessage(diagnosis.status));
         logMediwebDiagnostic(`health ${diagnosis.status}`, diagnosis.error);
+        setReleaseManifest(effectiveManifest);
+        setUpdateCompatibility("unknown");
         return;
       }
       const health = diagnosis.health;
       setConnectorStatus("connected");
+      setConnectorVersion(health.version || "");
+      setReleaseManifest(effectiveManifest);
+      setUpdateCompatibility(classifyConnectorCompatibility(health.version, effectiveManifest));
       setBrowserOpen(Boolean(health.browserOpen));
       setFeedback("Conector MediWeb conectado.");
     } finally {
       if (localController) releaseController(localController);
     }
   }, [createTrackedController, releaseController]);
+
+  async function handleUpdateConnector() {
+    const controller = createTrackedController();
+    setPendingAction("update");
+    setFeedback("Preparando la actualización segura del Connector…");
+    try {
+      const status = await checkConnectorUpdate({ signal: controller.signal });
+      setUpdateCompatibility(status.compatibility);
+      if (status.compatibility === "up_to_date") {
+        setFeedback("AudioEvaluaciones Connector ya está actualizado.");
+        return;
+      }
+      if (!["update_available", "update_required"].includes(status.compatibility)) {
+        setFeedback("No se pudo consultar la actualización. Puedes continuar usando la versión actual.");
+        return;
+      }
+      await downloadConnectorUpdate({ signal: controller.signal });
+      await installConnectorUpdate({ signal: controller.signal });
+      setFeedback("La actualización está verificada. Confirma la instalación en AudioEvaluaciones Connector.");
+    } catch (error) {
+      if (error?.code !== "REQUEST_ABORTED") setFeedback(getMediwebErrorMessage(error));
+    } finally {
+      releaseController(controller);
+      setPendingAction("");
+    }
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -353,7 +398,8 @@ export default function MediwebImporter({ onPdfSelected }) {
     setFeedback(snapshot.feedback);
   }
 
-  const phase = deriveMediwebPhase({ connectorStatus, browserOpen, detectionSummary, jobProgress, importCompleted });
+  const connectorIncompatible = connectorStatus === "connected" && updateCompatibility === "update_required";
+  const phase = connectorIncompatible ? "connector_incompatible" : deriveMediwebPhase({ connectorStatus, browserOpen, detectionSummary, jobProgress, importCompleted });
   const completionSummary = jobProgress?.status === "completed"
     ? getMediwebCompletionSummary(jobProgress)
     : null;
@@ -369,9 +415,10 @@ export default function MediwebImporter({ onPdfSelected }) {
           <h2 id="mediweb-title">Conector MediWeb</h2>
           {phase === "ready" ? <p className="section-text">Importa evaluaciones directamente desde MediWeb.</p> : null}
         </div>
-        <div className={`connector-status is-${connectorStatus}`}>
+        <div className={`connector-status is-${connectorIncompatible ? "incompatible" : updateCompatibility === "update_available" ? "outdated" : connectorStatus}`}>
           <span aria-hidden="true">{connectorStatus === "connected" ? "●" : connectorStatus === "checking" ? "◌" : "○"}</span>
-          <span>{connectorStatus === "checking" ? "Comprobando" : connectorStatus === "connected" ? "Conectado" : "No disponible"}</span>
+          <span>{connectorStatus === "checking" ? "Comprobando" : connectorIncompatible ? "Incompatible" : updateCompatibility === "update_available" ? "Desactualizado" : connectorStatus === "connected" ? "Conectado" : "No disponible"}</span>
+          {connectorStatus === "connected" && connectorVersion ? <small>Connector v{connectorVersion}</small> : null}
         </div>
       </div>
 
@@ -381,8 +428,25 @@ export default function MediwebImporter({ onPdfSelected }) {
 
       {phase === "connector_unavailable" ? (
         <div className="mediweb-empty-state is-unavailable">
-          <div><h3>AudioEvaluaciones Connector no está disponible en esta computadora</h3><p>{feedback}</p></div>
-          <button type="button" className="secondary-button" onClick={() => checkHealth()} disabled={connectorStatus === "checking"}>Reintentar</button>
+          <div><h3>AudioEvaluaciones Connector no está disponible en esta computadora</h3><p>{feedback}</p><p>Para importar evaluaciones directamente desde MediWeb necesitas instalar AudioEvaluaciones Connector en esta computadora.</p><small>Solo necesitas instalarlo una vez.</small></div>
+          <div className="mediweb-actions">
+            {releaseManifest ? <a className="primary-button" href={releaseManifest.windows.downloadUrl}>Descargar Connector</a> : null}
+            <button type="button" className="secondary-button" onClick={() => checkHealth()} disabled={connectorStatus === "checking"}>Reintentar</button>
+          </div>
+        </div>
+      ) : null}
+
+      {phase === "connector_incompatible" ? (
+        <div className="mediweb-update-notice is-required" role="alert">
+          <div><h3>AudioEvaluaciones Connector necesita actualizarse</h3><p>Necesita actualizarse para continuar usando la integración con MediWeb. La carga manual de PDF y Sheets siguen disponibles.</p></div>
+          <button type="button" className="primary-button" onClick={handleUpdateConnector} disabled={pendingAction === "update"}>{pendingAction === "update" ? "Preparando…" : "Actualizar Connector"}</button>
+        </div>
+      ) : null}
+
+      {updateCompatibility === "update_available" && !updateDismissed ? (
+        <div className="mediweb-update-notice">
+          <div><strong>Hay una nueva versión de AudioEvaluaciones Connector disponible.</strong><p>Puedes seguir usando MediWeb y actualizar cuando te resulte conveniente.</p></div>
+          <div className="mediweb-actions"><button type="button" className="primary-button" onClick={handleUpdateConnector} disabled={pendingAction === "update"}>Actualizar</button><button type="button" className="secondary-button is-quiet" onClick={() => setUpdateDismissed(true)}>Más tarde</button></div>
         </div>
       ) : null}
 

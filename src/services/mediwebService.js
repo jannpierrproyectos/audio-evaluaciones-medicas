@@ -18,6 +18,18 @@ export async function checkMediwebHealth({ signal, timeoutMs = HEALTH_TIMEOUT_MS
   return requestJson("/health", { signal, timeoutMs });
 }
 
+export async function checkConnectorUpdate({ signal } = {}) {
+  return requestJson("/update/check", { method: "POST", signal, timeoutMs: 20000 });
+}
+
+export async function downloadConnectorUpdate({ signal } = {}) {
+  return requestJson("/update/download", { method: "POST", signal, timeoutMs: 10 * 60 * 1000 });
+}
+
+export async function installConnectorUpdate({ signal } = {}) {
+  return requestJson("/update/install", { method: "POST", signal, timeoutMs: 20000 });
+}
+
 export async function diagnoseConnector(options = {}) {
   try {
     const health = await checkMediwebHealth(options);
@@ -92,6 +104,10 @@ export function getMediwebErrorMessage(error) {
     JOB_NOT_FINISHED: "El PDF todavía se está preparando.",
     NETWORK_ERROR: "No fue posible comunicarse con el conector MediWeb.",
     FAILED: "Se produjo un error durante el procesamiento de MediWeb.",
+    UPDATE_JOB_ACTIVE: "Hay un procesamiento de evaluaciones en curso. Finalízalo o cancélalo antes de actualizar el Connector.",
+    UPDATE_SHA256_MISMATCH: "No se pudo verificar la actualización. El instalador descargado fue descartado.",
+    UPDATE_MANIFEST_UNAVAILABLE: "No se pudo consultar la actualización. Puedes continuar usando la versión actual.",
+    UPDATE_DOWNLOAD_FAILED: "No se pudo descargar la actualización.",
   };
   return messages[error?.code] || error?.message || messages.NETWORK_ERROR;
 }

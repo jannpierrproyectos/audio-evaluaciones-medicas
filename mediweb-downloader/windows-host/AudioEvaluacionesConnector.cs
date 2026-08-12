@@ -6,6 +6,7 @@ using System.IO;
 using System.IO.Pipes;
 using System.Net;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
 using System.Threading;
@@ -71,10 +72,14 @@ namespace AudioEvaluacionesConnector
 
     internal sealed class ConnectorConfig
     {
+        public int configVersion = 1;
         public int port = 8765;
         public string audioEvaluacionesUrl = Program.DefaultUrl;
         public string downloadsDir = "";
         public bool startWithWindows = true;
+        public string releaseManifestUrl = Program.DefaultUrl + "/connector-release.json";
+        public string releaseRepository = "jannpierrproyectos/audio-evaluaciones-medicas";
+        public string[] allowedDownloadHosts = new[] { "github.com", "objects.githubusercontent.com", "githubusercontent.com" };
         public string[] allowedOrigins = new[] { "http://localhost:5173", "http://127.0.0.1:5173", Program.DefaultUrl };
     }
 
@@ -88,6 +93,7 @@ namespace AudioEvaluacionesConnector
         private readonly ToolStripMenuItem statusItem;
         private readonly ToolStripMenuItem toggleItem;
         private readonly ToolStripMenuItem startupItem;
+        private readonly ToolStripMenuItem releaseNotesItem;
         private readonly JavaScriptSerializer json = new JavaScriptSerializer();
         private readonly Control dispatcher = new Control();
         private Process child;
@@ -96,6 +102,12 @@ namespace AudioEvaluacionesConnector
         private bool activeJob;
         private bool exiting;
         private bool restarting;
+        private bool installing;
+        private string installerPath;
+        private string latestVersion;
+        private string updateStatus = "Sin comprobar";
+        private string lastUpdateCheck = "Nunca";
+        private string releaseNotesUrl;
         private readonly bool silentStartup;
         private NamedPipeServerStream instancePipe;
 
@@ -124,8 +136,12 @@ namespace AudioEvaluacionesConnector
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(startupItem);
             menu.Items.Add(new ToolStripMenuItem("Configuración", null, delegate { ShowSettings(); }));
+            menu.Items.Add(new ToolStripMenuItem("Buscar actualizaciones", null, async delegate { await CheckUpdates(); }));
+            releaseNotesItem = new ToolStripMenuItem("Ver novedades", null, delegate { if (!String.IsNullOrWhiteSpace(releaseNotesUrl)) OpenTarget(releaseNotesUrl); }) { Enabled = false };
+            menu.Items.Add(releaseNotesItem);
             var diagnostics = new ToolStripMenuItem("Diagnóstico");
             diagnostics.DropDownItems.Add(new ToolStripMenuItem("Abrir carpeta de diagnóstico", null, delegate { OpenTarget(logsDir); }));
+            diagnostics.DropDownItems.Add(new ToolStripMenuItem("Estado de actualización", null, delegate { ShowUpdateDiagnostics(); }));
             menu.Items.Add(diagnostics);
             menu.Items.Add(new ToolStripMenuItem("Acerca de", null, delegate { ShowAbout(); }));
             menu.Items.Add(new ToolStripSeparator());
@@ -235,6 +251,22 @@ namespace AudioEvaluacionesConnector
             else if (type == "job:completed") { activeJob = false; SetState("ready"); ShowBalloon("Proceso completado.", ToolTipIcon.Info); }
             else if (type == "job:failed") { activeJob = false; SetState("error"); ShowBalloon("El procesamiento se detuvo por un error.", ToolTipIcon.Error); ResetReadyLater(); }
             else if (type == "job:cancelled") { activeJob = false; SetState("ready"); }
+            else if (type == "update:available")
+            {
+                ApplyUpdateDetails(details);
+                ShowBalloon("Nueva versión disponible: " + latestVersion, ToolTipIcon.Info);
+            }
+            else if (type == "update:download-progress")
+            {
+                if (Detail(details, "state") == "downloading") updateStatus = "Descargando";
+            }
+            else if (type == "update:downloaded")
+            {
+                latestVersion = Detail(details, "version");
+                updateStatus = "Lista para instalar";
+                ShowBalloon("La actualización " + latestVersion + " está lista para instalarse.", ToolTipIcon.Info);
+            }
+            else if (type == "update:install-requested") PrepareInstall(details);
             else if (type == "connector:already-running") { ShowBalloon("AudioEvaluaciones Connector ya está activo.", ToolTipIcon.Info); ExitThread(); }
             else if (type == "connector:error")
             {
@@ -252,7 +284,11 @@ namespace AudioEvaluacionesConnector
         {
             BeginOnUi(delegate
             {
-                if (restarting)
+                if (installing)
+                {
+                    LaunchVerifiedInstaller();
+                }
+                else if (restarting)
                 {
                     restarting = false;
                     StartService();
@@ -341,6 +377,149 @@ namespace AudioEvaluacionesConnector
             }
         }
 
+        private async Task CheckUpdates()
+        {
+            if (state == "stopped" || state == "error") { ShowBalloon("Inicia el Connector antes de buscar actualizaciones.", ToolTipIcon.Warning); return; }
+            try
+            {
+                Dictionary<string, object> result = await PostConnector("/update/check");
+                ApplyUpdateDetails(result);
+                string compatibility = Detail(result, "compatibility");
+                if (compatibility == "up_to_date")
+                {
+                    MessageBox.Show("AudioEvaluaciones Connector está actualizado.\nVersión " + CurrentVersion(), Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                if (compatibility != "update_available" && compatibility != "update_required")
+                {
+                    MessageBox.Show("No se pudo consultar la actualización. Puedes continuar usando la versión actual.", Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                string message = compatibility == "update_required"
+                    ? "Esta versión necesita actualizarse para continuar usando la integración con MediWeb."
+                    : "Nueva versión disponible: " + latestVersion;
+                if (MessageBox.Show(message + "\n\n¿Descargar actualización?", Program.AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                    await DownloadAndPrepareUpdate();
+            }
+            catch { ShowBalloon("No se pudo comprobar si existen actualizaciones.", ToolTipIcon.Warning); }
+        }
+
+        private async Task DownloadAndPrepareUpdate()
+        {
+            try
+            {
+                updateStatus = "Descargando";
+                await PostConnector("/update/download");
+                await PostConnector("/update/install");
+            }
+            catch (WebException ex)
+            {
+                string body = ReadWebError(ex);
+                updateStatus = "Error de descarga";
+                if (body.Contains("UPDATE_SHA256_MISMATCH")) MessageBox.Show("No se pudo verificar la actualización. El instalador descargado fue descartado.", Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                else ShowBalloon("No se pudo descargar o preparar la actualización.", ToolTipIcon.Error);
+            }
+        }
+
+        private async Task<Dictionary<string, object>> PostConnector(string endpoint)
+        {
+            using (var client = new WebClient())
+            {
+                client.Headers[HttpRequestHeader.ContentType] = "application/json";
+                byte[] response = await client.UploadDataTaskAsync(new Uri("http://127.0.0.1:" + config.port + endpoint), "POST", Encoding.UTF8.GetBytes("{}"));
+                return json.Deserialize<Dictionary<string, object>>(Encoding.UTF8.GetString(response));
+            }
+        }
+
+        private void ApplyUpdateDetails(Dictionary<string, object> details)
+        {
+            latestVersion = Detail(details, "latestVersion");
+            updateStatus = Detail(details, "compatibility");
+            lastUpdateCheck = Detail(details, "lastCheckedAt");
+            releaseNotesUrl = Detail(details, "releaseNotesUrl");
+            releaseNotesItem.Enabled = !String.IsNullOrWhiteSpace(releaseNotesUrl);
+        }
+
+        private static string Detail(Dictionary<string, object> details, string key)
+        {
+            return details.ContainsKey(key) && details[key] != null ? Convert.ToString(details[key]) : "";
+        }
+
+        private void PrepareInstall(Dictionary<string, object> details)
+        {
+            if (activeJob)
+            {
+                MessageBox.Show("Hay un procesamiento de evaluaciones en curso.\n\nFinalízalo o cancélalo antes de actualizar AudioEvaluaciones Connector.", Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            string candidate = Detail(details, "filePath");
+            string updatesRoot = Path.GetFullPath(Path.Combine(dataDir, "updates")) + Path.DirectorySeparatorChar;
+            string fullPath;
+            try { fullPath = Path.GetFullPath(candidate); } catch { Log("ERROR", "Ruta de instalador verificado inválida."); return; }
+            if (!fullPath.StartsWith(updatesRoot, StringComparison.OrdinalIgnoreCase) || !fullPath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || !File.Exists(fullPath))
+            {
+                Log("ERROR", "Se rechazó una ruta de instalador fuera del directorio de updates.");
+                return;
+            }
+            string expectedSha256 = Detail(details, "sha256");
+            if (String.IsNullOrWhiteSpace(expectedSha256) || !String.Equals(HashFileSha256(fullPath), expectedSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                try { File.Delete(fullPath); } catch { }
+                Log("ERROR", "El instalador cambió después de la verificación y fue descartado.");
+                MessageBox.Show("No se pudo verificar la actualización. El instalador descargado fue descartado.", Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            if (MessageBox.Show("La actualización está lista para instalarse.\n\nAudioEvaluaciones Connector se cerrará durante la actualización.", Program.AppName, MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK) return;
+            installerPath = fullPath;
+            installing = true;
+            exiting = true;
+            try { child.StandardInput.WriteLine("shutdown"); child.StandardInput.Flush(); }
+            catch { LaunchVerifiedInstaller(); }
+        }
+
+        private void LaunchVerifiedInstaller()
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo(installerPath) { UseShellExecute = true });
+                Log("INFO", "Verified update installer launched.");
+                FinishExit();
+            }
+            catch (Exception ex)
+            {
+                Log("ERROR", "No se pudo iniciar el instalador verificado: " + ex.GetType().Name);
+                installing = false;
+                exiting = false;
+                installerPath = null;
+                ShowBalloon("No se pudo iniciar el instalador. Puedes volver a intentarlo.", ToolTipIcon.Error);
+                StartService();
+            }
+        }
+
+        private static string ReadWebError(WebException ex)
+        {
+            try { using (var reader = new StreamReader(ex.Response.GetResponseStream())) return reader.ReadToEnd(); } catch { return ""; }
+        }
+
+        private static string HashFileSha256(string filePath)
+        {
+            using (var sha = SHA256.Create())
+            using (var stream = File.OpenRead(filePath))
+            {
+                byte[] hash = sha.ComputeHash(stream);
+                var text = new StringBuilder(hash.Length * 2);
+                foreach (byte value in hash) text.Append(value.ToString("x2"));
+                return text.ToString();
+            }
+        }
+
+        private string CurrentVersion() { return FileVersionInfo.GetVersionInfo(Application.ExecutablePath).ProductVersion; }
+
+        private void ShowUpdateDiagnostics()
+        {
+            MessageBox.Show("Connector: " + CurrentVersion() + "\nÚltima comprobación: " + lastUpdateCheck + "\nEstado de actualización: " + updateStatus, "Diagnóstico", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
         private void OpenReports()
         {
             string folder = String.IsNullOrWhiteSpace(config.downloadsDir)
@@ -386,6 +565,10 @@ namespace AudioEvaluacionesConnector
             {
                 if (dialog.ShowDialog() != DialogResult.OK) return;
                 ConnectorConfig changed = dialog.Value;
+                changed.configVersion = config.configVersion;
+                changed.releaseManifestUrl = config.releaseManifestUrl;
+                changed.releaseRepository = config.releaseRepository;
+                changed.allowedDownloadHosts = config.allowedDownloadHosts;
                 var origins = new List<string> { "http://localhost:5173", "http://127.0.0.1:5173", Program.DefaultUrl };
                 if (!origins.Contains(changed.audioEvaluacionesUrl)) origins.Add(changed.audioEvaluacionesUrl);
                 changed.allowedOrigins = origins.ToArray();
@@ -400,8 +583,8 @@ namespace AudioEvaluacionesConnector
 
         private void ShowAbout()
         {
-            string version = FileVersionInfo.GetVersionInfo(Application.ExecutablePath).ProductVersion;
-            MessageBox.Show(Program.AppName + "\nVersión " + version + "\n\nServicio local para integración segura entre AudioEvaluaciones y MediWeb.\n\nActualizaciones automáticas: no disponibles en esta versión.",
+            string version = CurrentVersion();
+            MessageBox.Show(Program.AppName + "\nVersión " + version + "\n\nServicio local para integración segura entre AudioEvaluaciones y MediWeb.\n\nLas actualizaciones solo se descargan e instalan con tu autorización.",
                 "Acerca de", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 

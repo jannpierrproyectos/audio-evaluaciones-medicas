@@ -1,8 +1,16 @@
 {
+  "configVersion": 1,
   "port": 8765,
   "audioEvaluacionesUrl": "https://audio-evaluaciones-medicas.vercel.app",
   "downloadsDir": "",
   "startWithWindows": true,
+  "releaseManifestUrl": "https://audio-evaluaciones-medicas.vercel.app/connector-release.json",
+  "releaseRepository": "jannpierrproyectos/audio-evaluaciones-medicas",
+  "allowedDownloadHosts": [
+    "github.com",
+    "objects.githubusercontent.com",
+    "githubusercontent.com"
+  ],
   "allowedOrigins": [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
