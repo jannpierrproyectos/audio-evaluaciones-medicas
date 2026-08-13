@@ -1,9 +1,24 @@
-import * as pdfjsLib from "pdfjs-dist";
+const isNodeRuntime = typeof window === "undefined";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.mjs",
-  import.meta.url
-).toString();
+if (isNodeRuntime && typeof globalThis.DOMMatrix === "undefined") {
+  globalThis.DOMMatrix = class DOMMatrix {
+    constructor(init = [1, 0, 0, 1, 0, 0]) {
+      const values = Array.isArray(init) ? init : [1, 0, 0, 1, 0, 0];
+      [this.a, this.b, this.c, this.d, this.e, this.f] = values;
+    }
+  };
+}
+
+const pdfjsLib = isNodeRuntime
+  ? await import("pdfjs-dist/legacy/build/pdf.mjs")
+  : await import("pdfjs-dist");
+
+if (!isNodeRuntime) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+    "pdfjs-dist/build/pdf.worker.mjs",
+    import.meta.url
+  ).toString();
+}
 
 export async function extractPdfTextItems(file) {
   if (!file) {
@@ -14,6 +29,7 @@ export async function extractPdfTextItems(file) {
 
   const pdf = await pdfjsLib.getDocument({
     data: arrayBuffer,
+    ...(isNodeRuntime ? { disableWorker: true } : {}),
   }).promise;
 
   const pages = [];

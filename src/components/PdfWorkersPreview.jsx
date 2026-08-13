@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import PdfWorkerReviewForm from "./PdfWorkerReviewForm.jsx";
-import { buildNarrativeDraftFromFindings } from "../lib/narrative/buildNarrativeDraftFromFindings.js";
-import { deriveNarrativeFindings } from "../lib/narrative/deriveNarrativeFindings.js";
+import { processWorkerClinicalNarrative } from "../clinical/index.js";
 import { synthesizeAudioFromText } from "../lib/ttsClient.js";
 
 const FILTERS = [
@@ -326,6 +325,7 @@ function hasAutomaticNameSplitWarning(warnings) {
 function WorkerSummary({
   worker,
   findings,
+  reviewFlags = [],
   isEditing,
   onToggleEditing,
   onConfirm,
@@ -415,6 +415,17 @@ function WorkerSummary({
             items={warnings.slice(0, 5)}
             emptyLabel="Sin alertas automaticas."
             renderItem={(warning) => `[${warning.severity}] ${warning.message}`}
+          />
+        </details>
+      )}
+
+      {reviewFlags.some((flag) => flag.confidence !== "automatic") && (
+        <details className="technical-detail" open>
+          <summary>Elementos a revisar</summary>
+          <NarrativeList
+            items={reviewFlags.filter((flag) => flag.confidence !== "automatic")}
+            emptyLabel="Sin elementos clínicos pendientes."
+            renderItem={(flag) => `${flag.message} (${flag.sourceField})`}
           />
         </details>
       )}
@@ -561,6 +572,7 @@ function WorkerTextAudioPanel({
             audio_url: result.audioUrl,
             audio_filename: result.audioFilename,
             audio_mime_type: result.mimeType,
+            texto_tts: result.ttsText,
             audio_error: "",
             audio_stale: false,
             last_audio_generated_at: new Date().toISOString(),
@@ -690,7 +702,7 @@ function WorkerTextAudioPanel({
   );
 }
 
-function TechnicalDetailsPanel({ worker, findings }) {
+function TechnicalDetailsPanel({ worker, findings, reviewFlags = [] }) {
   const narrativeGroupEntries = Object.entries(findings.narrative_groups || {}).filter(
     ([, group]) => group.narrar,
   );
@@ -733,6 +745,11 @@ function TechnicalDetailsPanel({ worker, findings }) {
           items={worker?.validation?.warnings || []}
           emptyLabel="Sin alertas automaticas."
           renderItem={(warning) => `[${warning.severity}] ${warning.message}`}
+        />
+        <NarrativeList
+          items={reviewFlags}
+          emptyLabel="Sin flags del motor clínico."
+          renderItem={(flag) => `[${flag.confidence}] ${flag.type}: ${flag.message}`}
         />
       </details>
 
@@ -794,6 +811,7 @@ function WorkerDetailPanel({
   workerIndex,
   findings,
   draft,
+  reviewFlags,
   onChangeWorker,
   onConfirmWorker,
   onUpdateWorker,
@@ -801,12 +819,6 @@ function WorkerDetailPanel({
   const [activeTab, setActiveTab] = useState("summary");
   const [isEditing, setIsEditing] = useState(false);
   const [isDraftVisible, setIsDraftVisible] = useState(false);
-
-  useEffect(() => {
-    setActiveTab("summary");
-    setIsDraftVisible(false);
-    setIsEditing(false);
-  }, [workerIndex]);
 
   function handleConfirmWorker() {
     onConfirmWorker?.(workerIndex);
@@ -847,6 +859,7 @@ function WorkerDetailPanel({
           <WorkerSummary
             worker={worker}
             findings={findings}
+            reviewFlags={reviewFlags}
             isEditing={isEditing}
             onToggleEditing={() => setIsEditing((value) => !value)}
             onConfirm={handleConfirmWorker}
@@ -866,7 +879,7 @@ function WorkerDetailPanel({
         )}
 
         {activeTab === "technical" && (
-          <TechnicalDetailsPanel worker={worker} findings={findings} />
+          <TechnicalDetailsPanel worker={worker} findings={findings} reviewFlags={reviewFlags} />
         )}
       </div>
     </section>
@@ -895,11 +908,16 @@ function PdfWorkersPreview({
   const workers = analysis.workers || [];
   const selectedWorker = workers[selectedWorkerIndex] || workers[0];
   const selectedIndex = workers.indexOf(selectedWorker);
-  const narrativeFindings = selectedWorker
-    ? deriveNarrativeFindings(selectedWorker)
+  const clinicalResult = selectedWorker
+    ? processWorkerClinicalNarrative(selectedWorker)
     : null;
-  const narrativeDraft = narrativeFindings
-    ? buildNarrativeDraftFromFindings(narrativeFindings)
+  const narrativeFindings = clinicalResult?.findings || null;
+  const narrativeDraft = clinicalResult
+    ? {
+        can_generate: clinicalResult.canGenerate,
+        blocking_reasons: clinicalResult.blockingReasons,
+        text: clinicalResult.displayText,
+      }
     : null;
 
   return (
@@ -934,10 +952,12 @@ function PdfWorkersPreview({
 
         {selectedWorker && narrativeFindings && narrativeDraft ? (
           <WorkerDetailPanel
+            key={selectedIndex}
             worker={selectedWorker}
             workerIndex={selectedIndex}
             findings={narrativeFindings}
             draft={narrativeDraft}
+            reviewFlags={clinicalResult.reviewFlags}
             onChangeWorker={onChangeWorker}
             onConfirmWorker={onConfirmWorker}
             onUpdateWorker={onUpdateWorker}

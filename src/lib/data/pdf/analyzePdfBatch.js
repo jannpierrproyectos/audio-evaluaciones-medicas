@@ -1,6 +1,6 @@
-import { extractPdfTextItems } from "./extractPdfTextItems";
-import { detectPdfTemplate } from "./detectPdfTemplate";
-import { parseInnomedicMedicalResult } from "./parseInnomedicMedicalResult";
+import { extractPdfTextItems } from "./extractPdfTextItems.js";
+import { detectPdfTemplate } from "./detectPdfTemplate.js";
+import { parseInnomedicMedicalResult } from "./parseInnomedicMedicalResult.js";
 import { validateExtractedWorker } from "../validateExtractedWorker.js";
 
 export async function analyzePdfBatch(file) {
@@ -21,7 +21,12 @@ export async function analyzePdfBatch(file) {
 
   const groupedPages = groupPagesByWorker(pages);
 const workers = groupedPages.map((group) => {
-  const worker = parseWorkerGroup(group);
+  let worker;
+  try {
+    worker = parseWorkerGroup(group);
+  } catch (error) {
+    worker = createParserFailureWorker(group, error);
+  }
   const validation = validateExtractedWorker(worker);
 
   return {
@@ -125,4 +130,27 @@ function normalizeText(text = "") {
     .replace(/\s+/g, " ")
     .trim()
     .toUpperCase();
+}
+
+function createParserFailureWorker(group, error) {
+  return {
+    source_type: "pdf_text",
+    template_id: group.template_id || "unknown",
+    raw_text: group.pages.map((page) => page.text).join("\n"),
+    parser_error: error instanceof Error ? error.message : String(error),
+    identificacion: {},
+    datos_generales_narrables: {},
+    laboratorio_numerico: {},
+    evaluaciones_cualitativas: {},
+    aptitud_y_recomendaciones: {},
+    app_fields: { needs_review: true },
+    derived_states: {
+      needs_review: true,
+      start_page: group.start_page,
+      end_page: group.end_page,
+      missing_required_fields: [],
+      invalid_numeric_fields: [],
+      low_confidence_fields: ["parser_failure"],
+    },
+  };
 }

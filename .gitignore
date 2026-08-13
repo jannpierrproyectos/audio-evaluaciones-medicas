@@ -34,6 +34,8 @@ cd
 
 # Local docs / scratch
 docscode/
+auditoria-local/
+clinical-audit/
 # Accidental files from dependency/version output
 tts-service/0.*
 tts-service/1.*

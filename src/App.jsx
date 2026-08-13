@@ -1,40 +1,17 @@
 import { useState } from "react";
 import "./App.css";
-import SheetsWorkspace from "./components/SheetsWorkspace.jsx";
-import Tabs from "./components/Tabs.jsx";
-import UploadZone from "./components/UploadZone.jsx";
 import PdfWorkersPreview from "./components/PdfWorkersPreview.jsx";
 import MediwebImporter from "./components/MediwebImporter.jsx";
 import { analyzePdfBatch } from "./lib/data/pdf/analyzePdfBatch.js";
 import { validateExtractedWorker } from "./lib/data/validateExtractedWorker.js";
 
-const tabs = [
-  {
-    id: "pdf",
-    label: "Importar PDF",
-    description: "Flujo principal",
-    primary: true,
-  },
-  {
-    id: "sheets",
-    label: "Sheets principal",
-    description: "Opcion secundaria",
-  },
-  {
-    id: "excel",
-    label: "Importar Excel",
-    description: "Proximamente",
-  },
-];
-
 function App() {
-  const [activeTab, setActiveTab] = useState("pdf");
   const [pdfPreview, setPdfPreview] = useState("");
   const [pdfAnalysis, setPdfAnalysis] = useState(null);
   const [selectedPdfWorkerIndex, setSelectedPdfWorkerIndex] = useState(0);
   const [isPdfProcessing, setIsPdfProcessing] = useState(false);
-  const [pdfSource, setPdfSource] = useState("manual");
-  const [mediwebActivated, setMediwebActivated] = useState(false);
+  const [pdfSource, setPdfSource] = useState("mediweb");
+  const [mediwebActivated, setMediwebActivated] = useState(true);
 
   async function handlePdfSelected(file) {
     try {
@@ -164,44 +141,13 @@ ${error?.message || "Error desconocido"}`
 
       <main className="workspace">
         <section className="surface">
-          <Tabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
-
-          {activeTab === "sheets" && (
-            <SheetsWorkspace isActive={activeTab === "sheets"} />
-          )}
-
-          {activeTab === "excel" && (
-            <div className="tab-content">
-              <UploadZone
-                panelId="excel"
-                sectionLabel="Importacion estandar"
-                title="Importar Excel"
-                description="Se aceptara un archivo Excel con el formato estandar definido por el sistema."
-                buttonLabel="Seleccionar archivo Excel"
-                fileHint=".xlsx o .xls"
-                previewTitle="Vista previa"
-                previewDescription="La estructura detectada y los registros listos para revision apareceran aqui."
-                accept=".xlsx,.xls"
-              />
-            </div>
-          )}
-
-          <div className="tab-content" hidden={activeTab !== "pdf"}>
+          <div className="tab-content">
               <section className="pdf-source-selector" aria-labelledby="pdf-source-title">
                 <div>
                   <p className="section-label">Origen de evaluaciones</p>
                   <h2 id="pdf-source-title">Selecciona cómo importar</h2>
                 </div>
                 <div className="pdf-source-options" role="group" aria-label="Origen del PDF">
-                  <button
-                    type="button"
-                    className={`pdf-source-option${pdfSource === "manual" ? " is-active" : ""}`}
-                    onClick={() => setPdfSource("manual")}
-                    aria-pressed={pdfSource === "manual"}
-                  >
-                    <strong>Cargar PDF</strong>
-                    <span>Seleccionar un archivo de esta computadora</span>
-                  </button>
                   <button
                     type="button"
                     className={`pdf-source-option${pdfSource === "mediweb" ? " is-active" : ""}`}
@@ -212,7 +158,16 @@ ${error?.message || "Error desconocido"}`
                     aria-pressed={pdfSource === "mediweb"}
                   >
                     <strong>Importar desde MediWeb</strong>
-                    <span>Usar AudioEvaluaciones Connector</span>
+                    <span>Opción principal mediante AudioEvaluaciones Connector</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`pdf-source-option${pdfSource === "manual" ? " is-active" : ""}`}
+                    onClick={() => setPdfSource("manual")}
+                    aria-pressed={pdfSource === "manual"}
+                  >
+                    <strong>Cargar PDF</strong>
+                    <span>Respaldo manual desde esta computadora</span>
                   </button>
                 </div>
               </section>

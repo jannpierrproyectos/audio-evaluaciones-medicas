@@ -455,7 +455,7 @@ export default function MediwebImporter({ onPdfSelected }) {
 
       {phase === "connector_incompatible" ? (
         <div className="mediweb-update-notice is-required" role="alert">
-          <div><h3>AudioEvaluaciones Connector necesita actualizarse</h3><p>Necesita actualizarse para continuar usando la integración con MediWeb. La carga manual de PDF y Sheets siguen disponibles.</p></div>
+          <div><h3>AudioEvaluaciones Connector necesita actualizarse</h3><p>Necesita actualizarse para continuar usando la integración con MediWeb. La carga manual de PDF sigue disponible.</p></div>
           {!manualUpdate ? <button type="button" className="primary-button" onClick={handleUpdateConnector} disabled={pendingAction === "update"}>{pendingAction === "update" ? "Preparando…" : "Actualizar Connector"}</button> : null}
         </div>
       ) : null}

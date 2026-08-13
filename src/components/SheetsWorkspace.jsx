@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react'
-import { applyLocalAppFields } from '../lib/workerRecords.js'
-import {
-  DEFAULT_DRAFT_TEXT_STYLE,
-  generateDraftNarrative,
-} from '../lib/draftNarrative.js'
+import { applyLocalAppFields, createDraftText } from '../lib/workerRecords.js'
+import { DEFAULT_DRAFT_TEXT_STYLE } from '../lib/draftNarrative.js'
 import { synthesizeAudioFromText } from '../lib/ttsClient.js'
 import DetailPanel from './DetailPanel.jsx'
 import RecordsTable from './RecordsTable.jsx'
@@ -182,9 +179,7 @@ function SheetsWorkspace({ isActive }) {
               return
             }
 
-            const nextDraftText = generateDraftNarrative(selectedRecord, {
-              style: nextStyle,
-            })
+            const nextDraftText = createDraftText(selectedRecord, nextStyle)
 
             setLocalAppStateByRecordId((currentMap) => {
               const currentEntry = currentMap[selectedRecord.id] || {}
@@ -252,6 +247,7 @@ function SheetsWorkspace({ isActive }) {
                     audio_url: result.audioUrl,
                     audio_filename: result.audioFilename,
                     audio_mime_type: result.mimeType,
+                    texto_tts: result.ttsText,
                     last_generated_at: new Date().toISOString(),
                   },
                 }

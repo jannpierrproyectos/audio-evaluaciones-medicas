@@ -2,6 +2,7 @@ import {
   DEFAULT_DRAFT_TEXT_STYLE,
   generateDraftNarrative,
 } from './draftNarrative.js'
+import { processWorkerClinicalNarrative } from '../clinical/index.js'
 
 export const SHEET_TAB_NAME = 'trabajadores'
 
@@ -76,6 +77,7 @@ export const APP_LOCAL_FIELDS = [
   'draft_style',
   'texto_borrador',
   'texto_final',
+  'texto_tts',
   'audio_status',
   'audio_filename',
   'audio_mime_type',
@@ -222,10 +224,21 @@ function buildUiModel(record) {
   }
 }
 
-export function createDraftText(record) {
-  return generateDraftNarrative(record, {
-    style: record.app_fields?.draft_style || DEFAULT_DRAFT_TEXT_STYLE,
+export function createDraftText(record, style = record.app_fields?.draft_style || DEFAULT_DRAFT_TEXT_STYLE) {
+  if (style !== DEFAULT_DRAFT_TEXT_STYLE) {
+    return generateDraftNarrative(record, { style })
+  }
+
+  const clinicalResult = processWorkerClinicalNarrative({
+    ...record,
+    derived_states: {
+      ...(record.derived_states || {}),
+      reviewed_by_user: true,
+    },
+    validation: record.validation || { warnings: [], has_errors: false },
   })
+
+  return clinicalResult.displayText || generateDraftNarrative(record, { style })
 }
 
 function buildInitialAppFields(record) {
@@ -235,6 +248,7 @@ function buildInitialAppFields(record) {
     draft_style: DEFAULT_DRAFT_TEXT_STYLE,
     texto_borrador: textoBorrador,
     texto_final: textoBorrador,
+    texto_tts: null,
     audio_status: DEFAULT_AUDIO_STATUS,
     audio_filename: null,
     audio_mime_type: null,
@@ -307,9 +321,10 @@ export function applyLocalAppFields(record, localAppFields = {}) {
     },
   }
 
-  const nextDraftText = generateDraftNarrative(mergedRecord, {
-    style: mergedRecord.app_fields.draft_style || DEFAULT_DRAFT_TEXT_STYLE,
-  })
+  const nextDraftText = createDraftText(
+    mergedRecord,
+    mergedRecord.app_fields.draft_style || DEFAULT_DRAFT_TEXT_STYLE,
+  )
   const nextRecord = {
     ...mergedRecord,
     app_fields: {

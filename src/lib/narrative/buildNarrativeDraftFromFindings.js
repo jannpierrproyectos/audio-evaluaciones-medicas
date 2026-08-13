@@ -332,12 +332,6 @@ function normalizeAreaRecommendations(group, area = "") {
   return dedupeRecommendationConcepts(getRecommendationTexts(group).map(joinRecommendationFragments));
 }
 
-function getRawRecommendationText(group) {
-  return (group?.recomendaciones || [])
-    .map((item) => `${item.texto_original || ""} ${item.texto_normalizado || ""}`)
-    .join(" ");
-}
-
 function joinMetabolicFindings(items) {
   const values = items.filter(Boolean);
   const mixedIndex = values.findIndex((item) => item.includes("compatible con hiperlipidemia mixta"));
@@ -481,25 +475,6 @@ function buildBloodType(findings) {
   return bloodType ? cleanupParagraph(`Su grupo sanguíneo es ${bloodType}.`) : "";
 }
 
-function splitMetabolicFindings(findings) {
-  const hyper = [];
-  const regular = [];
-
-  findings.forEach((finding) => {
-    if (finding.includes("hipertrigliceridemia") || finding.includes("hiperglicemia")) {
-      hyper.push(finding);
-    } else {
-      regular.push(finding);
-    }
-  });
-
-  const filteredRegular = regular.filter((finding) => {
-    return !(finding.includes("trigliceridos") && hyper.length > 0 && finding.includes("elevados"));
-  });
-
-  return { regular: filteredRegular, hyper };
-}
-
 function hasGroupFinding(group, pattern) {
   return Boolean(
     group?.hallazgos?.some((item) => pattern.test(normalizeClinicalText(item.resultado))),
@@ -518,81 +493,6 @@ function normalizeOphthalmologyFindingText(value) {
     .replace(/\bojo derecho\s+leve ptosis palpebral\b/gi, "ojo derecho y leve ptosis palpebral")
     .replace(/,\s+y\s+/gi, " y ")
     .trim();
-}
-
-function normalizeOphthalmologyRecommendations(group) {
-  const text = normalizeClinicalText(
-    `${getRawRecommendationText(group)} ${normalizeAreaRecommendations(group).join(", ")}`,
-  );
-  const recommendations = [];
-
-  if (text.includes("hidratantes oculares")) {
-    recommendations.push("uso de hidratantes oculares");
-  }
-
-  if (text.includes("correctores oculares") || text.includes("lentes")) {
-    recommendations.push("uso de correctores oculares");
-  }
-
-  if (text.includes("renovacion")) {
-    recommendations.push("renovacion");
-  }
-
-  if (text.includes("oftalmologia")) {
-    recommendations.push("control por oftalmologia");
-  }
-
-  return recommendations.length ? uniqueTexts(recommendations, normalizeClinicalText) : normalizeAreaRecommendations(group);
-}
-
-function normalizeAudiometryRecommendations(group) {
-  const text = normalizeClinicalText(
-    `${getRawRecommendationText(group)} ${normalizeAreaRecommendations(group).join(", ")}`,
-  );
-  const recommendations = [];
-
-  if (text.includes("protectores auditivos") && text.includes("zona de ruido")) {
-    recommendations.push("el uso de protectores auditivos en zona de ruido");
-  }
-
-  if (text.includes("interconsulta") && text.includes("otorrinolaringologia")) {
-    recommendations.push("interconsulta por otorrinolaringologia");
-  } else if (text.includes("otorrinolaringologia") || text.includes("otorrino")) {
-    recommendations.push("control por otorrinolaringologia");
-  }
-
-  if (text.includes("seguir indicaciones") || text.includes("indicaciones del medico especialista")) {
-    recommendations.push("seguir las indicaciones del medico especialista");
-  }
-
-  const nextControl = text.match(/proximo control (?:en\s+\d+\s+meses|anual)/);
-  if (nextControl) {
-    recommendations.push(`realizar ${nextControl[0]}`);
-  }
-
-  return recommendations.length ? uniqueTexts(recommendations, normalizeClinicalText) : normalizeAreaRecommendations(group);
-}
-
-function normalizeOccupationalRecommendations(group) {
-  const text = normalizeClinicalText(
-    `${getRawRecommendationText(group)} ${normalizeAreaRecommendations(group).join(", ")}`,
-  );
-  const recommendations = [];
-  const heightMatch = text.match(/no debe trabajar en altura mayor a 1\.80 metros/);
-
-  if (heightMatch) {
-    recommendations.push(heightMatch[0]);
-  }
-
-  const noiseMatch = text.match(
-    /no realizar actividades con exposicion a ruido por encima de los limites maximos permitidos sin (?:el uso de )?proteccion auditiva/,
-  );
-
-  if (noiseMatch) {
-    recommendations.push(noiseMatch[0].replace("sin el uso de proteccion auditiva", "sin proteccion auditiva"));
-  }
-
-  return recommendations.length ? uniqueTexts(recommendations, normalizeClinicalText) : normalizeAreaRecommendations(group);
 }
 
 function buildMetabolicParagraph(group) {
@@ -832,14 +732,35 @@ function buildFindingsParagraphs(findings) {
 
 function buildNormalExams(findings) {
   if (findings.has_omitted_findings) {
-    return "Respecto de los demas examenes informados, no se consignan recomendaciones adicionales para esta orientacion.";
+    return "";
   }
 
   if (!findings.examenes_normales_resumibles?.length) {
     return "";
   }
 
-  return "Respecto de los demas examenes informados, estos no presentan alteraciones relevantes.";
+  const areaLabels = {
+    examen_orina: "el examen de orina",
+    psicologico: "la evaluación psicológica",
+    dosaje_cocaina: "el dosaje de cocaína",
+    dosaje_marihuana: "el dosaje de marihuana",
+    musculoesqueletico: "la evaluación musculoesquelética",
+    ecg: "el electrocardiograma",
+    audiometria: "la audiometría",
+    oftalmologia: "la evaluación oftalmológica",
+    espirometria: "la espirometría",
+    radiografia_torax: "la radiografía de tórax",
+    odontograma: "el odontograma",
+  };
+  const explicitAreas = Array.from(new Set(
+    findings.examenes_normales_resumibles
+      .map((item) => areaLabels[item.area])
+      .filter(Boolean),
+  ));
+
+  return explicitAreas.length
+    ? `No se reportan alteraciones relevantes en ${joinNatural(explicitAreas)}.`
+    : "";
 }
 
 function splitRestrictions(value) {

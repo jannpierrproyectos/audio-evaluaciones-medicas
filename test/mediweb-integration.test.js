@@ -454,13 +454,13 @@ test("servicio expone status sin confundir su 404 con otros errores", async () =
   });
 });
 
-test("update obligatorio bloquea solo el panel MediWeb y conserva PDF manual y Sheets", async () => {
+test("update obligatorio bloquea solo MediWeb y conserva el respaldo PDF manual", async () => {
   const importer = await readFile(new URL("../src/components/MediwebImporter.jsx", import.meta.url), "utf8");
   const app = await readFile(new URL("../src/App.jsx", import.meta.url), "utf8");
   assert.match(importer, /connectorIncompatible[\s\S]*connector_incompatible/);
-  assert.match(importer, /La carga manual de PDF y Sheets siguen disponibles/);
+  assert.match(importer, /La carga manual de PDF sigue disponible/);
   assert.match(app, /setPdfSource\("manual"\)/);
-  assert.match(app, /<SheetsWorkspace/);
+  assert.doesNotMatch(app, /SheetsWorkspace|Importar Excel|Sheets principal/);
 });
 
 function createConnectorRelease({ latestVersion = "0.3.0", minimumSupportedVersion = "0.2.0" } = {}) {

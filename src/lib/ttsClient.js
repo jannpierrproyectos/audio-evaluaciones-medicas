@@ -1,3 +1,5 @@
+import { prepareTextForTts } from '../clinical/ttsNormalizer.js'
+
 function getFileExtensionFromMimeType(mimeType) {
   const normalizedMimeType = String(mimeType || '').toLowerCase()
 
@@ -52,6 +54,7 @@ async function readErrorMessage(response) {
 }
 
 export async function synthesizeAudioFromText({ text, filenameHint }) {
+  const ttsText = prepareTextForTts(text)
   const response = await fetch('/api/tts/synthesize', {
     method: 'POST',
     headers: {
@@ -59,7 +62,7 @@ export async function synthesizeAudioFromText({ text, filenameHint }) {
       Accept: 'audio/mpeg, audio/wav, audio/x-wav, application/json',
     },
     body: JSON.stringify({
-      text,
+      text: ttsText,
       language: 'es',
       voice_id: '',
       format: 'mp3',
@@ -84,5 +87,6 @@ export async function synthesizeAudioFromText({ text, filenameHint }) {
     mimeType,
     source: 'external',
     provider: 'tts-service',
+    ttsText,
   }
 }

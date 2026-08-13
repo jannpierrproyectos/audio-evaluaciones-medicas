@@ -32,7 +32,6 @@ function addWarning(warnings, field, message, severity = "warning") {
 export function validateExtractedWorker(worker) {
   const warnings = [];
 
-  const identificacion = worker.identificacion || {};
   const generales = worker.datos_generales_narrables || {};
   const laboratorio = worker.laboratorio_numerico || {};
   const evaluaciones = worker.evaluaciones_cualitativas || {};
