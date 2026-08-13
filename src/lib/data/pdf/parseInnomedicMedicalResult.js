@@ -13,6 +13,13 @@ function normalizeSearchText(value) {
     .toUpperCase();
 }
 
+function normalizeIndexText(value) {
+  return [...cleanText(value)]
+    .map((character) => character.normalize("NFD").replace(/[\u0300-\u036f]/g, ""))
+    .join("")
+    .toUpperCase();
+}
+
 function cleanNumber(value) {
   if (value === null || value === undefined) return null;
 
@@ -71,7 +78,7 @@ function findNextLabelIndex(normalizedText, labels, startIndex) {
   const indexes = labels
     .map((label) => {
       const normalizedLabel = normalizeSearchText(label);
-      const pattern = new RegExp(`\\s${escapeRegExp(normalizedLabel)}\\s*:?`, "i");
+      const pattern = new RegExp(`\\s${escapeRegExp(normalizedLabel)}(?=\\s|:|$)\\s*:?`, "i");
       const segment = normalizedText.slice(startIndex);
       const match = segment.match(pattern);
 
@@ -88,7 +95,7 @@ function findNextLabelIndex(normalizedText, labels, startIndex) {
 
 function extractBetweenLabels(text, startLabels, endLabels = []) {
   const original = cleanText(text);
-  const normalized = normalizeSearchText(original);
+  const normalized = normalizeIndexText(original);
 
   for (const startLabel of startLabels) {
     const valueStart = findLabelEndIndex(normalized, startLabel);
@@ -427,6 +434,7 @@ export function parseInnomedicMedicalResult(group) {
 
     laboratorio_numerico: {
       hemoglobina_valor: matchNumber(text, /Hemoglobina\s+([\d.,]+)/i),
+      hemoglobina_unidad: matchFirst(text, /Hemoglobina\s+[\d.,]+\s*(g\s*\/\s*d[lL])/i),
       glucosa_valor: matchNumber(text, /Glucosa\s+([\d.,]+)/i),
       trigliceridos_valor: matchNumber(text, /Trigliceridos\s+([\d.,]+)/i),
       colesterol_valor: matchNumber(text, /Colesterol\s+([\d.,]+)/i),

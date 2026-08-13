@@ -104,6 +104,7 @@ function cleanupSpaces(value) {
 
 function cleanupSentence(value) {
   return cleanupSpaces(value)
+    .replace(/(^|\s)\d+(?:\s*[,Y]\s*\d+)+\.?(?=\s+[A-Za-zÁÉÍÓÚÑ])/gi, "$1")
     .replace(/(^|\s)\[\d+(?:,\d+)*(?:y\d+)?\]\s*/gi, "$1")
     .replace(/(^|\s)\d+(?:,\d+)*(?:y\d+)?\.(?=\s+[A-Za-zÁÉÍÓÚÑ])/gi, "$1")
     .replace(/\.\s*\./g, ".")
@@ -121,6 +122,7 @@ function cleanupSentence(value) {
     .replace(/\.\s+control\s+por\s+oftalmologia\b/gi, ", control por oftalmología")
     .replace(/\.\s+control\s+por\s+otorrinolaringologia\b/gi, " y control por otorrinolaringología")
     .replace(/\. y seguir/gi, " y seguir")
+    .replace(/([.!?]\s+)(\p{Ll})/gu, (_, prefix, letter) => `${prefix}${letter.toLocaleUpperCase("es-PE")}`)
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -443,7 +445,8 @@ function buildAnthropometryAndHemoglobin(findings) {
   }
 
   if (hasText(lab.hemoglobina_valor)) {
-    fragments.push(`En sus resultados de laboratorio, su hemoglobina es de ${lab.hemoglobina_valor}.`);
+    const unit = hasText(lab.hemoglobina_unidad) ? ` ${lab.hemoglobina_unidad}` : "";
+    fragments.push(`En sus resultados de laboratorio, su hemoglobina es de ${lab.hemoglobina_valor}${unit}.`);
   }
 
   const classification = normalizeClinicalText(data.clasificacion_imc);
@@ -486,11 +489,14 @@ function normalizeOphthalmologyFindingText(value) {
     .replace(/\bpresbicia\s+ametropia\b/gi, "presbicia, ametropia")
     .replace(/\bpresbicia,\s+ametropia\s+vision\b/gi, "presbicia, ametropia, vision")
     .replace(/\bpresbicia\s+vision\b/gi, "presbicia, vision")
-    .replace(/\bametropia\s+vision\b/gi, "ametropia, vision")
+    .replace(/\bametropia\s+visi[oó]n\b/gi, "ametropia, visión")
     .replace(/\bvision estereoscopica alterada\s+pterigion\b/gi, "vision estereoscopica alterada y pterigion")
     .replace(/\bametropia parcialmente corregida\s+y\s+pterigion\b/gi, "ametropia parcialmente corregida y pterigion")
     .replace(/\bojo izquierdo\s+leve ptosis palpebral\b/gi, "ojo izquierdo y leve ptosis palpebral")
     .replace(/\bojo derecho\s+leve ptosis palpebral\b/gi, "ojo derecho y leve ptosis palpebral")
+    .replace(/\b(presbicia(?: parcialmente)? corregida|ametropia(?: parcialmente)? corregida|presbicia|ametropia|discromatopsia)\s+(?=ametropia|pterigion|discromatopsia|visi[oó]n)/gi, "$1, ")
+    .replace(/\bpterigion de (primer|segundo|tercer) grado (el ojo (?:izquierdo|derecho))\b/gi, "pterigion de $1 grado en $2")
+    .replace(/\bpterigion (primer|segundo|tercer) grado\b/gi, "pterigion de $1 grado")
     .replace(/,\s+y\s+/gi, " y ")
     .trim();
 }
@@ -558,14 +564,21 @@ function buildMetabolicParagraph(group) {
     !findings[0].startsWith("plaquetas")
       ? "se evidencia"
       : "se evidencian";
-  let sentence = `En el area metabolica ${verb} ${joinMetabolicFindings(findings)}.`;
+  let sentence = `En el area metabolica ${verb === "se evidencia" ? "se registra" : "se registran"} ${joinMetabolicFindings(findings)}.`;
 
   if (recommendations.length) {
     sentence = sentence.replace(/\.$/, "");
     sentence += `, por lo que se recomienda ${joinNatural(recommendations)}.`;
   }
 
-  return cleanupParagraph(sentence);
+  const cleanedSentence = cleanupParagraph(sentence);
+  if (cleanedSentence.split(/\s+/).length <= 50 || !recommendations.length) {
+    return cleanedSentence;
+  }
+
+  const findingSentence = cleanupParagraph(`En el area metabolica ${verb === "se evidencia" ? "se registra" : "se registran"} ${joinMetabolicFindings(findings)}`);
+  const recommendationSentence = cleanupParagraph(`Se recomienda ${joinNatural(recommendations)}`);
+  return `${findingSentence} ${recommendationSentence}`;
 }
 
 function buildOphthalmologyParagraph(group) {
@@ -581,7 +594,7 @@ function buildOphthalmologyParagraph(group) {
 
   if (!findings.length) return "";
 
-  let paragraph = `En la evaluacion oftalmologica se evidencia ${joinNatural(findings)}.`;
+  let paragraph = `En la evaluacion oftalmologica se registra ${joinNatural(findings)}.`;
 
   if (recommendations.length) {
     paragraph += ` Por ello, se recomienda ${joinNatural(recommendations)}.`;
@@ -602,15 +615,15 @@ function buildAudiometryParagraph(group) {
   if (!findings.length) return "";
 
   const recommendations = normalizeAreaRecommendations(group, "audiometria");
-  const suffix = recommendations.length
-    ? `, por lo que se recomienda ${joinNatural(recommendations)}.`
-    : ", por lo que se recomienda el control correspondiente.";
-
   const verb =
     findings.length === 1 && !findings[0].includes("alteraciones")
-      ? "se evidencia"
-      : "se evidencian";
-  return cleanupParagraph(`En la evaluacion audiometrica ${verb} ${joinNatural(findings)}${suffix}`);
+      ? "se registra"
+      : "se registran";
+  const findingSentence = cleanupParagraph(`En la evaluacion audiometrica ${verb} ${joinNatural(findings)}`);
+  const recommendationSentence = recommendations.length
+    ? cleanupParagraph(`Asimismo, se recomienda ${joinNatural(recommendations)}`)
+    : cleanupParagraph("Se recomienda el control correspondiente");
+  return `${findingSentence} ${recommendationSentence}`;
 }
 
 function buildHemogramParagraph(group) {
@@ -655,7 +668,13 @@ function buildGenericAreaParagraph(group, label, area = "") {
     return cleanupParagraph(`Se recomienda ${joinNatural(recommendations)}.`);
   }
 
-  let paragraph = `En ${label} se evidencia ${joinNatural(findings)}.`;
+  const preparedFindings = area === "musculoesqueletico"
+    ? findings.map((finding) => finding
+      .replace(/^en\s+(?=regular estado)/i, "")
+      .replace(/^regular estado f[ií]sico musculoesquel[eé]tico\b/i, "un estado fisico musculoesqueletico regular"))
+    : findings;
+  const pluralSubject = preparedFindings.length > 1 || /^(?:signos|hallazgos|alteraciones)\b/i.test(preparedFindings[0]);
+  let paragraph = `En ${label} ${pluralSubject ? "se registran" : "se registra"} ${joinNatural(preparedFindings)}.`;
 
   if (recommendations.length) {
     paragraph += ` Por ello, se recomienda ${joinNatural(recommendations)}.`;
@@ -779,7 +798,11 @@ function buildRestrictionsSentence(value) {
     return `Como restriccion laboral, ${inlineRestrictions[0]}.`;
   }
 
-  return `Como restricciones laborales, ${joinNatural(inlineRestrictions)}.`;
+  const sentences = inlineRestrictions.map((item) => {
+    const sentence = cleanupParagraph(item);
+    return sentence ? sentence.charAt(0).toUpperCase() + sentence.slice(1) : "";
+  }).filter(Boolean);
+  return `Como restricciones laborales: ${sentences.join(" ")}`;
 }
 
 function buildAptitude(findings) {

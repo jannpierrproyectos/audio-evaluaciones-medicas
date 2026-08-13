@@ -105,13 +105,13 @@ export async function createPdfFileLike(filePath) {
 function extractIdentityCandidates(rawText) {
   const text = String(rawText || "").replace(/\s+/g, " ").trim();
   const names = [];
-  const namePattern = /APELLIDOS\s+Y\s+NOMBRES\s*:?[\s-]*(.+?)(?=\s+(?:DNI|C\.?\s*E\.?|DOCUMENTO|EDAD|SEXO|EMPRESA)\s*:|$)/giu;
+  const namePattern = /APELLIDOS\s+Y\s+NOMBRES\s*:?[\s-]*(.+?)(?=\s+(?:DNI|C\.?\s*E\.?|CARNET\s+DE\s+EXTRANJER[IÍ]A|DOCUMENTO|EDAD|SEXO|EMPRESA)(?=\s|:)\s*:|$)/giu;
   for (const match of text.matchAll(namePattern)) {
     const value = match[1].trim();
     if (value && !names.some((item) => comparable(item) === comparable(value))) names.push(value);
   }
   const documents = [];
-  const documentPattern = /\b(DNI|C\.?\s*E\.?)\s*:?[\s-]*([A-Z0-9-]{6,16})\b/giu;
+  const documentPattern = /\b(DNI|C\.?\s*E\.?|CARNET\s+DE\s+EXTRANJER[IÍ]A)(?=\s|:)\s*:?[\s-]*([A-Z0-9-]{6,16})\b/giu;
   for (const match of text.matchAll(documentPattern)) {
     documents.push({ type: match[1], value: match[2] });
   }
@@ -221,7 +221,7 @@ function auditMissingUnits(worker, rawText) {
   fields.forEach(([field, label]) => {
     const value = worker.laboratorio_numerico?.[field];
     if (!hasValue(value)) return;
-    const pattern = new RegExp(`${label}\\s+${String(value).replace(".", "[.,]")}\\s*(mg\\s*\\/\\s*dL|g\\s*\\/\\s*dL|%)?`, "i");
+    const pattern = new RegExp(`${label}\\s+${String(value).replace(".", "[.,]")}(?![\\d.,])\\s*(mg\\s*\\/\\s*dL|g\\s*\\/\\s*dL|%)?`, "i");
     const match = String(rawText || "").match(pattern);
     if (match && !match[1]) flags.push(createFlag("missing_unit", "clinical", `No se detectó una unidad junto a ${label}.`, `laboratorio_numerico.${field}`));
   });
@@ -256,7 +256,7 @@ function auditNarrative(worker, clinicalResult) {
   const recommendationText = String(worker.aptitud_y_recomendaciones?.recomendaciones_generales_texto || "");
   const recommendations = recommendationText.split(/\.\s+|;|\n/).map(comparable).filter(Boolean);
   if (new Set(recommendations).size < recommendations.length) {
-    flags.push(createFlag("duplicate_recommendation", "narrative", "La fuente contiene recomendaciones duplicadas."));
+    flags.push(createFlag("duplicate_recommendation_source", "narrative", "La fuente contiene recomendaciones duplicadas."));
   }
   if (/\b(?:IMC|ECG|PA|HDL|LDL|FEV1|FVC)\b/.test(tts)) flags.push(createFlag("unresolved_abbreviation", "tts", "Quedó una abreviatura clínica sin resolver en TTS."));
   if (/\b(?:mg\s*\/\s*dL|mmHg|kg|cm)\b/i.test(tts)) flags.push(createFlag("unnormalized_tts_unit", "tts", "Quedó una unidad abreviada en TTS."));

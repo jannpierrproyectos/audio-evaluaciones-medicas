@@ -73,6 +73,7 @@ export function normalizeClinicalText(value) {
   });
   normalized = restoreAcronyms(normalized);
   normalized = normalized
+    .replace(/\bg\s*\/\s*dl\b/giu, "g/dL")
     .replace(/\bmg\s*\/\s*dl\b/giu, "mg/dL")
     .replace(/\bmmhg\b/giu, "mmHg");
 

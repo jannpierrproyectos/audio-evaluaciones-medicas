@@ -47,7 +47,7 @@ export function collectReviewFlags(worker = {}, normalizationTrace = []) {
 
   (worker.validation?.warnings || []).forEach((warning) => {
     flags.push(createFlag(
-      warning.severity === "error" ? "ambiguous_interpretation" : "unknown_value",
+      warning.severity === "error" ? "ambiguous_interpretation" : warning.type || "unknown_value",
       warning.field,
       warning.message,
       warning.severity === "error" ? "manual_only" : "review_recommended",
@@ -85,4 +85,14 @@ export function collectReviewFlags(worker = {}, normalizationTrace = []) {
   const byKey = new Map();
   flags.forEach((flag) => byKey.set(`${flag.type}|${flag.sourceField}|${flag.message}`, flag));
   return Array.from(byKey.values());
+}
+
+export function collectNarrativeReviewFlags(findings = {}) {
+  return Object.entries(findings.narrative_groups || {})
+    .filter(([, group]) => group?.narrar && group.recomendaciones?.length && !group.hallazgos?.length)
+    .map(([area]) => createFlag(
+      "orphan_recommendation",
+      `narrative_groups.${area}`,
+      "La recomendación se conserva de forma neutral porque no tiene un hallazgo inequívocamente asociado.",
+    ));
 }

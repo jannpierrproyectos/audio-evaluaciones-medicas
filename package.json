@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "clinical:audit": "node scripts/clinical-audit.js",
+    "narrative:audit": "node scripts/narrative-audit.js",
     "lint": "eslint .",
     "test": "node --test --test-isolation=none test/*.test.js",
     "preview": "vite preview"

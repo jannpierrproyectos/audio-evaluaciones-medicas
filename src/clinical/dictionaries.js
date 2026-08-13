@@ -34,7 +34,7 @@ export const CLINICAL_ACCENT_REPLACEMENTS = [
   [/\bpsicologia\b/giu, "psicología"],
   [/\bvision\b/giu, "visión"],
   [/\baudicion\b/giu, "audición"],
-  [/\brestriccion(es)?\b/giu, (_, suffix = "") => `restricción${suffix}`],
+  [/\brestriccion(es)?\b/giu, (_, plural = "") => plural ? "restricciones" : "restricción"],
   [/\bevaluacion(es)?\b/giu, (_, suffix = "") => `evaluación${suffix}`],
   [/\bhipertension\b/giu, "hipertensión"],
   [/\bnutricion\b/giu, "nutrición"],
@@ -46,6 +46,26 @@ export const CLINICAL_ACCENT_REPLACEMENTS = [
   [/\bcalorias\b/giu, "calorías"],
   [/\bindice\b/giu, "índice"],
   [/\bmusculo[ -]?esqueletico\b/giu, "musculoesquelético"],
+  [/\btorax\b/giu, "tórax"],
+  [/\bradiologico(s)?\b/giu, (_, plural = "") => plural ? "radiológicos" : "radiológico"],
+  [/\blobulo\b/giu, "lóbulo"],
+  [/\boido(s)?\b/giu, (_, plural = "") => plural ? "oídos" : "oído"],
+  [/\bproximo(s)?\b/giu, (_, plural = "") => plural ? "próximos" : "próximo"],
+  [/\bmedico(s)?\b/giu, (_, plural = "") => plural ? "médicos" : "médico"],
+  [/\bneumologia\b/giu, "neumología"],
+  [/\btraumatologia\b/giu, "traumatología"],
+  [/\botorrinolaringologia\b/giu, "otorrinolaringología"],
+  [/\bperiferica\b/giu, "periférica"],
+  [/\bhepatica\b/giu, "hepática"],
+  [/\bhematologica\b/giu, "hematológica"],
+  [/\brepercusion\b/giu, "repercusión"],
+  [/\bclinico(s)?\b/giu, (_, plural = "") => plural ? "clínicos" : "clínico"],
+  [/\betiologia\b/giu, "etiología"],
+  [/\balergica\b/giu, "alérgica"],
+  [/\bparasitologico(s)?\b/giu, (_, plural = "") => plural ? "parasitológicos" : "parasitológico"],
+  [/\bcirugia\b/giu, "cirugía"],
+  [/\bneurologia\b/giu, "neurología"],
+  [/\bsueperior\b/giu, "superior"],
 ];
 
 export const TTS_ABBREVIATIONS = [
@@ -59,6 +79,7 @@ export const TTS_ABBREVIATIONS = [
 ];
 
 export const TTS_UNITS = [
+  [/\bg\s*\/\s*dL\b/giu, "gramos por decilitro"],
   [/\bmg\s*\/\s*dL\b/giu, "miligramos por decilitro"],
   [/\bmmHg\b/giu, "milímetros de mercurio"],
   [/\bkg\b/giu, "kilogramos"],

@@ -110,6 +110,32 @@ test("audita nombres correctos y flags estructurales de identidad", () => {
   const contaminatedFlags = auditIdentity(contaminated, normalizeWorkerClinicalData(contaminated).worker, "").flags.map((flag) => flag.type);
   assert.ok(contaminatedFlags.includes("identity_name_contains_numbers"));
   assert.ok(contaminatedFlags.includes("identity_name_contains_label"));
+
+  const ceName = syntheticWorker({
+    name: "MEDINA CENIZARIO JOSHMIL MAYER",
+    names: "JOSHMIL MAYER",
+    surnames: "MEDINA CENIZARIO",
+  });
+  const ceNameFlags = auditIdentity(
+    ceName,
+    normalizeWorkerClinicalData(ceName).worker,
+    "APELLIDOS Y NOMBRES: MEDINA CENIZARIO JOSHMIL MAYER DNI: 12345678",
+  ).flags;
+  assert.equal(ceNameFlags.length, 0);
+
+  const foreign = syntheticWorker({
+    name: "VALLADARES CIRA KEINER GREGORIO",
+    names: "KEINER GREGORIO",
+    surnames: "VALLADARES CIRA",
+    document: "001704377",
+  });
+  foreign.identificacion.tipo_documento = "CARNET DE EXTRANJERIA";
+  const foreignFlags = auditIdentity(
+    foreign,
+    normalizeWorkerClinicalData(foreign).worker,
+    "APELLIDOS Y NOMBRES: VALLADARES CIRA KEINER GREGORIO Carnet de Extranjeria: 001704377 EDAD: 35",
+  ).flags;
+  assert.equal(foreignFlags.length, 0);
 });
 
 test("genera resumen global, reportes privados/sanitizados y continúa tras un fallo", async () => {

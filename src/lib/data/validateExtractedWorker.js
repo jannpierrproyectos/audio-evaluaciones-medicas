@@ -21,11 +21,12 @@ function isEmptyLike(value) {
   );
 }
 
-function addWarning(warnings, field, message, severity = "warning") {
+function addWarning(warnings, field, message, severity = "warning", type = "unknown_value") {
   warnings.push({
     field,
     message,
     severity,
+    type,
   });
 }
 
@@ -42,7 +43,8 @@ export function validateExtractedWorker(worker) {
       warnings,
       "identificacion.nombres",
       "Los nombres fueron separados automaticamente desde el campo Apellidos y Nombres. Revisar.",
-      "warning"
+      "warning",
+      "identity_name_split_detected"
     );
   }
 
@@ -51,7 +53,8 @@ export function validateExtractedWorker(worker) {
       warnings,
       "identificacion.apellidos",
       "Los apellidos fueron separados automaticamente desde el campo Apellidos y Nombres. Revisar.",
-      "warning"
+      "warning",
+      "identity_name_split_detected"
     );
   }
 
@@ -78,15 +81,17 @@ export function validateExtractedWorker(worker) {
       addWarning(
         warnings,
         "datos_generales_narrables.imc",
-        "IMC en rango de obesidad. Revisar que exista recomendacion nutricional o endocrinologica.",
-        "warning"
+      "IMC en rango de obesidad. Revisar que exista recomendacion nutricional o endocrinologica.",
+        "warning",
+        "imc_recommendation_review"
       );
     } else if (generales.imc >= 25) {
       addWarning(
         warnings,
         "datos_generales_narrables.imc",
         "IMC en rango de sobrepeso. Revisar recomendacion nutricional.",
-        "info"
+        "info",
+        "imc_recommendation_review"
       );
     }
   }
@@ -97,14 +102,16 @@ export function validateExtractedWorker(worker) {
         warnings,
         "laboratorio_numerico.trigliceridos_valor",
         "Trigliceridos elevados. Revisar recomendacion metabolica.",
-        "warning"
+        "warning",
+        "triglycerides_unclassified"
       );
     } else if (laboratorio.trigliceridos_valor >= 150) {
       addWarning(
         warnings,
         "laboratorio_numerico.trigliceridos_valor",
         "Trigliceridos en limite alto. Revisar si corresponde recomendacion metabolica.",
-        "info"
+        "info",
+        "triglycerides_unclassified"
       );
     }
   }
@@ -115,14 +122,16 @@ export function validateExtractedWorker(worker) {
         warnings,
         "laboratorio_numerico.colesterol_valor",
         "Colesterol alto. Revisar recomendacion metabolica.",
-        "warning"
+        "warning",
+        "cholesterol_unclassified"
       );
     } else if (laboratorio.colesterol_valor >= 200) {
       addWarning(
         warnings,
         "laboratorio_numerico.colesterol_valor",
         "Colesterol en limite alto. Revisar recomendacion metabolica.",
-        "info"
+        "info",
+        "cholesterol_unclassified"
       );
     }
   }
@@ -133,14 +142,16 @@ export function validateExtractedWorker(worker) {
         warnings,
         "laboratorio_numerico.glucosa_valor",
         "Glucosa elevada. Revisar indicacion de control medico.",
-        "warning"
+        "warning",
+        "glucose_unclassified"
       );
     } else if (laboratorio.glucosa_valor > 100) {
       addWarning(
         warnings,
         "laboratorio_numerico.glucosa_valor",
         "Glucosa en limite alto. Revisar recomendacion metabolica.",
-        "info"
+        "info",
+        "glucose_unclassified"
       );
     }
   }
@@ -150,7 +161,8 @@ export function validateExtractedWorker(worker) {
       warnings,
       "evaluaciones_cualitativas.ecg_resultado",
       "ECG no informado o figura con guion.",
-      "info"
+      "info",
+      "ecg_not_reported"
     );
   }
 
@@ -159,7 +171,8 @@ export function validateExtractedWorker(worker) {
       warnings,
       "evaluaciones_cualitativas.audiometria_resultado",
       "Audiometria no informada o figura con guion.",
-      "info"
+      "info",
+      "audiometry_not_reported"
     );
   }
 
@@ -171,7 +184,8 @@ export function validateExtractedWorker(worker) {
       warnings,
       "aptitud_y_recomendaciones.recomendaciones_generales_texto",
       "La recomendacion contiene posible duplicidad: CONTROL CONTROL.",
-      "warning"
+      "warning",
+      "duplicate_recommendation_source"
     );
   }
 
@@ -180,7 +194,8 @@ export function validateExtractedWorker(worker) {
       warnings,
       "aptitud_y_recomendaciones.recomendaciones_generales_texto",
       "La recomendacion contiene numeracion compacta tipo 2Y3. Revisar redaccion.",
-      "info"
+      "info",
+      "recommendation_compact_numbering"
     );
   }
 

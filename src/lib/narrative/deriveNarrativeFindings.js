@@ -410,19 +410,17 @@ function pickRecognizedOtherSegments(result, comparable, options = {}) {
     );
   }
 
-  const unrecognizedText = getString(
-    result
-      .replace(/DESCARTAR\s+ONICOMICOSIS\s+PEDIA\s+(BILATERAL|IZQUIERDA|DERECHA)/gi, "")
-      .replace(/ONICOMICOSIS\s+PEDIA\s+(BILATERAL|IZQUIERDA|DERECHA)/gi, "")
-      .replace(/[;,.]\s*(?=[;,.]|$)/g, "")
-      .replace(/HIPERTRIGLICERIDEMIA(?:\s+EN\s+TRATAMIENTO)?/gi, "")
-      .replace(/HIPERGLICEMIA(?:\s+EN\s+TRATAMIENTO)?/gi, "")
-      .replace(/HIPERLIPIDEMIA\s+MIXTA(?:\s+EN\s+TRATAMIENTO)?/gi, "")
-      .replace(/[\s;,.]+/g, " ")
-      .trim(),
-  );
+  const unrecognizedSegments = result
+    .replace(/DESCARTAR\s+ONICOMICOSIS\s+PEDIA\s+(BILATERAL|IZQUIERDA|DERECHA)/gi, "")
+    .replace(/ONICOMICOSIS\s+PEDIA\s+(BILATERAL|IZQUIERDA|DERECHA)/gi, "")
+    .replace(/HIPERTRIGLICERIDEMIA(?:\s+EN\s+TRATAMIENTO)?/gi, "")
+    .replace(/HIPERGLICEMIA(?:\s+EN\s+TRATAMIENTO)?/gi, "")
+    .replace(/HIPERLIPIDEMIA\s+MIXTA(?:\s+EN\s+TRATAMIENTO)?/gi, "")
+    .split(/\s*(?:;|•|\.\s+-\s+|(?:^|\s)\d+(?:\s*[,Y]\s*\d+)*\.\s*)\s*/gi)
+    .map((segment) => getString(segment?.replace(/^[,.-]+|[,.-]+$/g, "")))
+    .filter(Boolean);
 
-  if (unrecognizedText) {
+  unrecognizedSegments.forEach((unrecognizedText) => {
     findings.push(
       createFinding({
         area: "otros",
@@ -433,7 +431,7 @@ function pickRecognizedOtherSegments(result, comparable, options = {}) {
         source: "otros_hallazgos_resultado",
       }),
     );
-  }
+  });
 
   return findings;
 }
@@ -801,6 +799,7 @@ export function deriveNarrativeFindings(worker = {}) {
   const anthropometryIsRelevant = isMetabolicImc(clasificacionImc);
   const grupoSanguineo = normalizeBloodType(generales.grupo_sanguineo);
   const hemoglobinaValor = toNumberOrNull(laboratorio.hemoglobina_valor);
+  const hemoglobinaUnidad = getString(laboratorio.hemoglobina_unidad);
   const glucosaValor = toNumberOrNull(laboratorio.glucosa_valor);
   const trigliceridosValor = toNumberOrNull(laboratorio.trigliceridos_valor);
   const colesterolValor = toNumberOrNull(laboratorio.colesterol_valor);
@@ -871,6 +870,7 @@ export function deriveNarrativeFindings(worker = {}) {
       ),
       grupo_sanguineo: grupoSanguineo,
       hemoglobina_valor: hemoglobinaValor,
+      hemoglobina_unidad: hemoglobinaUnidad,
       glucosa_valor: glucosaValor,
       trigliceridos_valor: trigliceridosValor,
       colesterol_valor: colesterolValor,

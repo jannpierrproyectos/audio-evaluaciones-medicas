@@ -1,13 +1,17 @@
 import { applyClinicalRules } from "./clinicalRules.js";
 import { buildWorkerNarrative } from "./narrativeBuilder.js";
 import { normalizeWorkerClinicalData } from "./normalizeClinicalData.js";
-import { collectReviewFlags } from "./reviewFlags.js";
+import { collectNarrativeReviewFlags, collectReviewFlags } from "./reviewFlags.js";
 import { prepareTextForTts } from "./ttsNormalizer.js";
 
 export function processWorkerClinicalNarrative(rawWorker = {}, options = {}) {
   const normalization = normalizeWorkerClinicalData(rawWorker);
-  const reviewFlags = collectReviewFlags(normalization.worker, normalization.trace);
-  const rules = applyClinicalRules(normalization.worker, reviewFlags);
+  const initialReviewFlags = collectReviewFlags(normalization.worker, normalization.trace);
+  const rules = applyClinicalRules(normalization.worker, initialReviewFlags);
+  const reviewFlags = [
+    ...initialReviewFlags,
+    ...collectNarrativeReviewFlags(rules.findings),
+  ];
   const narrative = buildWorkerNarrative(rules.findings);
   const displayText = narrative.text;
   const ttsText = prepareTextForTts(displayText, options);

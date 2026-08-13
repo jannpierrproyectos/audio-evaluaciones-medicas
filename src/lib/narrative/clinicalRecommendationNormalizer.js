@@ -105,6 +105,7 @@ function applyAccents(value) {
 
 export function normalizeClinicalRecommendationText(value) {
   let text = cleanupSpaces(value)
+    .replace(/(^|\s)\d+(?:\s*[,Y]\s*\d+)+\.?(?=\s+[A-ZÁÉÍÓÚÑ])/gi, "$1")
     .replace(/(^|\s)\[\d+(?:,\d+)*(?:\s*y\s*\d+)?\]\s*/gi, "$1")
     .replace(/(^|\s)\d+(?:,\d+)*(?:\s*y\s*\d+)?\.(?=\s+[A-ZÁÉÍÓÚÑ])/gi, "$1")
     .replace(/\bcontrol\s+control\b/gi, "control")
@@ -204,7 +205,7 @@ function normalizeMetabolic(group) {
   }
 
   const nextControl = getNextControl(text);
-  if (nextControl) pushUnique(items, nextControl.replace("su próximo control", "próximo control por endocrinología"));
+  if (nextControl) pushUnique(items, nextControl.replace("su próximo control", "el próximo control"));
   if (hasVigilance) pushUnique(items, "ingresar a vigilancia médica ocupacional por el médico de la empresa");
 
   return items;
@@ -242,16 +243,18 @@ function normalizeAudiometry(group) {
   const items = [];
 
   if (text.includes("PROTECTORES AUDITIVOS")) {
-    pushUnique(items, text.includes("ESTRICTO") ? "uso estricto de protectores auditivos en zonas de ruido" : "uso de protectores auditivos en zonas de ruido");
+    pushUnique(items, text.includes("ESTRICTO") ? "el uso estricto de protectores auditivos en zonas de ruido" : "el uso de protectores auditivos en zonas de ruido");
   }
+
+  const hasFollowup = hasTreatment(text) || text.includes("SEGUIMIENTO Y CONTROL");
 
   if (text.includes("INTERCONSULTA") && text.includes("OTORRINOLARINGOLOGIA")) {
     pushUnique(items, "interconsulta por otorrinolaringología");
-  } else if (text.includes("OTORRINOLARINGOLOGIA") || text.includes("OTORRINO")) {
+  } else if (!hasFollowup && (text.includes("OTORRINOLARINGOLOGIA") || text.includes("OTORRINO"))) {
     pushUnique(items, "control por otorrinolaringología");
   }
 
-  if (hasTreatment(text) || text.includes("SEGUIMIENTO Y CONTROL")) {
+  if (hasFollowup) {
     pushUnique(items, "continuar seguimiento por otorrinolaringología");
   }
 
@@ -260,7 +263,7 @@ function normalizeAudiometry(group) {
   }
 
   const nextControl = getNextControl(text);
-  if (nextControl) pushUnique(items, nextControl.replace("su próximo control", "próximo control por otorrinolaringología"));
+  if (nextControl) pushUnique(items, nextControl.replace("su próximo control", "el próximo control"));
 
   return items;
 }
@@ -302,7 +305,7 @@ function normalizeSimpleSpecialty(group, specialty, options = {}) {
     pushUnique(items, "seguir las indicaciones del especialista");
   }
 
-  if (nextControl) pushUnique(items, nextControl.replace("su próximo control", `próximo control por ${specialty}`));
+  if (nextControl) pushUnique(items, nextControl.replace("su próximo control", "el próximo control"));
   return items;
 }
 
@@ -406,8 +409,8 @@ export function normalizeRestrictionItems(value) {
     .replace(/^-+\s*/g, "");
 
   return text
-    .split(/\.\s+|(?:\s+-\s+)/g)
-    .map((item) => item.replace(/^restricción\s*:?\s*/i, "").trim())
+    .split(/\.\s+-\s+|\.\s+|(?:\s+-\s+)/g)
+    .map((item) => item.replace(/^-+\s*/g, "").replace(/^restricción\s*:?\s*/i, "").trim())
     .filter(Boolean)
     .map((item) => sentenceCase(item));
 }
