@@ -14,7 +14,9 @@ test("validador exige runtime/app/config y rechaza datos sensibles o tests", asy
       "app/package.json",
       "app/src/trayService.js",
       "app/src/service.js",
+      "app/src/phoneExtractor.js",
       "app/node_modules/playwright-core/package.json",
+      "app/node_modules/pdfjs-dist/package.json",
       "config/default-config.json",
       "licenses/PACKAGING-NOTICES.txt",
     ];

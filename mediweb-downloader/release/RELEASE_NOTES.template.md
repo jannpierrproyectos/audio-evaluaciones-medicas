@@ -1,9 +1,10 @@
 # AudioEvaluaciones Connector {{VERSION}}
 
 Cambios:
-- Sistema de actualización segura y controlada por el usuario.
-- Comprobación SemVer de versión y compatibilidad.
-- Preparación reproducible de distribución mediante GitHub Releases.
+- Extracción local del teléfono desde el PDF completo de MediWeb.
+- Asociación segura del teléfono y del nombre exacto del PDF con cada trabajador.
+- Metadatos operativos disponibles para AudioEvaluaciones mediante el endpoint autorizado.
+- Compatibilidad conservada con los modos first, full y both.
 
 Integridad:
 SHA-256: {{SHA256}}

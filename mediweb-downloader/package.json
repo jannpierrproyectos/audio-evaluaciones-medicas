@@ -1,6 +1,6 @@
 {
   "name": "mediweb-downloader",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Descarga local y secuencial de reportes MediWeb mediante una sesion manual.",
