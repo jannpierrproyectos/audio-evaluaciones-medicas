@@ -1,3 +1,5 @@
+import { extractPdfFieldVisualLines } from "./pdfTextGeometry.js";
+
 function cleanText(value) {
   if (value === null || value === undefined) return "";
 
@@ -400,6 +402,12 @@ function shouldReviewDosaje(value) {
 export function parseInnomedicMedicalResult(group) {
   const text = cleanText(group.pages.map((page) => page.text).join(" "));
   const hemoglobinReferenceRanges = extractHemoglobinReferenceRanges(text);
+  const otherFindingItems = extractPdfFieldVisualLines(group.pages, {
+    anchorLabels: ["Ficha Odontograma"],
+    startLabels: ["Otros"],
+    endLabels: ["RESTRICCIONES"],
+    field: "evaluaciones_cualitativas.otros_hallazgos_resultado",
+  });
 
   const fullName = extractBetweenLabels(
     text,
@@ -548,6 +556,7 @@ export function parseInnomedicMedicalResult(group) {
         text,
         /Ficha Odontograma:\s*.*?\s+Otros:\s*(.+?)\s+RESTRICCIONES/i
       ),
+      otros_hallazgos_items: otherFindingItems,
     },
 
     aptitud_y_recomendaciones: {

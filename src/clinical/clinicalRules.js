@@ -40,8 +40,15 @@ export function applyClinicalRules(worker, reviewFlags = []) {
     return {
       sourceField,
       ruleId: finding.rule_id || `existing_${finding.area || "clinical"}_rule`,
-      originalValue: getPath(worker, sourceField),
+      originalValue: finding.source_line || getPath(worker, sourceField),
       normalizedValue: finding.resultado || finding.status,
+      ...(finding.source_page
+        ? {
+            sourcePage: finding.source_page,
+            sourcePosition: finding.source_position,
+            sourceItems: finding.source_items,
+          }
+        : {}),
     };
   });
 

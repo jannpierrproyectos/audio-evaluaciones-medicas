@@ -231,6 +231,22 @@ function hasAmbiguousOtherStructure(value) {
   return /(?:RINITIS ALERGICA.*EOSINOFILIA|INSUFICIENCIA VENOSA.*(?:EOSINOFILIA|HIPERCOLESTEROLEMIA|HIPERTENSION|ANEMIA)|ALERGIA A LA CEFTRIAXONA.*INSUFICIENCIA VENOSA|MIGRANA.*INSUFICIENCIA VENOSA|MICOSIS.*ANEMIA|HIPERCOLESTEROLEMIA DEFINIDA.*LEUCOPENIA|FARINGITIS AGUDA.*HIPERQUERATOSIS.*LEUCOCITOSIS|DESCARTAR ONICOMICOSIS.*INSUFICIENCIA VENOSA)/.test(normalizeComparable(value));
 }
 
+function hasExplicitOphthalmologyFinding(value) {
+  return /(?:PRESBICIA|AMETROPIA|PTERIGION|VISION|DISCROMATOPSIA|PTOSIS)/.test(
+    normalizeComparable(value),
+  );
+}
+
+function getStructuredOtherFindingItems(evaluaciones = {}) {
+  return Array.isArray(evaluaciones.otros_hallazgos_items)
+    ? evaluaciones.otros_hallazgos_items.filter((item) => getString(item?.text))
+    : [];
+}
+
+function hasStructuredOtherSeparation(evaluaciones = {}) {
+  return getStructuredOtherFindingItems(evaluaciones).length > 1;
+}
+
 function createFinding({
   area,
   tipo = "alteracion",
@@ -242,6 +258,7 @@ function createFinding({
   sources = [],
   ruleId = "",
   recommendationAreas = [],
+  sourceItem = null,
 }) {
   return {
     area,
@@ -254,6 +271,12 @@ function createFinding({
     sources: sources.length ? sources : [source].filter(Boolean),
     rule_id: ruleId,
     recommendation_areas: recommendationAreas,
+    source_page: sourceItem?.page ?? null,
+    source_position: sourceItem
+      ? { x: sourceItem.x, y: sourceItem.y, width: sourceItem.width, height: sourceItem.height }
+      : null,
+    source_line: sourceItem?.text || "",
+    source_items: sourceItem?.textItems || [],
   };
 }
 
@@ -449,6 +472,7 @@ function pickRecognizedOtherSegments(result, comparable, options = {}) {
         source: "otros_hallazgos_resultado",
         ruleId: "dermatology_source_certainty_preserved",
         recommendationAreas: ["dermatologia"],
+        sourceItem: options.sourceItem,
       }),
     );
   });
@@ -491,6 +515,56 @@ function pickRecognizedOtherSegments(result, comparable, options = {}) {
         source: "otros_hallazgos_resultado",
         ruleId: config.ruleId,
         recommendationAreas: config.recommendationAreas,
+        sourceItem: options.sourceItem,
+      }));
+    });
+  });
+
+  const neutralSourcePatterns = [
+    {
+      pattern: /^EOSINOFILIA\s*:\s*DESCARTAR\s+PARASITOSIS\s+Y\s*\/\s*O\s+ALERGIAS\.?$/gi,
+      area: "otros",
+      ruleId: "safe_neutral_source_eosinophilia",
+      recommendationAreas: [],
+    },
+    {
+      pattern: /^FARINGITIS\.?$/gi,
+      area: "otros",
+      ruleId: "safe_neutral_source_faringitis",
+      recommendationAreas: [],
+    },
+    {
+      pattern: /^LEUCOPENIA\.?$/gi,
+      area: "otros",
+      ruleId: "safe_neutral_source_leucopenia",
+      recommendationAreas: [],
+    },
+    {
+      pattern: /^LIPOMATOSIS\s+EN\s+MANO\s+DERECHA\.?$/gi,
+      area: "otros",
+      ruleId: "safe_neutral_source_lipomatosis",
+      recommendationAreas: [],
+    },
+    {
+      pattern: /^QUEMADURA\s+DE\s+TERCER\s+GRADO(?:\s+EN\s+EL\s+MUSLO\s+DERECHO)?\.?$/gi,
+      area: "dermatologia",
+      ruleId: "safe_neutral_source_burn",
+      recommendationAreas: ["dermatologia"],
+    },
+  ];
+
+  neutralSourcePatterns.forEach((config) => {
+    [...result.matchAll(config.pattern)].forEach((match) => {
+      findings.push(createFinding({
+        area: config.area,
+        tipo: "source_statement",
+        resultado: getString(match[0]),
+        severidad: "info",
+        field: "evaluaciones_cualitativas.otros_hallazgos_resultado",
+        source: "otros_hallazgos_resultado",
+        ruleId: config.ruleId,
+        recommendationAreas: config.recommendationAreas,
+        sourceItem: options.sourceItem,
       }));
     });
   });
@@ -505,6 +579,7 @@ function pickRecognizedOtherSegments(result, comparable, options = {}) {
         narrar: !options.hasTriglyceridesLabFinding,
         field: "evaluaciones_cualitativas.otros_hallazgos_resultado",
         source: "otros_hallazgos_resultado",
+        sourceItem: options.sourceItem,
       }),
     );
   }
@@ -522,6 +597,7 @@ function pickRecognizedOtherSegments(result, comparable, options = {}) {
         narrar: !options.hasGlucoseLabFinding,
         field: "evaluaciones_cualitativas.otros_hallazgos_resultado",
         source: "otros_hallazgos_resultado",
+        sourceItem: options.sourceItem,
       }),
     );
   }
@@ -539,6 +615,7 @@ function pickRecognizedOtherSegments(result, comparable, options = {}) {
         narrar: !options.hasTriglyceridesLabFinding && !options.hasCholesterolLabFinding,
         field: "evaluaciones_cualitativas.otros_hallazgos_resultado",
         source: "otros_hallazgos_resultado",
+        sourceItem: options.sourceItem,
       }),
     );
   }
@@ -552,6 +629,11 @@ function pickRecognizedOtherSegments(result, comparable, options = {}) {
     .replace(/HIPERTRIGLICERIDEMIA(?:\s+EN\s+TRATAMIENTO)?/gi, "")
     .replace(/HIPERGLICEMIA(?:\s+EN\s+TRATAMIENTO)?/gi, "")
     .replace(/HIPERLIPIDEMIA\s+MIXTA(?:\s+EN\s+TRATAMIENTO)?/gi, "")
+    .replace(/^EOSINOFILIA\s*:\s*DESCARTAR\s+PARASITOSIS\s+Y\s*\/\s*O\s+ALERGIAS\.?$/gi, "")
+    .replace(/^FARINGITIS\.?$/gi, "")
+    .replace(/^LEUCOPENIA\.?$/gi, "")
+    .replace(/^LIPOMATOSIS\s+EN\s+MANO\s+DERECHA\.?$/gi, "")
+    .replace(/^QUEMADURA\s+DE\s+TERCER\s+GRADO(?:\s+EN\s+EL\s+MUSLO\s+DERECHO)?\.?$/gi, "")
     .split(/\s*(?:;|•|\.\s+-\s+|(?:^|\s)\d+(?:\s*[,Y]\s*\d+)*\.\s*)\s*/gi)
     .map((segment) => getString(segment?.replace(/^[,.-]+|[,.-]+$/g, "")))
     .filter(Boolean);
@@ -565,6 +647,7 @@ function pickRecognizedOtherSegments(result, comparable, options = {}) {
         severidad: "info",
         field: "evaluaciones_cualitativas.otros_hallazgos_resultado",
         source: "otros_hallazgos_resultado",
+        sourceItem: options.sourceItem,
       }),
     );
   });
@@ -590,6 +673,7 @@ function deriveOtherFindings(value, options = {}) {
         severidad: "info",
         field: "evaluaciones_cualitativas.otros_hallazgos_resultado",
         source: "otros_hallazgos_resultado",
+        sourceItem: options.sourceItem,
       }),
     );
   }
@@ -602,14 +686,7 @@ function deriveQualitativeFindings(evaluaciones = {}, options = {}) {
   const normales = [];
 
   addFindingIfRelevant(findings, evaluaciones.oftalmologia_resultado, "oftalmologia", "oftalmologia_resultado", {
-    matches: (value) =>
-      !isNormalResult(value) &&
-      (value.includes("PRESBICIA") ||
-        value.includes("AMETROPIA") ||
-        value.includes("PTERIGION") ||
-        value.includes("VISION") ||
-        value.includes("DISCROMATOPSIA") ||
-        value.includes("PTOSIS")),
+    matches: hasExplicitOphthalmologyFinding,
   });
 
   addFindingIfRelevant(findings, evaluaciones.audiometria_resultado, "audiometria", "audiometria_resultado", {
@@ -639,21 +716,44 @@ function deriveQualitativeFindings(evaluaciones = {}, options = {}) {
     "radiografia_torax",
     "radiografia_torax_resultado",
   );
-  addFindingIfRelevant(
-    findings,
-    evaluaciones.musculoesqueletico_resultado,
-    "musculoesqueletico",
-    "musculoesqueletico_resultado",
-    {
-      matches: (value) =>
-        value.includes("REGULAR") ||
-        value.includes("ALTERADO") ||
-        value.includes("IMC") ||
-        value.includes("MASA CORPORAL"),
-    },
-  );
+  if (options.traumatologySourceAssociation) {
+    addFindingIfRelevant(
+      findings,
+      evaluaciones.musculoesqueletico_resultado,
+      "traumatologia",
+      "musculoesqueletico_resultado",
+      {
+        matches: (value) =>
+          !isNormalResult(value) &&
+          !/(?:BUEN ESTADO|ADECUADO|CONSERVADO)/.test(value),
+        ruleId: "structural_musculoskeletal_traumatology_association",
+        recommendationAreas: ["traumatologia"],
+      },
+    );
+  } else {
+    addFindingIfRelevant(
+      findings,
+      evaluaciones.musculoesqueletico_resultado,
+      "musculoesqueletico",
+      "musculoesqueletico_resultado",
+      {
+        matches: (value) =>
+          value.includes("REGULAR") ||
+          value.includes("ALTERADO") ||
+          value.includes("IMC") ||
+          value.includes("MASA CORPORAL"),
+      },
+    );
+  }
 
-  findings.push(...deriveOtherFindings(evaluaciones.otros_hallazgos_resultado, options));
+  const structuredOtherItems = getStructuredOtherFindingItems(evaluaciones);
+  if (structuredOtherItems.length) {
+    structuredOtherItems.forEach((item) => {
+      findings.push(...deriveOtherFindings(item.text, { ...options, sourceItem: item }));
+    });
+  } else {
+    findings.push(...deriveOtherFindings(evaluaciones.otros_hallazgos_resultado, options));
+  }
 
   [
     ["examen_orina_resultado", "orina"],
@@ -664,7 +764,9 @@ function deriveQualitativeFindings(evaluaciones = {}, options = {}) {
     ["oftalmologia_resultado", "oftalmologia"],
   ].forEach(([field, area]) => {
     const value = getString(evaluaciones[field]);
-    if (value && isNormalResult(value)) {
+    const containsExplicitFinding =
+      field === "oftalmologia_resultado" && hasExplicitOphthalmologyFinding(value);
+    if (value && isNormalResult(value) && !containsExplicitFinding) {
       normales.push({
         area,
         field: `evaluaciones_cualitativas.${field}`,
@@ -868,7 +970,12 @@ function addGroupFinding(groups, finding) {
   groups[area].narrar = groups[area].narrar || Boolean(finding.narrar);
 }
 
-function applyRecommendationAssociations(groups, { anthropometryIsRelevant = false, ecgPolicy = {}, ambiguousOtherStructure = false } = {}) {
+function applyRecommendationAssociations(groups, {
+  anthropometryIsRelevant = false,
+  ecgPolicy = {},
+  ambiguousOtherStructure = false,
+  pendingStructuredMetabolicMapping = false,
+} = {}) {
   const pneumology = groups.neumologia;
   if (pneumology.recomendaciones.length === 1 && pneumology.hallazgos.length === 0) {
     const crossAreaCandidates = [groups.espirometria, groups.radiografia_torax]
@@ -900,6 +1007,16 @@ function applyRecommendationAssociations(groups, { anthropometryIsRelevant = fal
     }
 
     if (
+      area === "metabolico" &&
+      pendingStructuredMetabolicMapping &&
+      group.hallazgos.some((finding) => finding.source === "otros_hallazgos_resultado")
+    ) {
+      group.association_status = "AMBIGUOUS_ASSOCIATION";
+      group.association_reason = "La separación PDF recupera el hallazgo metabólico, pero su asociación requiere la política clínica pendiente.";
+      return;
+    }
+
+    if (
       ambiguousOtherStructure &&
       group.hallazgos.some((finding) => finding.field === "evaluaciones_cualitativas.otros_hallazgos_resultado")
     ) {
@@ -908,9 +1025,23 @@ function applyRecommendationAssociations(groups, { anthropometryIsRelevant = fal
       return;
     }
 
-    if (group.hallazgos.length && sourceRecommendations.length === 1) {
+    const markerNumbers = sourceRecommendations.length === 1
+      ? String(sourceRecommendations[0].item || "").match(/\d+/g) || []
+      : [];
+    const hasExplicitOneToManyMarker =
+      group.hallazgos.length > 1 &&
+      markerNumbers.length === group.hallazgos.length;
+    const preservesExistingMetabolicPolicy = area === "metabolico";
+    if (
+      sourceRecommendations.length === 1 &&
+      (group.hallazgos.length === 1 || hasExplicitOneToManyMarker || preservesExistingMetabolicPolicy)
+    ) {
       group.association_status = "SAFE_ASSOCIATION";
-      group.association_reason = "Un único bloque fuente de recomendación coincide con hallazgos estructurados del área.";
+      group.association_reason = hasExplicitOneToManyMarker
+        ? "La numeración fuente vincula explícitamente un único bloque de recomendación con todos los hallazgos estructurados del área."
+        : preservesExistingMetabolicPolicy && group.hallazgos.length > 1
+          ? "Se conserva la política metabólica previa para un único bloque fuente de recomendación del área."
+          : "Un único bloque fuente de recomendación coincide con un único hallazgo estructurado del área.";
       return;
     }
 
@@ -929,6 +1060,23 @@ function applyRecommendationAssociations(groups, { anthropometryIsRelevant = fal
 
     const recommendationText = normalizeComparable(group.recomendaciones.map((item) => item.texto_original).join(" "));
     const ophthalmologyText = normalizeComparable(groups.oftalmologia.hallazgos.map((item) => item.resultado).join(" "));
+    const sourceRecommendationKeys = new Set(
+      group.recomendaciones.map((item) => normalizeComparable(item.texto_original)),
+    );
+    const structurallyLinkedArea = area === "ocupacional"
+      ? ["oftalmologia", "audiometria"].find((candidateArea) => {
+          const candidate = groups[candidateArea];
+          return candidate.hallazgos.length > 0 && candidate.recomendaciones.some(
+            (item) => sourceRecommendationKeys.has(normalizeComparable(item.texto_original)),
+          );
+        })
+      : "";
+    if (structurallyLinkedArea) {
+      group.association_status = "SAFE_ASSOCIATION";
+      group.association_reason = `La misma recomendación fuente ya está vinculada al hallazgo estructurado de ${structurallyLinkedArea}.`;
+      group.suppress_standalone = true;
+      return;
+    }
     const safeOccupationalLink = area === "ocupacional" && (
       (/DISCRIMINAR COLORES|DIFERENCIACION DE COLORES/.test(recommendationText) && ophthalmologyText.includes("DISCROMATOPSIA")) ||
       (/ALTURA/.test(recommendationText) && ophthalmologyText.includes("VISION ESTEREOSCOPICA"))
@@ -944,7 +1092,15 @@ function applyRecommendationAssociations(groups, { anthropometryIsRelevant = fal
   });
 }
 
-function buildNarrativeGroups({ hallazgosRelevantes, laboratorioRelevante, recomendacionesPorArea, anthropometryIsRelevant, ecgPolicy, ambiguousOtherStructure }) {
+function buildNarrativeGroups({
+  hallazgosRelevantes,
+  laboratorioRelevante,
+  recomendacionesPorArea,
+  anthropometryIsRelevant,
+  ecgPolicy,
+  ambiguousOtherStructure,
+  pendingStructuredMetabolicMapping,
+}) {
   const groups = createEmptyNarrativeGroups();
 
   laboratorioRelevante.forEach((item) => {
@@ -970,7 +1126,12 @@ function buildNarrativeGroups({ hallazgosRelevantes, laboratorioRelevante, recom
     groups[area].narrar = true;
   });
 
-  applyRecommendationAssociations(groups, { anthropometryIsRelevant, ecgPolicy, ambiguousOtherStructure });
+  applyRecommendationAssociations(groups, {
+    anthropometryIsRelevant,
+    ecgPolicy,
+    ambiguousOtherStructure,
+    pendingStructuredMetabolicMapping,
+  });
 
   return groups;
 }
@@ -1029,12 +1190,18 @@ export function deriveNarrativeFindings(worker = {}) {
   const recomendacionesPorArea = classifyRecommendations(
     aptitudData.recomendaciones_generales_texto,
   );
+  const traumatologyRecommendations = uniqueRecommendationSources(
+    recomendacionesPorArea.filter((item) => item.area === "traumatologia"),
+  );
   const ecgPolicy = deriveEcgPolicy(evaluaciones, recomendacionesPorArea);
   const qualitative = deriveQualitativeFindings(evaluaciones, {
     hasTriglyceridesLabFinding,
     hasCholesterolLabFinding,
     hasGlucoseLabFinding,
     ecgSafeAssociation: ecgPolicy.safeAssociation,
+    traumatologySourceAssociation:
+      traumatologyRecommendations.length === 1 &&
+      hasNarrableValue(evaluaciones.musculoesqueletico_resultado),
   });
   const metabolicRecommendations = recomendacionesPorArea
     .filter((item) => item.area === "metabolico")
@@ -1047,7 +1214,12 @@ export function deriveNarrativeFindings(worker = {}) {
     recomendacionesPorArea,
     anthropometryIsRelevant,
     ecgPolicy,
-    ambiguousOtherStructure: hasAmbiguousOtherStructure(evaluaciones.otros_hallazgos_resultado),
+    ambiguousOtherStructure:
+      hasAmbiguousOtherStructure(evaluaciones.otros_hallazgos_resultado) &&
+      !hasStructuredOtherSeparation(evaluaciones),
+    pendingStructuredMetabolicMapping:
+      hasStructuredOtherSeparation(evaluaciones) &&
+      hasAmbiguousOtherStructure(evaluaciones.otros_hallazgos_resultado),
   });
   const policyFlags = [];
   if (ecgPolicy.deliberatelyNotNarrated) {
@@ -1171,7 +1343,9 @@ export function deriveNarrativeFindings(worker = {}) {
         "laboratorio_numerico.leucocitos_valor",
         "laboratorio_numerico.plaquetas_valor",
       ],
-      otros_hallazgos: "evaluaciones_cualitativas.otros_hallazgos_resultado",
+      otros_hallazgos: getStructuredOtherFindingItems(evaluaciones).length
+        ? "evaluaciones_cualitativas.otros_hallazgos_items"
+        : "evaluaciones_cualitativas.otros_hallazgos_resultado",
       recomendaciones: "aptitud_y_recomendaciones.recomendaciones_generales_texto",
       metabolico: {
         laboratorio: laboratory.laboratorioRelevante

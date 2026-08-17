@@ -723,6 +723,7 @@ function buildCardiologyParagraph(group) {
 
 function buildOccupationalParagraph(group, groups = {}) {
   if (!group?.narrar) return "";
+  if (group.suppress_standalone) return "";
 
   const recommendations = normalizeAreaRecommendations(group, "ocupacional");
   if (!recommendations.length) return "";

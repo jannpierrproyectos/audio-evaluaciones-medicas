@@ -109,3 +109,121 @@ test("deduplica recomendaciones equivalentes", () => {
   const matches = result.displayText.match(/control por oftalmología/gi) || [];
   assert.equal(matches.length, 1);
 });
+
+function structuredOtherLines(...texts) {
+  return texts.map((text, index) => ({
+    text,
+    page: 1,
+    x: 147,
+    y: 320 - index * 8.25,
+    width: text.length * 4,
+    height: 7.5,
+    sourceIndex: index,
+    textItems: [{ text, x: 147, y: 320 - index * 8.25, page: 1 }],
+  }));
+}
+
+test("asocia de forma segura hallazgo y recomendación dermatológica estructurados", () => {
+  const result = processWorkerClinicalNarrative(baseWorker({
+    evaluaciones_cualitativas: {
+      otros_hallazgos_resultado: "DESCARTAR ONICOMICOSIS PEDIA DERECHA",
+      otros_hallazgos_items: structuredOtherLines("DESCARTAR ONICOMICOSIS PEDIA DERECHA"),
+    },
+    aptitud_y_recomendaciones: { recomendaciones_generales_texto: "EVALUACIÓN POR DERMATOLOGÍA." },
+  }));
+  assert.equal(result.findings.narrative_groups.dermatologia.association_status, "SAFE_ASSOCIATION");
+  assert.ok(!result.reviewFlags.some((flag) => flag.type === "orphan_recommendation"));
+});
+
+test("asocia de forma segura hallazgos vascular y alérgico en líneas independientes", () => {
+  const result = processWorkerClinicalNarrative(baseWorker({
+    evaluaciones_cualitativas: {
+      otros_hallazgos_resultado: "INSUFICIENCIA VENOSA PERIFERICA I° BILATERAL ALERGIA A LA CEFTRIAXONA",
+      otros_hallazgos_items: structuredOtherLines(
+        "INSUFICIENCIA VENOSA PERIFERICA I° BILATERAL",
+        "ALERGIA A LA CEFTRIAXONA",
+      ),
+    },
+    aptitud_y_recomendaciones: {
+      recomendaciones_generales_texto: "1. REALIZAR PAUSAS PASIVAS Y EVITAR BIPEDESTACIÓN PROLONGADA. 2. EVITAR USO DE MEDICAMENTO ALÉRGENO.",
+    },
+  }));
+  assert.equal(result.findings.narrative_groups.vascular.association_status, "SAFE_ASSOCIATION");
+  assert.equal(result.findings.narrative_groups.alergias.association_status, "SAFE_ASSOCIATION");
+  assert.ok(!result.reviewFlags.some((flag) => flag.type === "ambiguous_other_findings_structure"));
+});
+
+test("vincula un hallazgo musculoesquelético explícito con una única recomendación traumatológica", () => {
+  const result = processWorkerClinicalNarrative(baseWorker({
+    evaluaciones_cualitativas: { musculoesqueletico_resultado: "SECUELA DE LESIÓN EN MANO DERECHA" },
+    aptitud_y_recomendaciones: { recomendaciones_generales_texto: "CONTROL POR TRAUMATOLOGÍA." },
+  }));
+  assert.equal(result.findings.narrative_groups.traumatologia.association_status, "SAFE_ASSOCIATION");
+  assert.match(result.displayText, /secuela de lesión en mano derecha/i);
+  assert.ok(!result.reviewFlags.some((flag) => flag.type === "orphan_recommendation"));
+});
+
+test("detecta hallazgo oftalmológico mixto con emetropía y lo asocia", () => {
+  const result = processWorkerClinicalNarrative(baseWorker({
+    evaluaciones_cualitativas: { oftalmologia_resultado: "EMETROPE PTERIGION DE II° OJO DERECHO" },
+    aptitud_y_recomendaciones: { recomendaciones_generales_texto: "USO DE HIDRATANTES OCULARES. CONTROL POR OFTALMOLOGÍA." },
+  }));
+  assert.equal(result.findings.narrative_groups.oftalmologia.association_status, "SAFE_ASSOCIATION");
+  assert.match(result.displayText, /pterigión/i);
+  assert.ok(!result.reviewFlags.some((flag) => flag.type === "orphan_recommendation"));
+});
+
+test("dos hallazgos del área con una recomendación potencial permanecen en REVIEW", () => {
+  const result = processWorkerClinicalNarrative(baseWorker({
+    evaluaciones_cualitativas: {
+      otros_hallazgos_resultado: "MICOSIS DERMATITIS",
+      otros_hallazgos_items: structuredOtherLines("MICOSIS", "DERMATITIS"),
+    },
+    aptitud_y_recomendaciones: { recomendaciones_generales_texto: "CONTROL POR DERMATOLOGÍA." },
+  }));
+  assert.equal(result.findings.narrative_groups.dermatologia.association_status, "AMBIGUOUS_ASSOCIATION");
+  assert.ok(result.reviewFlags.some((flag) => flag.type === "ambiguous_recommendation_mapping"));
+});
+
+test("correctores oculares sin hallazgo siguen siendo TRUE orphan", () => {
+  const result = processWorkerClinicalNarrative(baseWorker({
+    aptitud_y_recomendaciones: {
+      recomendaciones_generales_texto: "NO REALIZAR ACTIVIDADES SIN EL USO OBLIGATORIO DE CORRECTORES OCULARES.",
+    },
+  }));
+  assert.ok(result.reviewFlags.some((flag) => flag.type === "orphan_recommendation"));
+  assert.equal(result.findings.narrative_groups.oftalmologia.hallazgos.length, 0);
+});
+
+test("narra cinco hallazgos fuente de forma neutral sin inventar conducta", () => {
+  const inputs = [
+    ["EOSINOFILIA: DESCARTAR PARASITOSIS Y/O ALERGIAS", /eosinofilia: descartar parasitosis y\/o alergias/i],
+    ["FARINGITIS", /se registra faringitis/i],
+    ["LEUCOPENIA", /se registra leucopenia/i],
+    ["LIPOMATOSIS EN MANO DERECHA", /lipomatosis en mano derecha/i],
+    ["QUEMADURA DE TERCER GRADO", /quemadura de tercer grado/i],
+  ];
+  inputs.forEach(([source, expected]) => {
+    const result = processWorkerClinicalNarrative(baseWorker({
+      evaluaciones_cualitativas: {
+        otros_hallazgos_resultado: source,
+        otros_hallazgos_items: structuredOtherLines(source),
+      },
+    }));
+    assert.match(result.displayText, expected, source);
+    assert.ok(!result.reviewFlags.some((flag) => flag.type === "unsupported_pattern"), source);
+    assert.doesNotMatch(result.displayText, /antibiótico|hematología|tratamiento para|presenta parasitosis/i, source);
+  });
+});
+
+test("dos hallazgos visuales no se concatenan ni crean una regla conjunta", () => {
+  const result = processWorkerClinicalNarrative(baseWorker({
+    evaluaciones_cualitativas: {
+      otros_hallazgos_resultado: "DESCARTAR ONICOMICOSIS LEUCOPENIA",
+      otros_hallazgos_items: structuredOtherLines("DESCARTAR ONICOMICOSIS", "LEUCOPENIA"),
+    },
+  }));
+  assert.doesNotMatch(result.displayText, /onicomicosis leucopenia/i);
+  assert.match(result.displayText, /descartar onicomicosis/i);
+  assert.match(result.displayText, /leucopenia/i);
+});

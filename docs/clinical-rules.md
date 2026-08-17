@@ -56,7 +56,11 @@ Cada grupo se clasifica como `SAFE_ASSOCIATION`, `AMBIGUOUS_ASSOCIATION`, `NO_RE
 
 ### Otros hallazgos
 
-El motor separa únicamente patrones con límites textuales reproducibles. Los hallazgos claros pueden narrarse neutralmente sin recomendación. Los bloques compuestos sin delimitación inequívoca generan `ambiguous_other_findings_structure`; no se emparejan por proximidad. El texto original siempre permanece disponible en `rawWorker` y trazabilidad.
+En PDFs Innomedic, el parser conserva `otros_hallazgos_resultado` por compatibilidad y añade `otros_hallazgos_items`. Estos elementos se reconstruyen desde la geometría PDF.js: página ascendente, coordenada Y descendente y coordenada X ascendente. La tolerancia de una línea es el 35 % de la altura mediana de sus textItems, acotada entre 0,75 y 3 puntos; los saltos horizontales superiores al máximo entre 24 puntos y cuatro alturas medianas preservan columnas distintas. Esta reconstrucción se limita a la sección entre `Otros` y `RESTRICCIONES`, después de `Ficha Odontograma`.
+
+Cada línea reconstruida conserva página, texto fuente, posición, índices y textItems originales. El motor procesa esas líneas por separado y solo recurre al string legacy cuando la geometría no está disponible. Las asociaciones se permiten cuando la fuente demuestra área y correspondencia: un hallazgo y una recomendación, o una numeración explícita que cubre todos los hallazgos de la misma área. La separación espacial no resuelve por sí sola asociaciones metabólicas pendientes ni elimina ambigüedades clínicas.
+
+Los hallazgos fuente explícitos aprobados para traslado neutral son eosinofilia con la instrucción de descartar parasitosis o alergias, faringitis, leucopenia, lipomatosis en mano derecha y quemadura de tercer grado. El texto conserva incertidumbre y localización; estas reglas no crean tratamiento, diagnóstico adicional ni recomendación. Los demás patrones no soportados siguen en revisión. Los bloques que carecen de separación geométrica inequívoca mantienen `ambiguous_other_findings_structure`.
 
 ### Hemoglobina
 

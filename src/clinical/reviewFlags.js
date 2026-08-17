@@ -54,13 +54,24 @@ export function collectReviewFlags(worker = {}, normalizationTrace = []) {
     ));
   });
 
+  const structuredOtherItems = Array.isArray(worker.evaluaciones_cualitativas?.otros_hallazgos_items)
+    ? worker.evaluaciones_cualitativas.otros_hallazgos_items
+      .map((item) => comparable(item?.text))
+      .filter(Boolean)
+    : [];
   const otherFinding = comparable(worker.evaluaciones_cualitativas?.otros_hallazgos_resultado);
+  const otherFindingValues = structuredOtherItems.length ? structuredOtherItems : [otherFinding].filter(Boolean);
   const recognizedOtherPatterns = [
     "NORMAL", "SIN ALTERACIONES", "ONICOMICOSIS", "MICOSIS", "HIPERQUERATOSIS", "DERMATITIS",
     "ONICODISTROFIA", "INSUFICIENCIA VENOSA", "PIE CAVO", "PIE PLANO", "ALERGIA A",
     "HIPERTRIGLICERIDEMIA", "HIPERGLICEMIA", "HIPERLIPIDEMIA MIXTA",
+    "EOSINOFILIA: DESCARTAR PARASITOSIS Y/O ALERGIAS", "FARINGITIS", "LEUCOPENIA",
+    "LIPOMATOSIS EN MANO DERECHA", "QUEMADURA DE TERCER GRADO",
   ];
-  if (otherFinding && !recognizedOtherPatterns.some((term) => otherFinding.includes(term))) {
+  const hasUnsupportedOtherFinding = otherFindingValues.some(
+    (value) => !recognizedOtherPatterns.some((term) => value.includes(term)),
+  );
+  if (hasUnsupportedOtherFinding) {
     flags.push(createFlag(
       "unsupported_pattern",
       "evaluaciones_cualitativas.otros_hallazgos_resultado",
@@ -68,6 +79,7 @@ export function collectReviewFlags(worker = {}, normalizationTrace = []) {
     ));
   }
   if (
+    structuredOtherItems.length <= 1 &&
     /(?:RINITIS ALERGICA.*EOSINOFILIA|INSUFICIENCIA VENOSA.*(?:EOSINOFILIA|HIPERCOLESTEROLEMIA|HIPERTENSION|ANEMIA)|ALERGIA A LA CEFTRIAXONA.*INSUFICIENCIA VENOSA|MIGRANA.*INSUFICIENCIA VENOSA|MICOSIS.*ANEMIA|HIPERCOLESTEROLEMIA DEFINIDA.*LEUCOPENIA|FARINGITIS AGUDA.*HIPERQUERATOSIS.*LEUCOCITOSIS|DESCARTAR ONICOMICOSIS.*INSUFICIENCIA VENOSA)/.test(otherFinding)
   ) {
     flags.push(createFlag(

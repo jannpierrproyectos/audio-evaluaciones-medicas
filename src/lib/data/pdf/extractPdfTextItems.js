@@ -39,7 +39,7 @@ export async function extractPdfTextItems(file) {
     const textContent = await page.getTextContent();
 
     const items = textContent.items
-      .map((item) => {
+      .map((item, sourceIndex) => {
         const transform = item.transform || [];
         const x = transform[4] ?? 0;
         const y = transform[5] ?? 0;
@@ -51,6 +51,8 @@ export async function extractPdfTextItems(file) {
           page: pageNumber,
           width: item.width ?? 0,
           height: item.height ?? 0,
+          fontName: item.fontName || "",
+          sourceIndex,
         };
       })
       .filter((item) => item.text.trim() !== "");
