@@ -59,3 +59,5 @@ mediweb-downloader/updates/
 mediweb-downloader/*.log
 mediweb-downloader/build-windows/
 mediweb-downloader/dist-windows/
+
+Descargas/
