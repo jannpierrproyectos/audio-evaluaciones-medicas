@@ -42,7 +42,20 @@ export const clinicalCases = {
   }),
   B_METABOLIC: baseWorker({
     datos_generales_narrables: { peso_kg: 72, talla_cm: 165, imc: 26.4 },
-    laboratorio_numerico: { trigliceridos_valor: 180 },
+    laboratorio_numerico: {
+      trigliceridos_valor: 180,
+      trigliceridos_valor_fuente: "180",
+      trigliceridos_unidad: "mg/dL",
+      trigliceridos_referencia: {
+        rawText: "Normal: <150 | Limite Alto: 150-199 | Alto: 200-499 | Muy Alto: >500",
+        categories: [
+          { classification: "NORMAL", labelRaw: "Normal", expression: { type: "comparison", operator: "<", boundary: 150 } },
+          { classification: "BORDERLINE_HIGH", labelRaw: "Limite Alto", expression: { type: "range", min: 150, max: 199, minInclusive: true, maxInclusive: true } },
+          { classification: "HIGH", labelRaw: "Alto", expression: { type: "range", min: 200, max: 499, minInclusive: true, maxInclusive: true } },
+          { classification: "VERY_HIGH", labelRaw: "Muy Alto", expression: { type: "comparison", operator: ">", boundary: 500 } },
+        ],
+      },
+    },
     evaluaciones_cualitativas: { valoracion_imc_resultado: "SOBREPESO" },
     aptitud_y_recomendaciones: { recomendaciones_generales_texto: "CONTROL POR NUTRICION" },
   }),
@@ -60,7 +73,20 @@ export const clinicalCases = {
   }),
   F_MULTIPLE: baseWorker({
     datos_generales_narrables: { imc: 31.2, peso_kg: 82, talla_cm: 162 },
-    laboratorio_numerico: { trigliceridos_valor: 220 },
+    laboratorio_numerico: {
+      trigliceridos_valor: 220,
+      trigliceridos_valor_fuente: "220",
+      trigliceridos_unidad: "mg/dL",
+      trigliceridos_referencia: {
+        rawText: "Normal: <150 | Limite Alto: 150-199 | Alto: 200-499 | Muy Alto: >500",
+        categories: [
+          { classification: "NORMAL", labelRaw: "Normal", expression: { type: "comparison", operator: "<", boundary: 150 } },
+          { classification: "BORDERLINE_HIGH", labelRaw: "Limite Alto", expression: { type: "range", min: 150, max: 199, minInclusive: true, maxInclusive: true } },
+          { classification: "HIGH", labelRaw: "Alto", expression: { type: "range", min: 200, max: 499, minInclusive: true, maxInclusive: true } },
+          { classification: "VERY_HIGH", labelRaw: "Muy Alto", expression: { type: "comparison", operator: ">", boundary: 500 } },
+        ],
+      },
+    },
     evaluaciones_cualitativas: {
       valoracion_imc_resultado: "OBESIDAD TIPO I",
       oftalmologia_resultado: "AMETROPIA",

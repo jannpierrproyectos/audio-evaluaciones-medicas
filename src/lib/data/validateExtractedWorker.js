@@ -1,3 +1,5 @@
+import { classifyMetabolicAnalyte } from "./metabolicReference.js";
+
 function normalizeText(value) {
   return String(value || "")
     .normalize("NFD")
@@ -96,65 +98,34 @@ export function validateExtractedWorker(worker) {
     }
   }
 
-  if (typeof laboratorio.trigliceridos_valor === "number") {
-    if (laboratorio.trigliceridos_valor >= 200) {
-      addWarning(
-        warnings,
-        "laboratorio_numerico.trigliceridos_valor",
-        "Trigliceridos elevados. Revisar recomendacion metabolica.",
-        "warning",
-        "triglycerides_unclassified"
-      );
-    } else if (laboratorio.trigliceridos_valor >= 150) {
-      addWarning(
-        warnings,
-        "laboratorio_numerico.trigliceridos_valor",
-        "Trigliceridos en limite alto. Revisar si corresponde recomendacion metabolica.",
-        "info",
-        "triglycerides_unclassified"
-      );
-    }
-  }
-
-  if (typeof laboratorio.colesterol_valor === "number") {
-    if (laboratorio.colesterol_valor >= 240) {
-      addWarning(
-        warnings,
-        "laboratorio_numerico.colesterol_valor",
-        "Colesterol alto. Revisar recomendacion metabolica.",
-        "warning",
-        "cholesterol_unclassified"
-      );
-    } else if (laboratorio.colesterol_valor >= 200) {
-      addWarning(
-        warnings,
-        "laboratorio_numerico.colesterol_valor",
-        "Colesterol en limite alto. Revisar recomendacion metabolica.",
-        "info",
-        "cholesterol_unclassified"
-      );
-    }
-  }
-
-  if (typeof laboratorio.glucosa_valor === "number") {
-    if (laboratorio.glucosa_valor >= 126) {
-      addWarning(
-        warnings,
-        "laboratorio_numerico.glucosa_valor",
-        "Glucosa elevada. Revisar indicacion de control medico.",
-        "warning",
-        "glucose_unclassified"
-      );
-    } else if (laboratorio.glucosa_valor > 100) {
-      addWarning(
-        warnings,
-        "laboratorio_numerico.glucosa_valor",
-        "Glucosa en limite alto. Revisar recomendacion metabolica.",
-        "info",
-        "glucose_unclassified"
-      );
-    }
-  }
+  [
+    ["glucosa", "glucose"],
+    ["colesterol", "cholesterol"],
+    ["trigliceridos", "triglycerides"],
+  ].forEach(([analyte, flagPrefix]) => {
+    if (typeof laboratorio[`${analyte}_valor`] !== "number") return;
+    const classification = classifyMetabolicAnalyte(analyte, laboratorio);
+    if (classification.resolved) return;
+    const ambiguous = classification.reason === "REFERENCE_GAP" ||
+      classification.reason === "REFERENCE_OVERLAP" ||
+      Boolean(classification.reference?.ambiguous);
+    const missing = classification.reason === "REFERENCE_MISSING";
+    addWarning(
+      warnings,
+      `laboratorio_numerico.${analyte}_referencia`,
+      ambiguous
+        ? `La referencia fuente de ${analyte} no permite una clasificacion inequivoca del valor.`
+        : missing
+          ? `No se encontro referencia fuente para clasificar ${analyte}.`
+          : `No se pudo interpretar la referencia fuente de ${analyte}.`,
+      "warning",
+      ambiguous
+        ? `${flagPrefix}_reference_ambiguous`
+        : missing
+          ? `${flagPrefix}_reference_missing`
+          : `${flagPrefix}_classification_unresolved`,
+    );
+  });
 
   if (isEmptyLike(evaluaciones.ecg_resultado)) {
     addWarning(

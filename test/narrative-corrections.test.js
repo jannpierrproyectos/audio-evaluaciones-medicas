@@ -108,9 +108,9 @@ test("reclasifica warnings conocidos y reserva unknown_value para lo no clasific
   [
     "identity_name_split_detected",
     "imc_recommendation_review",
-    "glucose_unclassified",
-    "triglycerides_unclassified",
-    "cholesterol_unclassified",
+    "glucose_reference_missing",
+    "triglycerides_reference_missing",
+    "cholesterol_reference_missing",
     "ecg_not_reported",
     "audiometry_not_reported",
     "recommendation_compact_numbering",

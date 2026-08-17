@@ -21,9 +21,9 @@ raw worker
 | ruleId | Campo fuente | Condición | Texto/efecto | Recomendación | Auditoría |
 |---|---|---|---|---|---|
 | `existing_imc_rule` | `peso_kg`, `talla_cm`, `imc` | IMC numérico ya presente; clasificación heredada: `<18.5`, `<25`, `<30`, `<35`, `<40`, resto | Bajo peso, normal, sobrepeso u obesidad I–III | Solo usa recomendación metabólica presente en fuente | Correcta como regla heredada; requiere validación clínica formal de umbrales y política de cálculo futuro |
-| `existing_glucose_rule` | `glucosa_valor` | `>100`; severidad desde `126` | “elevada”/“límite alto”; nunca “diabetes” | Solo recomendaciones clasificadas desde la fuente | Ambigua sin ayuno/rango del informe; heredada y pendiente de definición clínica |
-| `existing_triglycerides_rule` | `trigliceridos_valor` | `>=150`; alteración desde `200` | “límite alto” o “elevados” | Solo recomendación metabólica fuente | Heredada, cubierta por golden test; falta validar rangos institucionales |
-| `existing_cholesterol_rule` | `colesterol_valor` | `>=200`; alteración desde `240` | “límite alto” o “elevado” | Solo recomendación metabólica fuente | Heredada; falta golden específico y rango explícito del reporte |
+| `glucosa_source_reference_classification` | Valor, unidad y `glucosa_referencia` de la misma página | Compara exclusivamente con el intervalo impreso | `LOW`, `NORMAL` o `HIGH`; describe posición respecto del rango | No crea recomendaciones | Sin referencia o referencia no resoluble permanece en REVIEW |
+| `trigliceridos_source_reference_classification` | Valor, unidad y categorías impresas de triglicéridos | Evalúa literalmente cada expresión y su etiqueta fuente | Conserva `NORMAL`, `BORDERLINE_HIGH`, `HIGH` o `VERY_HIGH` cuando la fuente lo demuestra | No crea recomendaciones | Huecos y solapamientos permanecen en REVIEW |
+| `colesterol_source_reference_classification` | Valor, unidad y categorías impresas de colesterol total | Evalúa literalmente cada expresión y su etiqueta fuente | Conserva `NORMAL`, `BORDERLINE_HIGH` o `HIGH` cuando la fuente lo demuestra | No crea recomendaciones | No deriva “hipercolesterolemia” desde la cifra; huecos y solapamientos permanecen en REVIEW |
 | `existing_leukocytes_rule` | `leucocitos_valor` | `>10000` | “ligeramente elevados” | Ninguna automática | Ambigua sin unidad/rango; heredada, sin test específico |
 | `existing_platelets_rule` | `plaquetas_valor` | `<150000` o `>450000` | “disminuidas” o “elevadas” | Ninguna automática | Ambigua sin unidad/rango; heredada, sin test específico |
 | `existing_ophthalmology_rule` | `oftalmologia_resultado` | Interpretación fuente contiene ametropía, presbicia, pterigión, visión, discromatopsia o ptosis | Conserva hallazgo normalizado | Solo recomendación oftalmológica fuente | Dependiente del parser/patrón; golden |
@@ -66,6 +66,14 @@ Los hallazgos fuente explícitos aprobados para traslado neutral son eosinofilia
 
 El parser extrae valor, unidad y los intervalos rotulados para hombres y mujeres desde la misma evaluación. No existen constantes clínicas de rango. El sexo explícito selecciona el intervalo aplicable y la clasificación es exclusivamente matemática: valor menor que el mínimo = `LOW`, inclusivo entre mínimo y máximo = `NORMAL`, y mayor que el máximo = `HIGH`. Sin intervalo se genera `hemoglobin_reference_range_missing`; con variantes o sexo no reconocido, `hemoglobin_reference_range_ambiguous`. La narrativa solo describe la posición respecto al rango impreso y nunca diagnostica anemia, policitemia ni una causa.
 
+### Glucosa, colesterol y triglicéridos
+
+El parser conserva por analito el valor y la unidad originales, el texto de referencia, la página, la geometría y los `textItems`. El intérprete común admite intervalos con guion ASCII o Unicode, decimales con punto o coma y comparadores `<`, `<=`, `>`, `>=`, `≤` y `≥`. La inclusividad se toma literalmente de la fuente.
+
+Glucosa usa el intervalo simple impreso en su propia página. Colesterol total y triglicéridos usan las categorías y etiquetas impresas; los límites no existen como constantes clínicas del motor. Si ninguna categoría cubre el valor, si más de una lo cubre o si la expresión no puede analizarse, el motor no completa el hueco ni elige una categoría: genera un flag específico de referencia y solicita REVIEW.
+
+La clasificación y la recomendación son decisiones separadas. Un valor bajo, normal, alto, límite alto o muy alto puede narrarse con su cifra y unidad, pero no genera diagnóstico, especialidad, dieta, tratamiento ni seguimiento. Las recomendaciones solo proceden de la fuente y un mapeo ambiguo continúa en REVIEW. El texto fuente diagnóstico se conserva como evidencia separada; solo se suprime en display una duplicación exacta y conservadora de “hipercolesterolemia límite alto” cuando la clasificación numérica fuente ya comunica ese mismo concepto.
+
 ## Review flags
 
 Tipos principales: `conflicting_values`, `ambiguous_interpretation`, `unknown_value`, `empty_placeholder`, `orphan_recommendation`, `ambiguous_recommendation_mapping`, `ambiguous_other_findings_structure`, `ecg_not_narrated_no_cardiology_recommendation`, `ecg_cardiology_association_ambiguous`, `hemoglobin_reference_range_missing` y `hemoglobin_reference_range_ambiguous`. Niveles: `automatic`, `review_recommended`, `manual_only`. No se calculan porcentajes. Un conflicto clínico impide producir narrativa automática; otros flags no bloquean el lote.
@@ -76,7 +84,7 @@ Tipos principales: `conflicting_values`, `ambiguous_interpretation`, `unknown_va
 
 ## Reglas pendientes de definición clínica
 
-- Rangos institucionales por edad, sexo, ayuno, unidad y laboratorio para glucosa, colesterol, triglicéridos, leucocitos y plaquetas. Hemoglobina usa exclusivamente el rango impreso en cada evaluación.
+- Política institucional de recomendaciones para glucosa, colesterol y triglicéridos; la clasificación numérica ya usa exclusivamente la referencia impresa. Los rangos de leucocitos y plaquetas siguen pendientes. Hemoglobina usa exclusivamente el rango impreso en cada evaluación.
 - Política para calcular IMC cuando no venga informado y cómo resolver discrepancias con la categoría fuente.
 - Catálogo validado de sinónimos normales/anormales por especialidad.
 - Recomendaciones autorizadas por hallazgo y prioridad/severidad institucional.
@@ -84,3 +92,15 @@ Tipos principales: `conflicting_values`, `ambiguous_interpretation`, `unknown_va
 - Manejo clínico de valores sin unidad y de resultados con rangos explícitos impresos en el PDF.
 
 Hasta contar con estas definiciones, las reglas heredadas se mantienen sin ampliar y los patrones desconocidos conservan el dato para revisión.
+
+## Fase 5.8: comparación metabólica fuente–clasificación
+
+La clasificación numérica de glucosa, colesterol y triglicéridos continúa usando únicamente los rangos impresos extraídos del mismo informe. Los textos metabólicos explícitos del campo `Otros` se comparan con esa clasificación, sin convertirlos en diagnósticos derivados:
+
+- `EXACT_EQUIVALENT`: se evita repetir el mismo contenido, pero se conserva la traza fuente.
+- `ADDITIONAL_SOURCE_INFORMATION`: se conserva y comunica el dato adicional explícito, por ejemplo `en tratamiento` o una calificación conjunta impresa.
+- `DISCREPANT`: se muestran la clasificación numérica y el texto fuente sin elegir uno, y se genera `metabolic_source_classification_conflict`.
+
+Una recomendación metabólica solo se asocia de forma segura cuando existe una correspondencia estructural uno a uno o una numeración explícita que abarque el bloque completo. Una recomendación única para varios hallazgos sin esa señal ya no se considera segura por política legacy. Los resultados se narran primero y la recomendación fuente se presenta después con una transición neutral; no se crea causalidad entre ambos.
+
+Los hallazgos fuente simples catalogados en esta fase pueden trasladarse literalmente mediante una formulación neutral. Esto no les asigna especialidad, recomendación, tratamiento ni interpretación nueva. Las asociaciones clínicas múltiples, los huérfanos verdaderos, la competencia cardiológica y `PVC` permanecen en REVIEW.

@@ -1,3 +1,5 @@
+import { evaluateMetabolicSourceStatement } from "../lib/data/metabolicReference.js";
+
 function comparable(value) {
   return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
 }
@@ -65,6 +67,9 @@ export function collectReviewFlags(worker = {}, normalizationTrace = []) {
     "NORMAL", "SIN ALTERACIONES", "ONICOMICOSIS", "MICOSIS", "HIPERQUERATOSIS", "DERMATITIS",
     "ONICODISTROFIA", "INSUFICIENCIA VENOSA", "PIE CAVO", "PIE PLANO", "ALERGIA A",
     "HIPERTRIGLICERIDEMIA", "HIPERGLICEMIA", "HIPERLIPIDEMIA MIXTA",
+    "HIPERCOLESTEROLEMIA", "HEPATOMEGALIA", "RINITIS ALERGICA EN TRATAMIENTO",
+    "HIPERTENSION ARTERIAL CONTROLADA", "ANEMIA", "LEUCOCITOSIS", "MIGRANA POR ANTECEDENTE",
+    "ESTEATOSIS HEPATICA", "DIABETES MELLITUS CONTROLADA", "LEUCOCITURIA", "TROMBOCITOSIS",
     "EOSINOFILIA: DESCARTAR PARASITOSIS Y/O ALERGIAS", "FARINGITIS", "LEUCOPENIA",
     "LIPOMATOSIS EN MANO DERECHA", "QUEMADURA DE TERCER GRADO",
   ];
@@ -78,6 +83,16 @@ export function collectReviewFlags(worker = {}, normalizationTrace = []) {
       "El dato se conserva de forma neutral, pero no coincide con un patrón clínico validado.",
     ));
   }
+  const metabolicSourceConflicts = otherFindingValues
+    .map((value) => evaluateMetabolicSourceStatement(value, worker.laboratorio_numerico || {}))
+    .filter((evaluation) => evaluation?.status === "DISCREPANT");
+  metabolicSourceConflicts.forEach((evaluation) => {
+    flags.push(createFlag(
+      "metabolic_source_classification_conflict",
+      "evaluaciones_cualitativas.otros_hallazgos_resultado",
+      `${evaluation.sourceText}: ${evaluation.reason}`,
+    ));
+  });
   if (
     structuredOtherItems.length <= 1 &&
     /(?:RINITIS ALERGICA.*EOSINOFILIA|INSUFICIENCIA VENOSA.*(?:EOSINOFILIA|HIPERCOLESTEROLEMIA|HIPERTENSION|ANEMIA)|ALERGIA A LA CEFTRIAXONA.*INSUFICIENCIA VENOSA|MIGRANA.*INSUFICIENCIA VENOSA|MICOSIS.*ANEMIA|HIPERCOLESTEROLEMIA DEFINIDA.*LEUCOPENIA|FARINGITIS AGUDA.*HIPERQUERATOSIS.*LEUCOCITOSIS|DESCARTAR ONICOMICOSIS.*INSUFICIENCIA VENOSA)/.test(otherFinding)
@@ -145,7 +160,9 @@ export function collectNarrativeReviewFlags(findings = {}) {
       ));
     }
     if (
-      !group.hallazgos?.length &&
+      !group.hallazgos?.some((finding) =>
+        finding.recommendation_candidate !== false && finding.narrar !== false
+      ) &&
       ["AMBIGUOUS_ASSOCIATION", "NO_RELATED_FINDING", "NONE"].includes(group.association_status)
     ) {
       flags.push(createFlag(

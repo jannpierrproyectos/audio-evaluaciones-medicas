@@ -14,12 +14,12 @@ Eso sería todo. De presentar alguna duda adicional, no dude en consultar con el
 
 Su peso es 72 kilogramos y su talla es 165 centímetros, por lo que su índice de masa corporal es de 26.4, correspondiente a sobrepeso.
 
-En el área metabólica se registran triglicéridos en límite alto, por lo que se recomienda control por nutrición.
+Sus triglicéridos son de 180 mg/dL y se encuentran en el rango límite alto reportado. Como parte de las recomendaciones de la evaluación, se indica control por nutrición.
 
 Por ello, su calificación final es apto.
 
 Eso sería todo. De presentar alguna duda adicional, no dude en consultar con el médico de su empresa. Muchas gracias.`,
-    ttsText: "Buenos días, señora Ana Quispe. Le saludamos de parte de la clínica Innomedic. A continuación, le brindaremos el resumen de su evaluación médica. Su peso es 72 kilogramos y su talla es 165 centímetros, por lo que su índice de masa corporal es de 26.4, correspondiente a sobrepeso. En el área metabólica se registran triglicéridos en límite alto, por lo que se recomienda control por nutrición. Por ello, su calificación final es apto. Eso sería todo. De presentar alguna duda adicional, no dude en consultar con el médico de su empresa. Muchas gracias.",
+    ttsText: "Buenos días, señora Ana Quispe. Le saludamos de parte de la clínica Innomedic. A continuación, le brindaremos el resumen de su evaluación médica. Su peso es 72 kilogramos y su talla es 165 centímetros, por lo que su índice de masa corporal es de 26.4, correspondiente a sobrepeso. Sus triglicéridos son de 180 miligramos por decilitro y se encuentran en el rango límite alto reportado. Como parte de las recomendaciones de la evaluación, se indica control por nutrición. Por ello, su calificación final es apto. Eso sería todo. De presentar alguna duda adicional, no dude en consultar con el médico de su empresa. Muchas gracias.",
   },
   C_OPHTHALMOLOGY: {
     displayText: `Buenos días, señora Ana Quispe. Le saludamos de parte de la clínica Innomedic. A continuación, le brindaremos el resumen de su evaluación médica.

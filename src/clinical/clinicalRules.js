@@ -40,8 +40,27 @@ export function applyClinicalRules(worker, reviewFlags = []) {
     return {
       sourceField,
       ruleId: finding.rule_id || `existing_${finding.area || "clinical"}_rule`,
-      originalValue: finding.source_line || getPath(worker, sourceField),
+      originalValue: finding.classification || finding.reference_classification
+        ? {
+            value: finding.sourceValue || finding.source_value || getPath(worker, sourceField),
+            unit: finding.unit || "",
+            reference: finding.reference?.rawText || "",
+          }
+        : finding.source_line || getPath(worker, sourceField),
       normalizedValue: finding.resultado || finding.status,
+      ...(finding.classification || finding.reference_classification
+        ? {
+            unit: finding.unit || "",
+            referenceRaw: finding.reference?.rawText || "",
+            referenceParsed: finding.reference || null,
+            classification: finding.classification || finding.reference_classification,
+            categoryLabelSource: finding.sourceLabel ||
+              finding.reference?.categories?.find((category) =>
+                category.classification === (finding.classification || finding.reference_classification)
+              )?.labelRaw || null,
+            sourcePage: finding.reference?.page ?? finding.source_page ?? null,
+          }
+        : {}),
       ...(finding.source_page
         ? {
             sourcePage: finding.source_page,
@@ -74,6 +93,7 @@ export function applyClinicalRules(worker, reviewFlags = []) {
       ruleId: "recommendation_structural_association_policy",
       originalValue: group.recomendaciones.map((item) => item.texto_original),
       normalizedValue: group.association_status,
+      associationScope: group.association_scope || null,
     });
   });
 
@@ -91,7 +111,7 @@ export function applyClinicalRules(worker, reviewFlags = []) {
     resolved.can_generate_narrative = false;
   }
 
-  return { findings: resolved, trace, ruleVersion: "phase-5.4" };
+  return { findings: resolved, trace, ruleVersion: "phase-5.8" };
 }
 
 export function hasExplicitAptitude(worker) {

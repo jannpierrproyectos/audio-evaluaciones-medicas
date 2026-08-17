@@ -511,14 +511,52 @@ function normalizeOphthalmologyFindingText(value) {
 function buildMetabolicParagraph(group) {
   if (!group?.narrar) return "";
 
-  let findings = getFindingTexts(group).filter(
+  const classifiedItems = (group.hallazgos || []).filter((item) => item.reference_classification);
+  const classificationSentences = classifiedItems.map((item) => {
+    const value = item.source_value || item.value;
+    const unit = item.unit || "mg/dL";
+    if (item.field?.endsWith("glucosa_valor")) {
+      const relation = item.reference_classification === "LOW"
+        ? "por debajo del rango de referencia"
+        : item.reference_classification === "HIGH"
+          ? "por encima del rango de referencia"
+          : "dentro del rango de referencia";
+      return `Su glucosa es de ${value} ${unit} y se encuentra ${relation}.`;
+    }
+    const descriptions = {
+      NORMAL: "dentro del rango normal reportado",
+      BORDERLINE_HIGH: "en el rango límite alto reportado",
+      HIGH: "en el rango alto reportado",
+      VERY_HIGH: "en el rango muy alto reportado",
+    };
+    const description = descriptions[item.reference_classification];
+    if (item.field?.endsWith("colesterol_valor")) {
+      return `Su colesterol total es de ${value} ${unit} y se encuentra ${description}.`;
+    }
+    return `Sus triglicéridos son de ${value} ${unit} y se encuentran ${description}.`;
+  });
+  const unclassifiedGroup = {
+    ...group,
+    hallazgos: (group.hallazgos || []).filter((item) =>
+      !item.reference_classification && !item.source_classification_status
+    ),
+  };
+  let findings = getFindingTexts(unclassifiedGroup).filter(
     (finding) =>
       !finding.includes("indice de masa corporal") &&
       !finding.includes("índice de masa corporal"),
   );
   const recommendations = normalizeAreaRecommendations(group, "metabolico");
+  const sourceStatements = (group.hallazgos || [])
+    .filter((item) => item.narrar !== false && item.source_classification_status)
+    .map((item) => {
+      const sourceText = normalizeClinicalText(item.resultado);
+      return item.source_classification_status === "DISCREPANT"
+        ? `La fuente también reporta ${sourceText}; este dato no coincide con la clasificación numérica y requiere revisión.`
+        : `Además, la fuente reporta ${sourceText}.`;
+    });
 
-  if (!findings.length) return "";
+  if (!findings.length && !classificationSentences.length && !sourceStatements.length) return "";
 
   const hasGlucose = findings.some((finding) => finding.includes("glucosa"));
   const hasHyperglycemia = hasGroupFinding(group, /hiperglicemia/);
@@ -561,8 +599,6 @@ function buildMetabolicParagraph(group) {
 
   findings = uniqueTexts(findings);
 
-  if (!findings.length) return "";
-
   const verb =
     findings.length === 1 &&
     !findings[0].includes("alteraciones") &&
@@ -571,25 +607,26 @@ function buildMetabolicParagraph(group) {
     !findings[0].startsWith("plaquetas")
       ? "se evidencia"
       : "se evidencian";
-  let sentence = `En el area metabolica ${verb === "se evidencia" ? "se registra" : "se registran"} ${joinMetabolicFindings(findings)}.`;
+  let sentence = findings.length
+    ? `En el area metabolica ${verb === "se evidencia" ? "se registra" : "se registran"} ${joinMetabolicFindings(findings)}.`
+    : "";
 
   if (recommendations.length) {
-    if (group.association_status === "SAFE_ASSOCIATION") {
-      sentence = sentence.replace(/\.$/, "");
-      sentence += `, por lo que se recomienda ${joinNatural(recommendations)}.`;
-    } else {
-      sentence += ` Asimismo, se recomienda ${joinNatural(recommendations)}.`;
-    }
+    sentence += `${sentence ? " " : ""}Como parte de las recomendaciones de la evaluacion, se indica ${joinNatural(recommendations)}.`;
   }
 
-  const cleanedSentence = cleanupParagraph(sentence);
+  const classifiedText = classificationSentences.map(cleanupParagraph).join(" ");
+  const sourceText = sourceStatements.map(cleanupParagraph).join(" ");
+  const cleanedSentence = [classifiedText, sourceText, cleanupParagraph(sentence)].filter(Boolean).join(" ");
   if (cleanedSentence.split(/\s+/).length <= 50 || !recommendations.length) {
     return cleanedSentence;
   }
 
-  const findingSentence = cleanupParagraph(`En el area metabolica ${verb === "se evidencia" ? "se registra" : "se registran"} ${joinMetabolicFindings(findings)}`);
+  const findingSentence = findings.length
+    ? cleanupParagraph(`En el area metabolica ${verb === "se evidencia" ? "se registra" : "se registran"} ${joinMetabolicFindings(findings)}`)
+    : "";
   const recommendationSentence = cleanupParagraph(`Se recomienda ${joinNatural(recommendations)}`);
-  return `${findingSentence} ${recommendationSentence}`;
+  return [classifiedText, sourceText, findingSentence, recommendationSentence].filter(Boolean).join(" ");
 }
 
 function buildOphthalmologyParagraph(group) {

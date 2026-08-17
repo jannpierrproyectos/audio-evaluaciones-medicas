@@ -1,3 +1,8 @@
+import {
+  classifyMetabolicAnalyte,
+  evaluateMetabolicSourceStatement,
+} from "../data/metabolicReference.js";
+
 const EMPTY_LIKE_VALUES = new Set([
   "",
   "-",
@@ -258,7 +263,10 @@ function createFinding({
   sources = [],
   ruleId = "",
   recommendationAreas = [],
+  recommendationCandidate = true,
   sourceItem = null,
+  sourceClassificationStatus = "",
+  sourceClassificationReason = "",
 }) {
   return {
     area,
@@ -271,16 +279,33 @@ function createFinding({
     sources: sources.length ? sources : [source].filter(Boolean),
     rule_id: ruleId,
     recommendation_areas: recommendationAreas,
+    recommendation_candidate: recommendationCandidate,
     source_page: sourceItem?.page ?? null,
     source_position: sourceItem
       ? { x: sourceItem.x, y: sourceItem.y, width: sourceItem.width, height: sourceItem.height }
       : null,
     source_line: sourceItem?.text || "",
     source_items: sourceItem?.textItems || [],
+    source_classification_status: sourceClassificationStatus,
+    source_classification_reason: sourceClassificationReason,
   };
 }
 
-function createLabItem({ field, label, value, tipo, status, severidad, area = "metabolico" }) {
+function createLabItem({
+  field,
+  label,
+  value,
+  tipo,
+  status,
+  severidad,
+  area = "metabolico",
+  classification = null,
+  unit = "",
+  reference = null,
+  sourceValue = "",
+  recommendationCandidate = true,
+  ruleId = "",
+}) {
   return {
     area,
     field,
@@ -290,6 +315,12 @@ function createLabItem({ field, label, value, tipo, status, severidad, area = "m
     status,
     severidad,
     narrar: true,
+    classification,
+    unit,
+    reference,
+    sourceValue,
+    recommendation_candidate: recommendationCandidate,
+    rule_id: ruleId,
   };
 }
 
@@ -301,53 +332,39 @@ function deriveLaboratory(laboratorio = {}) {
   const laboratorioRelevante = [];
   const hallazgosRelevantes = [];
 
-  const glucosa = toNumberOrNull(laboratorio.glucosa_valor);
-  if (glucosa !== null && glucosa > 100) {
+  const classificationText = {
+    glucosa: { LOW: "por debajo del rango", NORMAL: "dentro del rango", HIGH: "por encima del rango" },
+    colesterol: { NORMAL: "normal", BORDERLINE_HIGH: "limite alto", HIGH: "alto" },
+    trigliceridos: { NORMAL: "normales", BORDERLINE_HIGH: "limite alto", HIGH: "altos", VERY_HIGH: "muy altos" },
+  };
+  [
+    ["glucosa", "Glucosa"],
+    ["trigliceridos", "Trigliceridos"],
+    ["colesterol", "Colesterol"],
+  ].forEach(([analyte, label]) => {
+    const classified = classifyMetabolicAnalyte(analyte, laboratorio);
+    if (!classified.resolved) return;
+    const status = classificationText[analyte]?.[classified.classification];
+    if (!status) return;
     addLabFinding(
       laboratorioRelevante,
       hallazgosRelevantes,
       createLabItem({
-        field: "laboratorio_numerico.glucosa_valor",
-        label: "Glucosa",
-        value: glucosa,
-        tipo: glucosa >= 126 ? "alteracion" : "limite_alto",
-        status: "elevada",
-        severidad: glucosa >= 126 ? "warning" : "info",
+        field: `laboratorio_numerico.${analyte}_valor`,
+        label,
+        value: classified.value,
+        tipo: classified.classification === "NORMAL" ? "normal_relevante" : "alteracion",
+        status,
+        severidad: classified.classification === "NORMAL" ? "info" : "warning",
+        classification: classified.classification,
+        unit: classified.unit,
+        reference: classified.reference,
+        sourceValue: classified.sourceValue,
+        recommendationCandidate: classified.classification !== "NORMAL",
+        ruleId: `${analyte}_source_reference_classification`,
       }),
     );
-  }
-
-  const trigliceridos = toNumberOrNull(laboratorio.trigliceridos_valor);
-  if (trigliceridos !== null && trigliceridos >= 150) {
-    addLabFinding(
-      laboratorioRelevante,
-      hallazgosRelevantes,
-      createLabItem({
-        field: "laboratorio_numerico.trigliceridos_valor",
-        label: "Trigliceridos",
-        value: trigliceridos,
-        tipo: trigliceridos >= 200 ? "alteracion" : "limite_alto",
-        status: trigliceridos >= 200 ? "elevados" : "limite alto",
-        severidad: trigliceridos >= 200 ? "warning" : "info",
-      }),
-    );
-  }
-
-  const colesterol = toNumberOrNull(laboratorio.colesterol_valor);
-  if (colesterol !== null && colesterol >= 200) {
-    addLabFinding(
-      laboratorioRelevante,
-      hallazgosRelevantes,
-      createLabItem({
-        field: "laboratorio_numerico.colesterol_valor",
-        label: "Colesterol",
-        value: colesterol,
-        tipo: colesterol >= 240 ? "alteracion" : "limite_alto",
-        status: colesterol >= 240 ? "elevado" : "limite alto",
-        severidad: colesterol >= 240 ? "warning" : "info",
-      }),
-    );
-  }
+  });
 
   const leucocitos = toNumberOrNull(laboratorio.leucocitos_valor);
   if (leucocitos !== null && leucocitos > 10000) {
@@ -460,6 +477,28 @@ function pickOnychomycosisFindings(value) {
 
 function pickRecognizedOtherSegments(result, comparable, options = {}) {
   const findings = [];
+  const metabolicSource = options.metabolicSourceEvaluation || null;
+
+  if (metabolicSource) {
+    findings.push(createFinding({
+      area: "metabolico",
+      tipo: "source_statement",
+      resultado: result,
+      severidad: metabolicSource.status === "DISCREPANT" ? "warning" : "info",
+      narrar: metabolicSource.status !== "EXACT_EQUIVALENT",
+      field: "evaluaciones_cualitativas.otros_hallazgos_resultado",
+      source: "otros_hallazgos_resultado",
+      ruleId: metabolicSource.status === "EXACT_EQUIVALENT"
+        ? "metabolic_source_equivalent_suppressed"
+        : metabolicSource.status === "DISCREPANT"
+          ? "metabolic_source_classification_conflict"
+          : "metabolic_source_information_preserved",
+      recommendationCandidate: false,
+      sourceItem: options.sourceItem,
+      sourceClassificationStatus: metabolicSource.status,
+      sourceClassificationReason: metabolicSource.reason,
+    }));
+  }
 
   pickOnychomycosisFindings(result).forEach((onychomycosisFinding) => {
     findings.push(
@@ -569,7 +608,36 @@ function pickRecognizedOtherSegments(result, comparable, options = {}) {
     });
   });
 
-  if (comparable.includes("HIPERTRIGLICERIDEMIA")) {
+  const safeNeutralComparablePatterns = new Map([
+    ["HEPATOMEGALIA", "hepatomegaly"],
+    ["RINITIS ALERGICA EN TRATAMIENTO", "allergic_rhinitis_treatment"],
+    ["HIPERTENSION ARTERIAL CONTROLADA", "controlled_hypertension"],
+    ["ANEMIA", "anemia"],
+    ["LEUCOCITOSIS", "leukocytosis"],
+    ["MIGRANA POR ANTECEDENTE", "migraine_history"],
+    ["ESTEATOSIS HEPATICA", "hepatic_steatosis"],
+    ["DIABETES MELLITUS CONTROLADA", "controlled_diabetes"],
+    ["LEUCOCITURIA", "leukocyturia"],
+    ["TROMBOCITOSIS", "thrombocytosis"],
+    ["FARINGITIS AGUDA", "acute_pharyngitis"],
+    ["LEUCOPENIA LEVE SIN REPERCUSION HEMATOLOGICA MAYOR", "extended_leukopenia"],
+  ]);
+  const safeNeutralComparableId = safeNeutralComparablePatterns.get(comparable.replace(/\.$/, ""));
+  if (safeNeutralComparableId) {
+    findings.push(createFinding({
+      area: "otros",
+      tipo: "source_statement",
+      resultado: result,
+      severidad: "info",
+      field: "evaluaciones_cualitativas.otros_hallazgos_resultado",
+      source: "otros_hallazgos_resultado",
+      ruleId: `safe_neutral_source_${safeNeutralComparableId}`,
+      recommendationAreas: [],
+      sourceItem: options.sourceItem,
+    }));
+  }
+
+  if (!metabolicSource && comparable.includes("HIPERTRIGLICERIDEMIA")) {
     findings.push(
       createFinding({
         area: "metabolico",
@@ -584,7 +652,7 @@ function pickRecognizedOtherSegments(result, comparable, options = {}) {
     );
   }
 
-  if (comparable.includes("HIPERGLICEMIA")) {
+  if (!metabolicSource && comparable.includes("HIPERGLICEMIA")) {
     const treatmentSuffix = comparable.includes("EN TRATAMIENTO")
       ? " en tratamiento"
       : "";
@@ -602,7 +670,7 @@ function pickRecognizedOtherSegments(result, comparable, options = {}) {
     );
   }
 
-  if (comparable.includes("HIPERLIPIDEMIA MIXTA")) {
+  if (!metabolicSource && comparable.includes("HIPERLIPIDEMIA MIXTA")) {
     const treatmentSuffix = comparable.includes("EN TRATAMIENTO")
       ? " en tratamiento"
       : "";
@@ -620,7 +688,7 @@ function pickRecognizedOtherSegments(result, comparable, options = {}) {
     );
   }
 
-  const unrecognizedSegments = result
+  const unrecognizedSegments = (safeNeutralComparableId ? "" : result)
     .replace(/(?:(?:DESCARTAR|SOSPECHA\s+DE|COMPATIBLE\s+CON)\s+)?ONICOMICOSIS(?:\s+(?:PEDIA|MANO))?(?:\s+(?:BILATERAL|IZQUIERDA|DERECHA))?/gi, "")
     .replace(/INSUFICIENCIA\s+VENOSA(?:\s+PERIF[EÉ]RICA)?(?:\s+I[°º])?(?:\s+(?:BILATERAL|IZQUIERDA|DERECHA))?/gi, "")
     .replace(/PIE\s+(?:CAVO|PLANO)(?:\s+(?:BILATERAL|IZQUIERDO|IZQUIERDA|DERECHO|DERECHA))?/gi, "")
@@ -629,11 +697,13 @@ function pickRecognizedOtherSegments(result, comparable, options = {}) {
     .replace(/HIPERTRIGLICERIDEMIA(?:\s+EN\s+TRATAMIENTO)?/gi, "")
     .replace(/HIPERGLICEMIA(?:\s+EN\s+TRATAMIENTO)?/gi, "")
     .replace(/HIPERLIPIDEMIA\s+MIXTA(?:\s+EN\s+TRATAMIENTO)?/gi, "")
+    .replace(/^HIPERCOLESTEROLEMIA\s+(?:LIMITE\s+ALTO|DEFINIDA)\.?$/gi, metabolicSource ? "" : "$&")
     .replace(/^EOSINOFILIA\s*:\s*DESCARTAR\s+PARASITOSIS\s+Y\s*\/\s*O\s+ALERGIAS\.?$/gi, "")
     .replace(/^FARINGITIS\.?$/gi, "")
     .replace(/^LEUCOPENIA\.?$/gi, "")
     .replace(/^LIPOMATOSIS\s+EN\s+MANO\s+DERECHA\.?$/gi, "")
     .replace(/^QUEMADURA\s+DE\s+TERCER\s+GRADO(?:\s+EN\s+EL\s+MUSLO\s+DERECHO)?\.?$/gi, "")
+    .replace(/^(?:HEPATOMEGALIA|RINITIS ALERGICA EN TRATAMIENTO|HIPERTENSION ARTERIAL CONTROLADA|ANEMIA|LEUCOCITOSIS|MIGRANA POR ANTECEDENTE|ESTEATOSIS HEPATICA|DIABETES MELLITUS CONTROLADA|LEUCOCITURIA|TROMBOCITOSIS|FARINGITIS AGUDA|LEUCOPENIA LEVE SIN REPERCUSION HEMATOLOGICA MAYOR)\.?$/gi, "")
     .split(/\s*(?:;|•|\.\s+-\s+|(?:^|\s)\d+(?:\s*[,Y]\s*\d+)*\.\s*)\s*/gi)
     .map((segment) => getString(segment?.replace(/^[,.-]+|[,.-]+$/g, "")))
     .filter(Boolean);
@@ -749,10 +819,20 @@ function deriveQualitativeFindings(evaluaciones = {}, options = {}) {
   const structuredOtherItems = getStructuredOtherFindingItems(evaluaciones);
   if (structuredOtherItems.length) {
     structuredOtherItems.forEach((item) => {
-      findings.push(...deriveOtherFindings(item.text, { ...options, sourceItem: item }));
+      findings.push(...deriveOtherFindings(item.text, {
+        ...options,
+        sourceItem: item,
+        metabolicSourceEvaluation: evaluateMetabolicSourceStatement(item.text, options.laboratory || {}),
+      }));
     });
   } else {
-    findings.push(...deriveOtherFindings(evaluaciones.otros_hallazgos_resultado, options));
+    findings.push(...deriveOtherFindings(evaluaciones.otros_hallazgos_resultado, {
+      ...options,
+      metabolicSourceEvaluation: evaluateMetabolicSourceStatement(
+        evaluaciones.otros_hallazgos_resultado,
+        options.laboratory || {},
+      ),
+    }));
   }
 
   [
@@ -953,6 +1033,7 @@ function createEmptyNarrativeGroups() {
     recomendaciones: [],
     association_status: "NONE",
     association_reason: "",
+    association_scope: "",
     suppress_standalone: false,
   });
   return {
@@ -991,6 +1072,9 @@ function applyRecommendationAssociations(groups, {
 
   Object.entries(groups).forEach(([area, group]) => {
     if (!group.recomendaciones.length) return;
+    const associationFindings = area === "metabolico"
+      ? group.hallazgos.filter((finding) => finding.recommendation_candidate !== false)
+      : group.hallazgos;
     const sourceRecommendations = uniqueRecommendationSources(group.recomendaciones);
     const isGeneral = area === "otros" && group.recomendaciones.every((item) => item.matched_keywords.length === 0);
     if (isGeneral) {
@@ -1025,27 +1109,26 @@ function applyRecommendationAssociations(groups, {
       return;
     }
 
-    const markerNumbers = sourceRecommendations.length === 1
-      ? String(sourceRecommendations[0].item || "").match(/\d+/g) || []
-      : [];
-    const hasExplicitOneToManyMarker =
-      group.hallazgos.length > 1 &&
-      markerNumbers.length === group.hallazgos.length;
-    const preservesExistingMetabolicPolicy = area === "metabolico";
+    const hasExplicitJointBlock =
+      area === "metabolico" &&
+      sourceRecommendations.length === 1 &&
+      associationFindings.length > 1 &&
+      /(?:BLOQUE|ANALISIS|RESULTADOS) METABOLIC/.test(
+        normalizeComparable(sourceRecommendations[0].texto_original),
+      );
     if (
       sourceRecommendations.length === 1 &&
-      (group.hallazgos.length === 1 || hasExplicitOneToManyMarker || preservesExistingMetabolicPolicy)
+      (associationFindings.length === 1 || hasExplicitJointBlock)
     ) {
       group.association_status = "SAFE_ASSOCIATION";
-      group.association_reason = hasExplicitOneToManyMarker
-        ? "La numeración fuente vincula explícitamente un único bloque de recomendación con todos los hallazgos estructurados del área."
-        : preservesExistingMetabolicPolicy && group.hallazgos.length > 1
-          ? "Se conserva la política metabólica previa para un único bloque fuente de recomendación del área."
-          : "Un único bloque fuente de recomendación coincide con un único hallazgo estructurado del área.";
+      group.association_scope = hasExplicitJointBlock ? "BLOCK" : "FINDING";
+      group.association_reason = hasExplicitJointBlock
+        ? "El texto fuente identifica explícitamente una recomendación conjunta para el bloque metabólico."
+        : "Un único bloque fuente de recomendación coincide con un único hallazgo estructurado del área.";
       return;
     }
 
-    if (group.hallazgos.length || sourceRecommendations.length > 1) {
+    if (associationFindings.length || sourceRecommendations.length > 1) {
       group.association_status = "AMBIGUOUS_ASSOCIATION";
       group.association_reason = "La estructura contiene múltiples candidatos y no demuestra una relación uno a uno.";
       return;
@@ -1116,6 +1199,20 @@ function buildNarrativeGroups({
         source: "laboratorio_numerico",
       }),
     );
+    const added = groups[item.area]?.hallazgos.at(-1);
+    if (added) {
+      added.reference_classification = item.classification;
+      added.unit = item.unit;
+      added.value = item.value;
+      added.source_value = item.sourceValue;
+      added.reference = item.reference;
+      added.recommendation_candidate = item.recommendation_candidate;
+      added.rule_id = item.rule_id;
+      added.source_page = item.reference?.page ?? null;
+      added.source_position = item.reference?.position ?? null;
+      added.source_line = item.reference?.rawText || "";
+      added.source_items = item.reference?.textItems || [];
+    }
   });
 
   hallazgosRelevantes.forEach((finding) => addGroupFinding(groups, finding));
@@ -1179,13 +1276,13 @@ export function deriveNarrativeFindings(worker = {}) {
 
   const laboratory = deriveLaboratory(laboratorio);
   const hasTriglyceridesLabFinding = laboratory.laboratorioRelevante.some(
-    (item) => item.field === "laboratorio_numerico.trigliceridos_valor",
+    (item) => item.field === "laboratorio_numerico.trigliceridos_valor" && item.classification !== "NORMAL",
   );
   const hasCholesterolLabFinding = laboratory.laboratorioRelevante.some(
-    (item) => item.field === "laboratorio_numerico.colesterol_valor",
+    (item) => item.field === "laboratorio_numerico.colesterol_valor" && item.classification !== "NORMAL",
   );
   const hasGlucoseLabFinding = laboratory.laboratorioRelevante.some(
-    (item) => item.field === "laboratorio_numerico.glucosa_valor",
+    (item) => item.field === "laboratorio_numerico.glucosa_valor" && item.classification !== "NORMAL",
   );
   const recomendacionesPorArea = classifyRecommendations(
     aptitudData.recomendaciones_generales_texto,
@@ -1195,9 +1292,13 @@ export function deriveNarrativeFindings(worker = {}) {
   );
   const ecgPolicy = deriveEcgPolicy(evaluaciones, recomendacionesPorArea);
   const qualitative = deriveQualitativeFindings(evaluaciones, {
+    laboratory: laboratorio,
     hasTriglyceridesLabFinding,
     hasCholesterolLabFinding,
     hasGlucoseLabFinding,
+    cholesterolLabClassification: laboratory.laboratorioRelevante.find(
+      (item) => item.field === "laboratorio_numerico.colesterol_valor",
+    )?.classification || null,
     ecgSafeAssociation: ecgPolicy.safeAssociation,
     traumatologySourceAssociation:
       traumatologyRecommendations.length === 1 &&
@@ -1274,8 +1375,14 @@ export function deriveNarrativeFindings(worker = {}) {
       hemoglobina_rango_faltante: hemoglobin.missingRange,
       hemoglobina_source_fields: hemoglobin.sourceFields,
       glucosa_valor: glucosaValor,
+      glucosa_unidad: laboratorio.glucosa_unidad || "",
+      glucosa_referencia: laboratorio.glucosa_referencia || null,
       trigliceridos_valor: trigliceridosValor,
+      trigliceridos_unidad: laboratorio.trigliceridos_unidad || "",
+      trigliceridos_referencia: laboratorio.trigliceridos_referencia || null,
       colesterol_valor: colesterolValor,
+      colesterol_unidad: laboratorio.colesterol_unidad || "",
+      colesterol_referencia: laboratorio.colesterol_referencia || null,
       leucocitos_valor: leucocitosValor,
       plaquetas_valor: plaquetasValor,
       alteraciones: laboratory.laboratorioRelevante.map((item) => ({
@@ -1286,6 +1393,9 @@ export function deriveNarrativeFindings(worker = {}) {
         tipo: item.tipo,
         status: item.status,
         severidad: item.severidad,
+        classification: item.classification,
+        unit: item.unit,
+        reference: item.reference,
       })),
     },
     antropometria: {

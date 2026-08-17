@@ -1,4 +1,5 @@
 import { extractPdfFieldVisualLines } from "./pdfTextGeometry.js";
+import { extractMetabolicLaboratory } from "./extractMetabolicLaboratory.js";
 
 function cleanText(value) {
   if (value === null || value === undefined) return "";
@@ -402,6 +403,7 @@ function shouldReviewDosaje(value) {
 export function parseInnomedicMedicalResult(group) {
   const text = cleanText(group.pages.map((page) => page.text).join(" "));
   const hemoglobinReferenceRanges = extractHemoglobinReferenceRanges(text);
+  const metabolicLaboratory = extractMetabolicLaboratory(group.pages);
   const otherFindingItems = extractPdfFieldVisualLines(group.pages, {
     anchorLabels: ["Ficha Odontograma"],
     startLabels: ["Otros"],
@@ -479,9 +481,10 @@ export function parseInnomedicMedicalResult(group) {
       hemoglobina_valor: matchNumber(text, /Hemoglobina\s+([\d.,]+)/i),
       hemoglobina_unidad: matchFirst(text, /Hemoglobina\s+[\d.,]+\s*(g\s*\/\s*d[lL])/i),
       ...hemoglobinReferenceRanges,
-      glucosa_valor: matchNumber(text, /Glucosa\s+([\d.,]+)/i),
-      trigliceridos_valor: matchNumber(text, /Trigliceridos\s+([\d.,]+)/i),
-      colesterol_valor: matchNumber(text, /Colesterol\s+([\d.,]+)/i),
+      glucosa_valor: metabolicLaboratory.glucosa_valor ?? matchNumber(text, /Glucosa\s+([\d.,]+)/i),
+      trigliceridos_valor: metabolicLaboratory.trigliceridos_valor ?? matchNumber(text, /Trigliceridos\s+([\d.,]+)/i),
+      colesterol_valor: metabolicLaboratory.colesterol_valor ?? matchNumber(text, /Colesterol\s+([\d.,]+)/i),
+      ...metabolicLaboratory,
       globulos_rojos_valor: matchIntegerFromNormalizedText(
         text,
         /GLOBULOS ROJOS\s+([\d.,]+)/i

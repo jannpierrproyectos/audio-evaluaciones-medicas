@@ -58,9 +58,11 @@ export const NARRATIVE_AUDIT_PATTERNS = [
   ["aptitude_restricciones_misspelling", "ERROR", "Aptitud", (c) => /restricciónes/i.test(c.displayText)],
   ["repetitive_se_evidencia", "ERROR", "Redacción", (c) => countMatches(c.displayText, /\bse evidencia(?:n)?\b/gi) >= 3],
   ["audiometry_artificial_causality", "ERROR", "Audiometría", (c) => /alteraciones no debidas a ruido, por lo que se recomienda/i.test(c.displayText)],
-  ["generic_other_findings_raw_prose", "REVIEW", "Otros hallazgos", (c) => /En otros hallazgos (?:se evidencia|se registra)/i.test(c.displayText)],
+  ["generic_other_findings_raw_prose", "REVIEW", "Otros hallazgos", (c) =>
+    /En otros hallazgos (?:se evidencia|se registra)/i.test(c.displayText) && hasFlag(c, "unsupported_pattern")],
   ["orphan_recommendation", "REVIEW", "Recomendaciones", (c) => hasFlag(c, "orphan_recommendation")],
   ["ambiguous_recommendation_mapping", "REVIEW", "Recomendaciones", (c) => hasFlag(c, "ambiguous_recommendation_mapping")],
+  ["metabolic_source_classification_conflict", "REVIEW", "Metabolismo", (c) => hasFlag(c, "metabolic_source_classification_conflict")],
   ["ecg_deliberately_not_narrated", "INFORMATIONAL", "ECG", (c) => hasFlag(c, "ecg_not_narrated_no_cardiology_recommendation")],
   ["ecg_cardiology_association_ambiguous", "REVIEW", "ECG", (c) => hasFlag(c, "ecg_cardiology_association_ambiguous")],
   ["hemoglobin_reference_range_missing", "REVIEW", "Laboratorio", (c) => hasFlag(c, "hemoglobin_reference_range_missing")],

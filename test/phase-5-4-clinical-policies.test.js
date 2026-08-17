@@ -129,6 +129,15 @@ test("otro hallazgo claro se narra neutralmente sin inventar recomendación", ()
   assert.ok(flagTypes(result).has("unsupported_pattern"));
 });
 
+test("hallazgo neutral con tilde conserva fuente y deja de ser unsupported", () => {
+  const result = processWorkerClinicalNarrative(baseWorker({
+    evaluaciones_cualitativas: { otros_hallazgos_resultado: "MIGRAÑA POR ANTECEDENTE" },
+  }));
+  assert.match(result.displayText, /migraña por antecedente/i);
+  assert.ok(!flagTypes(result).has("unsupported_pattern"));
+  assert.ok(result.trace.some((item) => item.ruleId === "safe_neutral_source_migraine_history"));
+});
+
 test("parser extrae rangos de hemoglobina del documento y detecta variantes ambiguas", () => {
   const baseText = "Apellidos y Nombres: PERSONA SINTETICA DNI: 12345678 Edad: 30 Sexo: MASCULINO Empresa: EMPRESA SINTETICA Area: OPERATIVA Puesto de Trabajo: TECNICO Grupo Sanguineo: O POSITIVO Proyecto / Sede: SEDE RESUMEN DE RESULTADOS";
   const tail = "Glucosa 90 mg/dl Ficha Odontograma: - Otros: - RESTRICCIONES - APTITUD X APTO - RECOMENDACIONES Fecha de Emision: 01/01/2026 Firma y Sello del Medico";

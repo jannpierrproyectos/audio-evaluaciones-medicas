@@ -87,7 +87,7 @@ test("golden A: solo resume áreas explícitamente normales", () => {
 test("golden B: sobrepeso y triglicéridos usan solo recomendaciones fuente", () => {
   const result = processWorkerClinicalNarrative(clinicalCases.B_METABOLIC);
   assert.match(result.displayText, /correspondiente a sobrepeso/);
-  assert.match(result.displayText, /triglicéridos en límite alto/);
+  assert.match(result.displayText, /triglicéridos son de 180 mg\/dL.+rango límite alto/);
   assert.match(result.displayText, /control por nutrición/);
   assert.doesNotMatch(result.displayText, /medicamento|diabetes/i);
 });
