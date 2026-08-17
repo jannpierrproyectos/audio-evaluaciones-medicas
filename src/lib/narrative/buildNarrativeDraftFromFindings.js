@@ -446,7 +446,14 @@ function buildAnthropometryAndHemoglobin(findings) {
 
   if (hasText(lab.hemoglobina_valor)) {
     const unit = hasText(lab.hemoglobina_unidad) ? ` ${lab.hemoglobina_unidad}` : "";
-    fragments.push(`En sus resultados de laboratorio, su hemoglobina es de ${lab.hemoglobina_valor}${unit}.`);
+    const statusText = lab.hemoglobina_estado === "NORMAL"
+      ? " y se encuentra dentro del rango normal de referencia"
+      : lab.hemoglobina_estado === "LOW"
+        ? " y se encuentra baja, por debajo del rango de referencia"
+        : lab.hemoglobina_estado === "HIGH"
+          ? " y se encuentra elevada, por encima del rango de referencia"
+          : "";
+    fragments.push(`En sus resultados de laboratorio, su hemoglobina es de ${lab.hemoglobina_valor}${unit}${statusText}.`);
   }
 
   const classification = normalizeClinicalText(data.clasificacion_imc);
@@ -567,8 +574,12 @@ function buildMetabolicParagraph(group) {
   let sentence = `En el area metabolica ${verb === "se evidencia" ? "se registra" : "se registran"} ${joinMetabolicFindings(findings)}.`;
 
   if (recommendations.length) {
-    sentence = sentence.replace(/\.$/, "");
-    sentence += `, por lo que se recomienda ${joinNatural(recommendations)}.`;
+    if (group.association_status === "SAFE_ASSOCIATION") {
+      sentence = sentence.replace(/\.$/, "");
+      sentence += `, por lo que se recomienda ${joinNatural(recommendations)}.`;
+    } else {
+      sentence += ` Asimismo, se recomienda ${joinNatural(recommendations)}.`;
+    }
   }
 
   const cleanedSentence = cleanupParagraph(sentence);
@@ -597,7 +608,9 @@ function buildOphthalmologyParagraph(group) {
   let paragraph = `En la evaluacion oftalmologica se registra ${joinNatural(findings)}.`;
 
   if (recommendations.length) {
-    paragraph += ` Por ello, se recomienda ${joinNatural(recommendations)}.`;
+    paragraph += group.association_status === "SAFE_ASSOCIATION"
+      ? ` Por ello, se recomienda ${joinNatural(recommendations)}.`
+      : ` Asimismo, se recomienda ${joinNatural(recommendations)}.`;
   }
 
   return cleanupParagraph(paragraph);
@@ -643,21 +656,27 @@ function buildDermatologyParagraph(group) {
 
   if (!findings.length && !recommendations.length) return "";
 
-  const hasOnicomicosis = findings.some((item) => item.includes("onicomicosis"));
-
-  if (hasOnicomicosis) {
-    return cleanupParagraph("Por los hallazgos dermatologicos registrados, se recomienda evaluacion por dermatologia.");
-  }
-
-  if (recommendations.length) {
-    return cleanupParagraph(`Asimismo, se recomienda ${joinNatural(recommendations)}.`);
-  }
-
-  return cleanupParagraph(`Asimismo, se evidencia ${joinNatural(findings)}.`);
+  const findingSentences = findings.map((finding) => {
+    if (/^descartar\b/i.test(finding)) {
+      return `En la evaluacion dermatologica se indica ${finding}.`;
+    }
+    if (/^sospecha de\b/i.test(finding)) {
+      return `En la evaluacion dermatologica se reporta ${finding}.`;
+    }
+    if (/^compatible con\b/i.test(finding)) {
+      return `En la evaluacion dermatologica se reporta un hallazgo ${finding}.`;
+    }
+    return `En la evaluacion dermatologica se reporta ${finding}.`;
+  });
+  const recommendationSentence = recommendations.length
+    ? `Se recomienda ${joinNatural(recommendations)}.`
+    : "";
+  return cleanupParagraph([...findingSentences, recommendationSentence].filter(Boolean).join(" "));
 }
 
 function buildGenericAreaParagraph(group, label, area = "") {
   if (!group?.narrar) return "";
+  if (group.suppress_standalone) return "";
 
   const findings = getFindingTexts(group);
   const recommendations = normalizeAreaRecommendations(group, area);
@@ -677,7 +696,9 @@ function buildGenericAreaParagraph(group, label, area = "") {
   let paragraph = `En ${label} ${pluralSubject ? "se registran" : "se registra"} ${joinNatural(preparedFindings)}.`;
 
   if (recommendations.length) {
-    paragraph += ` Por ello, se recomienda ${joinNatural(recommendations)}.`;
+    paragraph += group.association_status === "SAFE_ASSOCIATION"
+      ? ` Por ello, se recomienda ${joinNatural(recommendations)}.`
+      : ` Asimismo, se recomienda ${joinNatural(recommendations)}.`;
   }
 
   return cleanupParagraph(paragraph);
@@ -696,7 +717,7 @@ function buildCardiologyParagraph(group) {
   }
 
   return cleanupParagraph(
-    `En el electrocardiograma se consigna ${joinNatural(findings)}, por lo que se recomienda ${joinNatural(recommendations)}.`,
+    `En el electrocardiograma se reporta ${joinNatural(findings)}. Se recomienda ${joinNatural(recommendations)}.`,
   );
 }
 
@@ -732,7 +753,7 @@ function buildFindingsParagraphs(findings) {
     buildOphthalmologyParagraph(groups.oftalmologia),
     buildAudiometryParagraph(groups.audiometria),
     buildGenericAreaParagraph(groups.espirometria, "la evaluacion espirometrica", "espirometria"),
-    buildGenericAreaParagraph(groups.neumologia, "la evaluacion espirometrica", "neumologia"),
+    buildGenericAreaParagraph(groups.neumologia, "la evaluacion respiratoria", "neumologia"),
     buildDermatologyParagraph(groups.dermatologia),
     buildGenericAreaParagraph(groups.medicina_interna, "medicina interna", "medicina_interna"),
     buildGenericAreaParagraph(groups.musculoesqueletico, "la evaluacion musculoesqueletica", "musculoesqueletico"),
@@ -743,7 +764,7 @@ function buildFindingsParagraphs(findings) {
     buildGenericAreaParagraph(groups.ginecologia, "ginecologia", "ginecologia"),
     buildGenericAreaParagraph(groups.psicologia, "psicologia clinica", "psicologia"),
     buildGenericAreaParagraph(groups.alergias, "alergias", "alergias"),
-    buildGenericAreaParagraph(groups.vascular, "insuficiencia venosa", "vascular"),
+    buildGenericAreaParagraph(groups.vascular, "la evaluacion vascular", "vascular"),
     buildOccupationalParagraph(groups.ocupacional, groups),
     buildGenericAreaParagraph(groups.otros, "otros hallazgos", "otros"),
   ].filter(Boolean);

@@ -74,18 +74,24 @@ test("normaliza símbolos TTS solo en contextos inequívocos y conserva presión
   assert.doesNotMatch(text, /[/()]/);
 });
 
+test("retira paréntesis de variante normal sin alterar el significado para TTS", () => {
+  const text = prepareTextForTts("Se reporta bradicardia auricular (variante normal).");
+  assert.equal(text, "Se reporta bradicardia auricular variante normal.");
+  assert.doesNotMatch(text, /[()]/);
+});
+
 test("asocia unidad explícita de hemoglobina y conserva nombre multilínea completo", () => {
   const group = {
     template_confidence: 1,
     start_page: 1,
     end_page: 1,
     pages: [{
-      text: "Clínica ÁREA DATOS DEL TRABAJADOR Apellidos y Nombres: MORAN RAMOS JULIO\nCESAR DNI: 12345678 Edad: 35 Sexo: MASCULINO Empresa: EMPRESA SINTETICA Area: OPERATIVA Puesto de Trabajo: TECNICO Grupo Sanguineo: O POSITIVO Proyecto / Sede: SEDE RESUMEN DE RESULTADOS PA: 120/80 mmHg Hemoglobina 14.5 g/dl Ficha Odontograma: - Otros: - RESTRICCIONES - APTITUD X APTO - RECOMENDACIONES Fecha de Emision: 01/01/2026 Firma y Sello del Medico",
+      text: "Clínica ÁREA DATOS DEL TRABAJADOR Apellidos y Nombres: PRUEBA FICTICIA ANA\nLUZ DNI: 12345678 Edad: 35 Sexo: MASCULINO Empresa: EMPRESA SINTETICA Area: OPERATIVA Puesto de Trabajo: TECNICO Grupo Sanguineo: O POSITIVO Proyecto / Sede: SEDE RESUMEN DE RESULTADOS PA: 120/80 mmHg Hemoglobina 14.5 g/dl Ficha Odontograma: - Otros: - RESTRICCIONES - APTITUD X APTO - RECOMENDACIONES Fecha de Emision: 01/01/2026 Firma y Sello del Medico",
     }],
   };
   const worker = parseInnomedicMedicalResult(group);
-  assert.equal(worker.identificacion.nombre_completo_original, "MORAN RAMOS JULIO CESAR");
-  assert.equal(worker.identificacion.nombres, "JULIO CESAR");
+  assert.equal(worker.identificacion.nombre_completo_original, "PRUEBA FICTICIA ANA LUZ");
+  assert.equal(worker.identificacion.nombres, "ANA LUZ");
   assert.equal(worker.laboratorio_numerico.hemoglobina_unidad, "g/dl");
 });
 

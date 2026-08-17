@@ -139,10 +139,6 @@ function isNormalResult(value) {
   return NORMAL_RESULT_TERMS.some((term) => comparable.includes(term));
 }
 
-function hasCardiologyRecommendation(recommendations = []) {
-  return recommendations.some((item) => item.area === "cardiologia");
-}
-
 function classifyImc(imc) {
   if (imc === null) return "";
   if (imc < 18.5) return "bajo peso";
@@ -159,6 +155,82 @@ function isMetabolicImc(classification) {
   );
 }
 
+function classifyHemoglobinFromSource(laboratorio = {}, sexValue = "") {
+  const value = toNumberOrNull(laboratorio.hemoglobina_valor);
+  const sex = normalizeComparable(sexValue);
+  const male = ["M", "MASCULINO", "HOMBRE"].includes(sex);
+  const female = ["F", "FEMENINO", "MUJER"].includes(sex);
+  const selectedSex = male ? "masculino" : female ? "femenino" : "";
+  const min = selectedSex
+    ? toNumberOrNull(laboratorio[`hemoglobina_rango_${selectedSex}_min`])
+    : null;
+  const max = selectedSex
+    ? toNumberOrNull(laboratorio[`hemoglobina_rango_${selectedSex}_max`])
+    : null;
+  const ambiguous = Boolean(laboratorio.hemoglobina_rango_ambiguo) || (!selectedSex && value !== null);
+  const hasRange = min !== null && max !== null && min <= max;
+  let status = "";
+
+  if (value !== null && hasRange && !ambiguous) {
+    status = value < min ? "LOW" : value > max ? "HIGH" : "NORMAL";
+  }
+
+  return {
+    value,
+    unit: getString(laboratorio.hemoglobina_unidad),
+    sex: selectedSex,
+    range: hasRange ? { min, max } : null,
+    status,
+    ambiguous,
+    missingRange: value !== null && !ambiguous && !hasRange,
+    sourceFields: selectedSex
+      ? [
+          "laboratorio_numerico.hemoglobina_valor",
+          "laboratorio_numerico.hemoglobina_unidad",
+          `laboratorio_numerico.hemoglobina_rango_${selectedSex}_min`,
+          `laboratorio_numerico.hemoglobina_rango_${selectedSex}_max`,
+          "identificacion.sexo",
+        ]
+      : ["laboratorio_numerico.hemoglobina_valor", "identificacion.sexo"],
+  };
+}
+
+function uniqueRecommendationSources(recommendations = []) {
+  const bySource = new Map();
+  recommendations.forEach((item) => {
+    const key = `${item.item}|${normalizeComparable(item.texto_original)}`;
+    if (!bySource.has(key)) bySource.set(key, item);
+  });
+  return [...bySource.values()];
+}
+
+function deriveEcgPolicy(evaluaciones = {}, recommendations = []) {
+  const value = getString(evaluaciones.ecg_resultado);
+  const cardiologyRecommendations = uniqueRecommendationSources(
+    recommendations.filter((item) => item.area === "cardiologia"),
+  );
+  const other = normalizeComparable(evaluaciones.otros_hallazgos_resultado);
+  const competingCardiacFinding = /HIPERTENSION|CARDIOPAT|ARRITM|TAQUICARD/.test(other);
+  const present = Boolean(value);
+  const safeAssociation = present && cardiologyRecommendations.length === 1 && !competingCardiacFinding;
+  const ambiguousAssociation = present && cardiologyRecommendations.length > 0 && !safeAssociation;
+
+  return {
+    present,
+    value,
+    recommendationCount: cardiologyRecommendations.length,
+    cardiologyRecommendations,
+    safeAssociation,
+    ambiguousAssociation,
+    deliberatelyNotNarrated: present && cardiologyRecommendations.length === 0,
+    competingCardiacFinding,
+  };
+}
+
+function hasAmbiguousOtherStructure(value) {
+  return /(?:RINITIS ALERGICA.*EOSINOFILIA|INSUFICIENCIA VENOSA.*(?:EOSINOFILIA|HIPERCOLESTEROLEMIA|HIPERTENSION|ANEMIA)|ALERGIA A LA CEFTRIAXONA.*INSUFICIENCIA VENOSA|MIGRANA.*INSUFICIENCIA VENOSA|MICOSIS.*ANEMIA|HIPERCOLESTEROLEMIA DEFINIDA.*LEUCOPENIA|FARINGITIS AGUDA.*HIPERQUERATOSIS.*LEUCOCITOSIS|DESCARTAR ONICOMICOSIS.*INSUFICIENCIA VENOSA)/.test(normalizeComparable(value));
+}
+
 function createFinding({
   area,
   tipo = "alteracion",
@@ -168,6 +240,8 @@ function createFinding({
   field = "",
   source = "",
   sources = [],
+  ruleId = "",
+  recommendationAreas = [],
 }) {
   return {
     area,
@@ -178,6 +252,8 @@ function createFinding({
     field,
     source,
     sources: sources.length ? sources : [source].filter(Boolean),
+    rule_id: ruleId,
+    recommendation_areas: recommendationAreas,
   };
 }
 
@@ -313,6 +389,8 @@ function addFindingIfRelevant(findings, value, area, field, options = {}) {
       tipo: options.tipo ? options.tipo(comparable) : "alteracion",
       severidad: options.severidad ? options.severidad(comparable) : "warning",
       source: "evaluaciones_cualitativas",
+      ruleId: options.ruleId || "",
+      recommendationAreas: options.recommendationAreas || [],
     }),
   );
 }
@@ -321,29 +399,40 @@ function pickOnychomycosisFindings(value) {
   const result = getString(value);
   const matches = [
     ...result.matchAll(
-      /(?:DESCARTAR\s+)?ONICOMICOSIS\s+PEDIA\s+(BILATERAL|IZQUIERDA|DERECHA)/gi,
+      /(?:(DESCARTAR|SOSPECHA\s+DE|COMPATIBLE\s+CON)\s+)?ONICOMICOSIS(?:\s+(PEDIA|MANO))?(?:\s+(BILATERAL|IZQUIERDA|DERECHA))?/gi,
     ),
   ];
 
-  if (!matches.length && !normalizeComparable(result).includes("ONICOMICOSIS")) {
-    return [];
-  }
-
-  const sides = matches.length
-    ? matches.map((match) => normalizeComparable(match[1]))
-    : ["BILATERAL"];
-
-  return Array.from(new Set(sides)).map((side) => {
-    if (side.includes("IZQUIERDA")) {
-      return "descartar onicomicosis en el pie izquierdo";
-    }
-
-    if (side.includes("DERECHA")) {
-      return "descartar onicomicosis en el pie derecho";
-    }
-
-    return "descartar onicomicosis en ambos pies";
-  });
+  return Array.from(new Set(matches.map((match) => {
+    const certainty = normalizeComparable(match[1]);
+    const anatomy = normalizeComparable(match[2]);
+    const side = normalizeComparable(match[3]);
+    const location = anatomy === "PEDIA"
+      ? side === "IZQUIERDA"
+        ? "en el pie izquierdo"
+        : side === "DERECHA"
+          ? "en el pie derecho"
+          : side === "BILATERAL"
+            ? "en ambos pies"
+            : "en los pies"
+      : anatomy === "MANO"
+        ? side === "IZQUIERDA"
+          ? "en la mano izquierda"
+          : side === "DERECHA"
+            ? "en la mano derecha"
+            : side === "BILATERAL"
+              ? "en ambas manos"
+              : "en la mano"
+        : "";
+    const prefix = certainty === "DESCARTAR"
+      ? "descartar "
+      : certainty === "SOSPECHA DE"
+        ? "sospecha de "
+        : certainty === "COMPATIBLE CON"
+          ? "compatible con "
+          : "";
+    return `${prefix}onicomicosis${location ? ` ${location}` : ""}`;
+  })));
 }
 
 function pickRecognizedOtherSegments(result, comparable, options = {}) {
@@ -358,8 +447,52 @@ function pickRecognizedOtherSegments(result, comparable, options = {}) {
         severidad: "warning",
         field: "evaluaciones_cualitativas.otros_hallazgos_resultado",
         source: "otros_hallazgos_resultado",
+        ruleId: "dermatology_source_certainty_preserved",
+        recommendationAreas: ["dermatologia"],
       }),
     );
+  });
+
+  const safeLiteralPatterns = [
+    {
+      pattern: /INSUFICIENCIA\s+VENOSA(?:\s+PERIF[EÉ]RICA)?(?:\s+I[°º])?(?:\s+(?:BILATERAL|IZQUIERDA|DERECHA))?/gi,
+      area: "vascular",
+      ruleId: "safe_other_finding_vascular",
+      recommendationAreas: ["vascular"],
+    },
+    {
+      pattern: /PIE\s+(?:CAVO|PLANO)(?:\s+(?:BILATERAL|IZQUIERDO|IZQUIERDA|DERECHO|DERECHA))?/gi,
+      area: "traumatologia",
+      ruleId: "safe_other_finding_traumatology",
+      recommendationAreas: ["traumatologia"],
+    },
+    {
+      pattern: /ALERGIA\s+A\s+(?:LA|LAS|LOS|EL)\s+[A-ZÃÃ‰ÃÃ“ÃšÃ‘]+/gi,
+      area: "alergias",
+      ruleId: "safe_other_finding_allergy",
+      recommendationAreas: ["alergias"],
+    },
+    {
+      pattern: /(?:DESCARTAR\s+|SOSPECHA\s+DE\s+|COMPATIBLE\s+CON\s+)?\b(?:MICOSIS|HIPERQUERATOSIS|ONICODISTROFIA|DERMATITIS)(?:\s+(?:PEDIA|MANO|EN\s+TRATAMIENTO|BILATERAL|IZQUIERDA|DERECHA))*/gi,
+      area: "dermatologia",
+      ruleId: "dermatology_source_certainty_preserved",
+      recommendationAreas: ["dermatologia"],
+    },
+  ];
+
+  safeLiteralPatterns.forEach((config) => {
+    [...result.matchAll(config.pattern)].forEach((match) => {
+      findings.push(createFinding({
+        area: config.area,
+        tipo: "alteracion",
+        resultado: getString(match[0]),
+        severidad: "warning",
+        field: "evaluaciones_cualitativas.otros_hallazgos_resultado",
+        source: "otros_hallazgos_resultado",
+        ruleId: config.ruleId,
+        recommendationAreas: config.recommendationAreas,
+      }));
+    });
   });
 
   if (comparable.includes("HIPERTRIGLICERIDEMIA")) {
@@ -411,8 +544,11 @@ function pickRecognizedOtherSegments(result, comparable, options = {}) {
   }
 
   const unrecognizedSegments = result
-    .replace(/DESCARTAR\s+ONICOMICOSIS\s+PEDIA\s+(BILATERAL|IZQUIERDA|DERECHA)/gi, "")
-    .replace(/ONICOMICOSIS\s+PEDIA\s+(BILATERAL|IZQUIERDA|DERECHA)/gi, "")
+    .replace(/(?:(?:DESCARTAR|SOSPECHA\s+DE|COMPATIBLE\s+CON)\s+)?ONICOMICOSIS(?:\s+(?:PEDIA|MANO))?(?:\s+(?:BILATERAL|IZQUIERDA|DERECHA))?/gi, "")
+    .replace(/INSUFICIENCIA\s+VENOSA(?:\s+PERIF[EÉ]RICA)?(?:\s+I[°º])?(?:\s+(?:BILATERAL|IZQUIERDA|DERECHA))?/gi, "")
+    .replace(/PIE\s+(?:CAVO|PLANO)(?:\s+(?:BILATERAL|IZQUIERDO|IZQUIERDA|DERECHO|DERECHA))?/gi, "")
+    .replace(/ALERGIA\s+A\s+(?:LA|LAS|LOS|EL)\s+[A-ZÃÃ‰ÃÃ“ÃšÃ‘]+/gi, "")
+    .replace(/(?:DESCARTAR\s+|SOSPECHA\s+DE\s+|COMPATIBLE\s+CON\s+)?\b(?:MICOSIS|HIPERQUERATOSIS|ONICODISTROFIA|DERMATITIS)(?:\s+(?:PEDIA|MANO|EN\s+TRATAMIENTO|BILATERAL|IZQUIERDA|DERECHA))*/gi, "")
     .replace(/HIPERTRIGLICERIDEMIA(?:\s+EN\s+TRATAMIENTO)?/gi, "")
     .replace(/HIPERGLICEMIA(?:\s+EN\s+TRATAMIENTO)?/gi, "")
     .replace(/HIPERLIPIDEMIA\s+MIXTA(?:\s+EN\s+TRATAMIENTO)?/gi, "")
@@ -488,10 +624,12 @@ function deriveQualitativeFindings(evaluaciones = {}, options = {}) {
 
   if (
     hasNarrableValue(evaluaciones.ecg_resultado) &&
-    !isNormalResult(evaluaciones.ecg_resultado) &&
-    options.hasCardiologyRecommendation
+    options.ecgSafeAssociation
   ) {
-    addFindingIfRelevant(findings, evaluaciones.ecg_resultado, "cardiologia", "ecg_resultado");
+    addFindingIfRelevant(findings, evaluaciones.ecg_resultado, "cardiologia", "ecg_resultado", {
+      ruleId: "ecg_with_explicit_cardiology_recommendation",
+      matches: () => true,
+    });
   }
 
   addFindingIfRelevant(findings, evaluaciones.espirometria_resultado, "espirometria", "espirometria_resultado");
@@ -518,7 +656,6 @@ function deriveQualitativeFindings(evaluaciones = {}, options = {}) {
   findings.push(...deriveOtherFindings(evaluaciones.otros_hallazgos_resultado, options));
 
   [
-    ["ecg_resultado", "ecg"],
     ["examen_orina_resultado", "orina"],
     ["informe_psicologico_resultado", "psicologico"],
     ["espirometria_resultado", "espirometria"],
@@ -708,26 +845,20 @@ function dedupeFindings(findings) {
 }
 
 function createEmptyNarrativeGroups() {
+  const group = () => ({
+    narrar: false,
+    hallazgos: [],
+    recomendaciones: [],
+    association_status: "NONE",
+    association_reason: "",
+    suppress_standalone: false,
+  });
   return {
-    metabolico: { narrar: false, hallazgos: [], recomendaciones: [] },
-    oftalmologia: { narrar: false, hallazgos: [], recomendaciones: [] },
-    audiometria: { narrar: false, hallazgos: [], recomendaciones: [] },
-    dermatologia: { narrar: false, hallazgos: [], recomendaciones: [] },
-    medicina_interna: { narrar: false, hallazgos: [], recomendaciones: [] },
-    musculoesqueletico: { narrar: false, hallazgos: [], recomendaciones: [] },
-    espirometria: { narrar: false, hallazgos: [], recomendaciones: [] },
-    neumologia: { narrar: false, hallazgos: [], recomendaciones: [] },
-    radiografia_torax: { narrar: false, hallazgos: [], recomendaciones: [] },
-    cardiologia: { narrar: false, hallazgos: [], recomendaciones: [] },
-    traumatologia: { narrar: false, hallazgos: [], recomendaciones: [] },
-    gastroenterologia: { narrar: false, hallazgos: [], recomendaciones: [] },
-    ginecologia: { narrar: false, hallazgos: [], recomendaciones: [] },
-    psicologia: { narrar: false, hallazgos: [], recomendaciones: [] },
-    alergias: { narrar: false, hallazgos: [], recomendaciones: [] },
-    vascular: { narrar: false, hallazgos: [], recomendaciones: [] },
-    hemograma: { narrar: false, hallazgos: [], recomendaciones: [] },
-    ocupacional: { narrar: false, hallazgos: [], recomendaciones: [] },
-    otros: { narrar: false, hallazgos: [], recomendaciones: [] },
+    metabolico: group(), oftalmologia: group(), audiometria: group(), dermatologia: group(),
+    medicina_interna: group(), musculoesqueletico: group(), espirometria: group(),
+    neumologia: group(), radiografia_torax: group(), cardiologia: group(), traumatologia: group(),
+    gastroenterologia: group(), ginecologia: group(), psicologia: group(), alergias: group(),
+    vascular: group(), hemograma: group(), ocupacional: group(), otros: group(),
   };
 }
 
@@ -737,7 +868,83 @@ function addGroupFinding(groups, finding) {
   groups[area].narrar = groups[area].narrar || Boolean(finding.narrar);
 }
 
-function buildNarrativeGroups({ hallazgosRelevantes, laboratorioRelevante, recomendacionesPorArea }) {
+function applyRecommendationAssociations(groups, { anthropometryIsRelevant = false, ecgPolicy = {}, ambiguousOtherStructure = false } = {}) {
+  const pneumology = groups.neumologia;
+  if (pneumology.recomendaciones.length === 1 && pneumology.hallazgos.length === 0) {
+    const crossAreaCandidates = [groups.espirometria, groups.radiografia_torax]
+      .flatMap((group) => group.hallazgos.filter((finding) => finding.narrar !== false));
+    if (crossAreaCandidates.length === 1) {
+      const candidate = crossAreaCandidates[0];
+      const sourceGroup = groups[candidate.area];
+      sourceGroup.hallazgos = sourceGroup.hallazgos.filter((finding) => finding !== candidate);
+      sourceGroup.narrar = sourceGroup.hallazgos.some((finding) => finding.narrar !== false) || sourceGroup.recomendaciones.length > 0;
+      pneumology.hallazgos.push({ ...candidate, association_source_area: candidate.area });
+    }
+  }
+
+  Object.entries(groups).forEach(([area, group]) => {
+    if (!group.recomendaciones.length) return;
+    const sourceRecommendations = uniqueRecommendationSources(group.recomendaciones);
+    const isGeneral = area === "otros" && group.recomendaciones.every((item) => item.matched_keywords.length === 0);
+    if (isGeneral) {
+      group.association_status = "GENERAL_RECOMMENDATION";
+      group.association_reason = "La fuente presenta una recomendación general sin hallazgo clínico único.";
+      return;
+    }
+
+    if (area === "cardiologia" && ecgPolicy.ambiguousAssociation) {
+      group.association_status = "AMBIGUOUS_ASSOCIATION";
+      group.association_reason = "La recomendación cardiológica compite con otro posible hallazgo cardiovascular.";
+      group.hallazgos = [];
+      return;
+    }
+
+    if (
+      ambiguousOtherStructure &&
+      group.hallazgos.some((finding) => finding.field === "evaluaciones_cualitativas.otros_hallazgos_resultado")
+    ) {
+      group.association_status = "AMBIGUOUS_ASSOCIATION";
+      group.association_reason = "El bloque fuente contiene varios hallazgos sin delimitación inequívoca.";
+      return;
+    }
+
+    if (group.hallazgos.length && sourceRecommendations.length === 1) {
+      group.association_status = "SAFE_ASSOCIATION";
+      group.association_reason = "Un único bloque fuente de recomendación coincide con hallazgos estructurados del área.";
+      return;
+    }
+
+    if (group.hallazgos.length || sourceRecommendations.length > 1) {
+      group.association_status = "AMBIGUOUS_ASSOCIATION";
+      group.association_reason = "La estructura contiene múltiples candidatos y no demuestra una relación uno a uno.";
+      return;
+    }
+
+    if (area === "metabolico" && anthropometryIsRelevant) {
+      group.association_status = "SAFE_ASSOCIATION";
+      group.association_reason = "La recomendación metabólica se vincula al único estado antropométrico narrado.";
+      group.suppress_standalone = true;
+      return;
+    }
+
+    const recommendationText = normalizeComparable(group.recomendaciones.map((item) => item.texto_original).join(" "));
+    const ophthalmologyText = normalizeComparable(groups.oftalmologia.hallazgos.map((item) => item.resultado).join(" "));
+    const safeOccupationalLink = area === "ocupacional" && (
+      (/DISCRIMINAR COLORES|DIFERENCIACION DE COLORES/.test(recommendationText) && ophthalmologyText.includes("DISCROMATOPSIA")) ||
+      (/ALTURA/.test(recommendationText) && ophthalmologyText.includes("VISION ESTEREOSCOPICA"))
+    );
+    if (safeOccupationalLink) {
+      group.association_status = "SAFE_ASSOCIATION";
+      group.association_reason = "La restricción y el hallazgo oftalmológico comparten una condición estructural explícita.";
+      return;
+    }
+
+    group.association_status = "NO_RELATED_FINDING";
+    group.association_reason = "No existe un hallazgo estructurado inequívocamente relacionado.";
+  });
+}
+
+function buildNarrativeGroups({ hallazgosRelevantes, laboratorioRelevante, recomendacionesPorArea, anthropometryIsRelevant, ecgPolicy, ambiguousOtherStructure }) {
   const groups = createEmptyNarrativeGroups();
 
   laboratorioRelevante.forEach((item) => {
@@ -762,6 +969,8 @@ function buildNarrativeGroups({ hallazgosRelevantes, laboratorioRelevante, recom
     groups[area].recomendaciones.push(recommendation);
     groups[area].narrar = true;
   });
+
+  applyRecommendationAssociations(groups, { anthropometryIsRelevant, ecgPolicy, ambiguousOtherStructure });
 
   return groups;
 }
@@ -798,8 +1007,9 @@ export function deriveNarrativeFindings(worker = {}) {
   const hasFullAnthropometry = pesoKg !== null && tallaCm !== null && imc !== null;
   const anthropometryIsRelevant = isMetabolicImc(clasificacionImc);
   const grupoSanguineo = normalizeBloodType(generales.grupo_sanguineo);
-  const hemoglobinaValor = toNumberOrNull(laboratorio.hemoglobina_valor);
-  const hemoglobinaUnidad = getString(laboratorio.hemoglobina_unidad);
+  const hemoglobin = classifyHemoglobinFromSource(laboratorio, identificacion.sexo);
+  const hemoglobinaValor = hemoglobin.value;
+  const hemoglobinaUnidad = hemoglobin.unit;
   const glucosaValor = toNumberOrNull(laboratorio.glucosa_valor);
   const trigliceridosValor = toNumberOrNull(laboratorio.trigliceridos_valor);
   const colesterolValor = toNumberOrNull(laboratorio.colesterol_valor);
@@ -819,14 +1029,12 @@ export function deriveNarrativeFindings(worker = {}) {
   const recomendacionesPorArea = classifyRecommendations(
     aptitudData.recomendaciones_generales_texto,
   );
-  const hasCardiologyRecommendationValue = hasCardiologyRecommendation(
-    recomendacionesPorArea,
-  );
+  const ecgPolicy = deriveEcgPolicy(evaluaciones, recomendacionesPorArea);
   const qualitative = deriveQualitativeFindings(evaluaciones, {
     hasTriglyceridesLabFinding,
     hasCholesterolLabFinding,
     hasGlucoseLabFinding,
-    hasCardiologyRecommendation: hasCardiologyRecommendationValue,
+    ecgSafeAssociation: ecgPolicy.safeAssociation,
   });
   const metabolicRecommendations = recomendacionesPorArea
     .filter((item) => item.area === "metabolico")
@@ -837,11 +1045,27 @@ export function deriveNarrativeFindings(worker = {}) {
     hallazgosRelevantes,
     laboratorioRelevante: laboratory.laboratorioRelevante,
     recomendacionesPorArea,
+    anthropometryIsRelevant,
+    ecgPolicy,
+    ambiguousOtherStructure: hasAmbiguousOtherStructure(evaluaciones.otros_hallazgos_resultado),
   });
-  const hasOmittedEcgFinding =
-    hasNarrableValue(evaluaciones.ecg_resultado) &&
-    !isNormalResult(evaluaciones.ecg_resultado) &&
-    !hasCardiologyRecommendationValue;
+  const policyFlags = [];
+  if (ecgPolicy.deliberatelyNotNarrated) {
+    policyFlags.push({
+      type: "ecg_not_narrated_no_cardiology_recommendation",
+      sourceField: "evaluaciones_cualitativas.ecg_resultado",
+      message: "El ECG se omite deliberadamente porque no existe recomendación explícita de cardiología.",
+      confidence: "automatic",
+    });
+  }
+  if (ecgPolicy.ambiguousAssociation) {
+    policyFlags.push({
+      type: "ecg_cardiology_association_ambiguous",
+      sourceField: "evaluaciones_cualitativas.ecg_resultado",
+      message: "Existe recomendación cardiológica, pero varios hallazgos podrían motivarla.",
+      confidence: "review_recommended",
+    });
+  }
 
   return {
     can_generate_narrative: blockingReasons.length === 0,
@@ -871,6 +1095,12 @@ export function deriveNarrativeFindings(worker = {}) {
       grupo_sanguineo: grupoSanguineo,
       hemoglobina_valor: hemoglobinaValor,
       hemoglobina_unidad: hemoglobinaUnidad,
+      hemoglobina_rango_seleccionado: hemoglobin.range,
+      hemoglobina_estado: hemoglobin.status,
+      hemoglobina_sexo_rango: hemoglobin.sex,
+      hemoglobina_rango_ambiguo: hemoglobin.ambiguous,
+      hemoglobina_rango_faltante: hemoglobin.missingRange,
+      hemoglobina_source_fields: hemoglobin.sourceFields,
       glucosa_valor: glucosaValor,
       trigliceridos_valor: trigliceridosValor,
       colesterol_valor: colesterolValor,
@@ -910,7 +1140,9 @@ export function deriveNarrativeFindings(worker = {}) {
     laboratorio_relevante: laboratory.laboratorioRelevante,
     hallazgos_relevantes: hallazgosRelevantes,
     examenes_normales_resumibles: qualitative.examenesNormalesResumibles,
-    has_omitted_findings: hasOmittedEcgFinding,
+    has_omitted_findings: false,
+    policy_flags: policyFlags,
+    ecg_policy: ecgPolicy,
     recomendaciones_por_area: recomendacionesPorArea,
     narrative_groups: narrativeGroups,
     aptitud: {

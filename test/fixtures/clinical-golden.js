@@ -44,13 +44,11 @@ Eso sería todo. De presentar alguna duda adicional, no dude en consultar con el
   E_SPIROMETRY: {
     displayText: `Buenos días, señora Ana Quispe. Le saludamos de parte de la clínica Innomedic. A continuación, le brindaremos el resumen de su evaluación médica.
 
-En la evaluación espirométrica se registra patrón restrictivo leve.
-
-Se recomienda mantener control por neumología.
+En la evaluación respiratoria se registra patrón restrictivo leve. Por ello, se recomienda mantener control por neumología.
 
 Por ello, su calificación final es apto.
 
 Eso sería todo. De presentar alguna duda adicional, no dude en consultar con el médico de su empresa. Muchas gracias.`,
-    ttsText: "Buenos días, señora Ana Quispe. Le saludamos de parte de la clínica Innomedic. A continuación, le brindaremos el resumen de su evaluación médica. En la evaluación espirométrica se registra patrón restrictivo leve. Se recomienda mantener control por neumología. Por ello, su calificación final es apto. Eso sería todo. De presentar alguna duda adicional, no dude en consultar con el médico de su empresa. Muchas gracias.",
+    ttsText: "Buenos días, señora Ana Quispe. Le saludamos de parte de la clínica Innomedic. A continuación, le brindaremos el resumen de su evaluación médica. En la evaluación respiratoria se registra patrón restrictivo leve. Por ello, se recomienda mantener control por neumología. Por ello, su calificación final es apto. Eso sería todo. De presentar alguna duda adicional, no dude en consultar con el médico de su empresa. Muchas gracias.",
   },
 };

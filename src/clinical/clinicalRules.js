@@ -45,6 +45,31 @@ export function applyClinicalRules(worker, reviewFlags = []) {
     };
   });
 
+  const hemoglobin = resolved.laboratorio_basico || {};
+  if (hemoglobin.hemoglobina_valor !== null && hemoglobin.hemoglobina_valor !== undefined) {
+    trace.push({
+      sourceField: "laboratorio_numerico.hemoglobina_valor",
+      ruleId: "hemoglobin_source_reference_classification",
+      originalValue: {
+        value: worker.laboratorio_numerico?.hemoglobina_valor,
+        unit: worker.laboratorio_numerico?.hemoglobina_unidad,
+        sex: worker.identificacion?.sexo,
+        selectedRange: hemoglobin.hemoglobina_rango_seleccionado,
+      },
+      normalizedValue: hemoglobin.hemoglobina_estado || null,
+    });
+  }
+
+  Object.entries(resolved.narrative_groups || {}).forEach(([area, group]) => {
+    if (!group.recomendaciones?.length || group.association_status === "NONE") return;
+    trace.push({
+      sourceField: `narrative_groups.${area}`,
+      ruleId: "recommendation_structural_association_policy",
+      originalValue: group.recomendaciones.map((item) => item.texto_original),
+      normalizedValue: group.association_status,
+    });
+  });
+
   if (resolved.aptitud?.narrar) {
     trace.push({
       sourceField: "aptitud_y_recomendaciones.aptitud_final",
@@ -59,7 +84,7 @@ export function applyClinicalRules(worker, reviewFlags = []) {
     resolved.can_generate_narrative = false;
   }
 
-  return { findings: resolved, trace, ruleVersion: "phase-5.1" };
+  return { findings: resolved, trace, ruleVersion: "phase-5.4" };
 }
 
 export function hasExplicitAptitude(worker) {

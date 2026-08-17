@@ -40,9 +40,31 @@ raw worker
 
 Las recomendaciones se extraen del texto fuente y se clasifican por área: metabólica, oftalmología, audiometría, dermatología, ocupacional, cardiología, medicina interna, traumatología, neumología, gastroenterología, ginecología, psicología, alergias y vascular. La normalización deduplica textos equivalentes; una regla específica prevalece sobre el hallazgo genérico. No se prescriben fármacos ni se crean derivaciones por intuición.
 
+## Políticas validadas en Fase 5.4
+
+### ECG
+
+Un ECG solo se narra cuando existe exactamente una recomendación fuente de cardiología y no hay otro hallazgo cardiovascular que compita por esa recomendación. Sin cardiología, el ECG se omite deliberadamente y genera `ecg_not_narrated_no_cardiology_recommendation` con nivel automático/informativo; no constituye omisión narrativa. Si la asociación es ambigua, no se narra el ECG y se mantienen `ecg_cardiology_association_ambiguous` y `ambiguous_recommendation_mapping` para revisión. Nunca se crean gravedad, causa, pronóstico, tratamiento ni recomendación cardiológica.
+
+### Dermatología
+
+Los hallazgos dermatológicos reconocidos conservan el contenido y la certeza de la fuente. `DESCARTAR`, `SOSPECHA DE` y `COMPATIBLE CON` no se eliminan ni se convierten en diagnóstico confirmado. La lateralidad solo se verbaliza cuando está explícita. Una recomendación dermatológica se añade al bloque únicamente si está presente en la fuente.
+
+### Asociación de recomendaciones
+
+Cada grupo se clasifica como `SAFE_ASSOCIATION`, `AMBIGUOUS_ASSOCIATION`, `NO_RELATED_FINDING` o `GENERAL_RECOMMENDATION`. Solo `SAFE_ASSOCIATION` permite redacción vinculada. Las asociaciones ambiguas se redactan de forma neutral y generan revisión; las recomendaciones generales no se fuerzan contra un hallazgo. Los textos fuente y la clasificación permanecen en `trace` mediante `recommendation_structural_association_policy`.
+
+### Otros hallazgos
+
+El motor separa únicamente patrones con límites textuales reproducibles. Los hallazgos claros pueden narrarse neutralmente sin recomendación. Los bloques compuestos sin delimitación inequívoca generan `ambiguous_other_findings_structure`; no se emparejan por proximidad. El texto original siempre permanece disponible en `rawWorker` y trazabilidad.
+
+### Hemoglobina
+
+El parser extrae valor, unidad y los intervalos rotulados para hombres y mujeres desde la misma evaluación. No existen constantes clínicas de rango. El sexo explícito selecciona el intervalo aplicable y la clasificación es exclusivamente matemática: valor menor que el mínimo = `LOW`, inclusivo entre mínimo y máximo = `NORMAL`, y mayor que el máximo = `HIGH`. Sin intervalo se genera `hemoglobin_reference_range_missing`; con variantes o sexo no reconocido, `hemoglobin_reference_range_ambiguous`. La narrativa solo describe la posición respecto al rango impreso y nunca diagnostica anemia, policitemia ni una causa.
+
 ## Review flags
 
-Tipos implementados: `conflicting_values`, `ambiguous_interpretation`, `unknown_value` y `empty_placeholder`. Niveles: `automatic`, `review_recommended`, `manual_only`. No se calculan porcentajes. Un conflicto clínico impide producir narrativa automática; otros flags no bloquean el lote.
+Tipos principales: `conflicting_values`, `ambiguous_interpretation`, `unknown_value`, `empty_placeholder`, `orphan_recommendation`, `ambiguous_recommendation_mapping`, `ambiguous_other_findings_structure`, `ecg_not_narrated_no_cardiology_recommendation`, `ecg_cardiology_association_ambiguous`, `hemoglobin_reference_range_missing` y `hemoglobin_reference_range_ambiguous`. Niveles: `automatic`, `review_recommended`, `manual_only`. No se calculan porcentajes. Un conflicto clínico impide producir narrativa automática; otros flags no bloquean el lote.
 
 ## Trazabilidad y métricas locales
 
@@ -50,7 +72,7 @@ Tipos implementados: `conflicting_values`, `ambiguous_interpretation`, `unknown_
 
 ## Reglas pendientes de definición clínica
 
-- Rangos institucionales por edad, sexo, ayuno, unidad y laboratorio para glucosa, colesterol, triglicéridos, hemoglobina, leucocitos y plaquetas.
+- Rangos institucionales por edad, sexo, ayuno, unidad y laboratorio para glucosa, colesterol, triglicéridos, leucocitos y plaquetas. Hemoglobina usa exclusivamente el rango impreso en cada evaluación.
 - Política para calcular IMC cuando no venga informado y cómo resolver discrepancias con la categoría fuente.
 - Catálogo validado de sinónimos normales/anormales por especialidad.
 - Recomendaciones autorizadas por hallazgo y prioridad/severidad institucional.

@@ -56,12 +56,9 @@ export function collectReviewFlags(worker = {}, normalizationTrace = []) {
 
   const otherFinding = comparable(worker.evaluaciones_cualitativas?.otros_hallazgos_resultado);
   const recognizedOtherPatterns = [
-    "NORMAL",
-    "SIN ALTERACIONES",
-    "ONICOMICOSIS",
-    "HIPERTRIGLICERIDEMIA",
-    "HIPERGLICEMIA",
-    "HIPERLIPIDEMIA MIXTA",
+    "NORMAL", "SIN ALTERACIONES", "ONICOMICOSIS", "MICOSIS", "HIPERQUERATOSIS", "DERMATITIS",
+    "ONICODISTROFIA", "INSUFICIENCIA VENOSA", "PIE CAVO", "PIE PLANO", "ALERGIA A",
+    "HIPERTRIGLICERIDEMIA", "HIPERGLICEMIA", "HIPERLIPIDEMIA MIXTA",
   ];
   if (otherFinding && !recognizedOtherPatterns.some((term) => otherFinding.includes(term))) {
     flags.push(createFlag(
@@ -69,6 +66,43 @@ export function collectReviewFlags(worker = {}, normalizationTrace = []) {
       "evaluaciones_cualitativas.otros_hallazgos_resultado",
       "El dato se conserva de forma neutral, pero no coincide con un patrón clínico validado.",
     ));
+  }
+  if (
+    /(?:RINITIS ALERGICA.*EOSINOFILIA|INSUFICIENCIA VENOSA.*(?:EOSINOFILIA|HIPERCOLESTEROLEMIA|HIPERTENSION|ANEMIA)|ALERGIA A LA CEFTRIAXONA.*INSUFICIENCIA VENOSA|MIGRANA.*INSUFICIENCIA VENOSA|MICOSIS.*ANEMIA|HIPERCOLESTEROLEMIA DEFINIDA.*LEUCOPENIA|FARINGITIS AGUDA.*HIPERQUERATOSIS.*LEUCOCITOSIS|DESCARTAR ONICOMICOSIS.*INSUFICIENCIA VENOSA)/.test(otherFinding)
+  ) {
+    flags.push(createFlag(
+      "ambiguous_other_findings_structure",
+      "evaluaciones_cualitativas.otros_hallazgos_resultado",
+      "El bloque contiene varios hallazgos sin delimitación fuente inequívoca.",
+    ));
+  }
+
+  const laboratory = worker.laboratorio_numerico || {};
+  const hemoglobinValue = Number(laboratory.hemoglobina_valor);
+  if (Number.isFinite(hemoglobinValue)) {
+    const sex = comparable(worker.identificacion?.sexo);
+    const selectedSex = ["M", "MASCULINO", "HOMBRE"].includes(sex)
+      ? "masculino"
+      : ["F", "FEMENINO", "MUJER"].includes(sex)
+        ? "femenino"
+        : "";
+    const minValue = laboratory[`hemoglobina_rango_${selectedSex}_min`];
+    const maxValue = laboratory[`hemoglobina_rango_${selectedSex}_max`];
+    const min = minValue === null || minValue === undefined || minValue === "" ? Number.NaN : Number(minValue);
+    const max = maxValue === null || maxValue === undefined || maxValue === "" ? Number.NaN : Number(maxValue);
+    if (laboratory.hemoglobina_rango_ambiguo || !selectedSex) {
+      flags.push(createFlag(
+        "hemoglobin_reference_range_ambiguous",
+        "laboratorio_numerico.hemoglobina_valor",
+        "No puede seleccionarse inequívocamente un rango de hemoglobina para el sexo registrado.",
+      ));
+    } else if (!Number.isFinite(min) || !Number.isFinite(max) || min > max) {
+      flags.push(createFlag(
+        "hemoglobin_reference_range_missing",
+        "laboratorio_numerico.hemoglobina_valor",
+        "La hemoglobina tiene valor, pero no un rango de referencia fuente utilizable.",
+      ));
+    }
   }
 
   normalizationTrace
@@ -88,11 +122,26 @@ export function collectReviewFlags(worker = {}, normalizationTrace = []) {
 }
 
 export function collectNarrativeReviewFlags(findings = {}) {
-  return Object.entries(findings.narrative_groups || {})
-    .filter(([, group]) => group?.narrar && group.recomendaciones?.length && !group.hallazgos?.length)
-    .map(([area]) => createFlag(
-      "orphan_recommendation",
-      `narrative_groups.${area}`,
-      "La recomendación se conserva de forma neutral porque no tiene un hallazgo inequívocamente asociado.",
-    ));
+  const flags = [...(findings.policy_flags || [])];
+  Object.entries(findings.narrative_groups || {}).forEach(([area, group]) => {
+    if (!group?.narrar || !group.recomendaciones?.length) return;
+    if (group.association_status === "AMBIGUOUS_ASSOCIATION") {
+      flags.push(createFlag(
+        "ambiguous_recommendation_mapping",
+        `narrative_groups.${area}`,
+        group.association_reason || "La recomendación tiene varios hallazgos candidatos.",
+      ));
+    }
+    if (
+      !group.hallazgos?.length &&
+      ["AMBIGUOUS_ASSOCIATION", "NO_RELATED_FINDING", "NONE"].includes(group.association_status)
+    ) {
+      flags.push(createFlag(
+        "orphan_recommendation",
+        `narrative_groups.${area}`,
+        "La recomendación se conserva de forma neutral porque no tiene un hallazgo inequívocamente asociado.",
+      ));
+    }
+  });
+  return flags;
 }

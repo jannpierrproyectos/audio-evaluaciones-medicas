@@ -139,6 +139,40 @@ function matchIntegerFromNormalizedText(text, regex) {
   return cleanInteger(match?.[1] || "");
 }
 
+function uniqueReferenceRanges(matches = []) {
+  const byRange = new Map();
+  matches.forEach((match) => {
+    const min = cleanNumber(match?.[1]);
+    const max = cleanNumber(match?.[2]);
+    if (min === null || max === null || min > max) return;
+    byRange.set(`${min}|${max}`, { min, max, original: cleanText(match[0]) });
+  });
+  return [...byRange.values()];
+}
+
+function extractHemoglobinReferenceRanges(text) {
+  const laboratorySegment = matchFirst(
+    text,
+    /Hemoglobina\s+([\s\S]*?)(?=\s+Glucosa\s|\s+Trigliceridos\s|$)/i,
+  );
+  const men = uniqueReferenceRanges([
+    ...laboratorySegment.matchAll(/(?:V\.?\s*R\.?\s*)?Hombres?\s*:\s*([\d.,]+)\s*[-–—]\s*([\d.,]+)/gi),
+  ]);
+  const women = uniqueReferenceRanges([
+    ...laboratorySegment.matchAll(/Mujeres?\s*:\s*([\d.,]+)\s*[-–—]\s*([\d.,]+)/gi),
+  ]);
+
+  return {
+    hemoglobina_rango_masculino_min: men.length === 1 ? men[0].min : null,
+    hemoglobina_rango_masculino_max: men.length === 1 ? men[0].max : null,
+    hemoglobina_rango_femenino_min: women.length === 1 ? women[0].min : null,
+    hemoglobina_rango_femenino_max: women.length === 1 ? women[0].max : null,
+    hemoglobina_rango_masculino_fuente: men.map((range) => range.original).join(" | "),
+    hemoglobina_rango_femenino_fuente: women.map((range) => range.original).join(" | "),
+    hemoglobina_rango_ambiguo: men.length > 1 || women.length > 1,
+  };
+}
+
 const DOCUMENT_LABELS = [
   "DNI",
   "Carnet de Extranjeria",
@@ -365,6 +399,7 @@ function shouldReviewDosaje(value) {
 }
 export function parseInnomedicMedicalResult(group) {
   const text = cleanText(group.pages.map((page) => page.text).join(" "));
+  const hemoglobinReferenceRanges = extractHemoglobinReferenceRanges(text);
 
   const fullName = extractBetweenLabels(
     text,
@@ -435,6 +470,7 @@ export function parseInnomedicMedicalResult(group) {
     laboratorio_numerico: {
       hemoglobina_valor: matchNumber(text, /Hemoglobina\s+([\d.,]+)/i),
       hemoglobina_unidad: matchFirst(text, /Hemoglobina\s+[\d.,]+\s*(g\s*\/\s*d[lL])/i),
+      ...hemoglobinReferenceRanges,
       glucosa_valor: matchNumber(text, /Glucosa\s+([\d.,]+)/i),
       trigliceridos_valor: matchNumber(text, /Trigliceridos\s+([\d.,]+)/i),
       colesterol_valor: matchNumber(text, /Colesterol\s+([\d.,]+)/i),

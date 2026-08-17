@@ -66,6 +66,7 @@ export function prepareTextForTts(displayText, options = {}) {
     .replace(/\by\s*\/\s*o\b/giu, "y o")
     .replace(/\bmascarilla\s*\/\s*respirador\b/giu, "mascarilla o respirador")
     .replace(/\(\s*(nitrilo\s+o\s+PVC)\s*\)/giu, ", $1,")
+    .replace(/\(\s*(variante\s+normal)\s*\)/giu, "$1")
     .replace(/\s+/g, " ")
     .replace(/\s+([,.;:!?])/g, "$1")
     .trim();

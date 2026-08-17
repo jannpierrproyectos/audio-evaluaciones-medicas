@@ -5,16 +5,40 @@ function countMatches(value, pattern) {
   return [...String(value || "").matchAll(pattern)].length;
 }
 
-function paragraphs(value) {
-  return String(value || "").split(/\n{2,}/).filter(Boolean);
-}
-
 function hasFlag(auditCase, type) {
   return auditCase.flags?.some((flag) => flag.type === type);
 }
 
 function rawField(auditCase, block, field) {
   return auditCase.rawClinical?.[block]?.[field] ?? "";
+}
+
+function comparable(value) {
+  return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toUpperCase();
+}
+
+function hasSourceValue(value) {
+  return !["", "-", "N/A", "NA", "NO APLICA", "NO PROCEDE", "NO REGISTRA"].includes(comparable(value));
+}
+
+function hemoglobinStatus(auditCase) {
+  const laboratory = auditCase.rawClinical?.laboratorio_numerico || {};
+  const value = Number(laboratory.hemoglobina_valor);
+  if (!Number.isFinite(value)) return "NO_VALUE";
+  if (laboratory.hemoglobina_rango_ambiguo) return "AMBIGUOUS";
+  const sex = comparable(auditCase.identity?.normalized?.sex || auditCase.identity?.extracted?.sex);
+  const selected = sex.startsWith("MASCUL") || sex === "M" || sex === "HOMBRE"
+    ? "masculino"
+    : sex.startsWith("FEMEN") || sex === "F" || sex === "MUJER"
+      ? "femenino"
+      : "";
+  if (!selected) return "AMBIGUOUS";
+  const minValue = laboratory[`hemoglobina_rango_${selected}_min`];
+  const maxValue = laboratory[`hemoglobina_rango_${selected}_max`];
+  const min = minValue === null || minValue === undefined ? Number.NaN : Number(minValue);
+  const max = maxValue === null || maxValue === undefined ? Number.NaN : Number(maxValue);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min > max) return "MISSING";
+  return value < min ? "LOW" : value > max ? "HIGH" : "NORMAL";
 }
 
 const IDENTITY_NARRATIVE_FLAGS = new Set([
@@ -35,8 +59,12 @@ export const NARRATIVE_AUDIT_PATTERNS = [
   ["repetitive_se_evidencia", "ERROR", "Redacción", (c) => countMatches(c.displayText, /\bse evidencia(?:n)?\b/gi) >= 3],
   ["audiometry_artificial_causality", "ERROR", "Audiometría", (c) => /alteraciones no debidas a ruido, por lo que se recomienda/i.test(c.displayText)],
   ["generic_other_findings_raw_prose", "REVIEW", "Otros hallazgos", (c) => /En otros hallazgos (?:se evidencia|se registra)/i.test(c.displayText)],
-  ["orphan_recommendation", "REVIEW", "Recomendaciones", (c) => hasFlag(c, "orphan_recommendation") || paragraphs(c.displayText).some((p) => /^(?:Asimismo,\s*)?Se recomienda\b/i.test(p))],
-  ["ecg_narrative_omission", "REVIEW", "ECG", (c) => hasFlag(c, "finding_not_narrated")],
+  ["orphan_recommendation", "REVIEW", "Recomendaciones", (c) => hasFlag(c, "orphan_recommendation")],
+  ["ambiguous_recommendation_mapping", "REVIEW", "Recomendaciones", (c) => hasFlag(c, "ambiguous_recommendation_mapping")],
+  ["ecg_deliberately_not_narrated", "INFORMATIONAL", "ECG", (c) => hasFlag(c, "ecg_not_narrated_no_cardiology_recommendation")],
+  ["ecg_cardiology_association_ambiguous", "REVIEW", "ECG", (c) => hasFlag(c, "ecg_cardiology_association_ambiguous")],
+  ["hemoglobin_reference_range_missing", "REVIEW", "Laboratorio", (c) => hasFlag(c, "hemoglobin_reference_range_missing")],
+  ["hemoglobin_reference_range_ambiguous", "REVIEW", "Laboratorio", (c) => hasFlag(c, "hemoglobin_reference_range_ambiguous")],
   ["ophthalmology_missing_connectors", "ERROR", "Oftalmología", (c) => /(corregida|ametropía) (ametropía|pterigión|discromatopsia|visión)/i.test(c.displayText)],
   ["musculoskeletal_grammar", "ERROR", "Musculoesquelético", (c) => /se evidencia en regular estado físico/i.test(c.displayText)],
   ["clinical_accents_missing", "ERROR", "Ortografía clínica", (c) => /\b(torax|radiologicos?|lobulo|oido|proximo|medico|neumologia|traumatologia|oftalmologia|otorrinolaringologia|periferica|hepatica|hematologica|repercusion|clinico|etiologia|alergica|parasitologico|cirugia|neurologia)\b/i.test(c.displayText)],
@@ -106,7 +134,7 @@ export function analyzeNarrativeCases(cases) {
   const ecgInventory = groupInventory(
     cases,
     (auditCase) => rawField(auditCase, "evaluaciones_cualitativas", "ecg_resultado"),
-    (auditCase) => hasFlag(auditCase, "finding_not_narrated"),
+    (auditCase) => hasSourceValue(rawField(auditCase, "evaluaciones_cualitativas", "ecg_resultado")),
   );
   const dermatologyInventory = groupInventory(
     cases,
@@ -137,6 +165,10 @@ export function analyzeNarrativeCases(cases) {
     },
   ];
   const hemoglobinUnits = cases.map((auditCase) => rawField(auditCase, "laboratorio_numerico", "hemoglobina_unidad")).filter(Boolean);
+  const ecgCases = cases.filter((auditCase) => hasSourceValue(rawField(auditCase, "evaluaciones_cualitativas", "ecg_resultado")));
+  const dermatologyCases = cases.filter((auditCase) => /ONICOMICOSIS|\bMICOSIS\b|HIPERQUERATOSIS|ONICODISTROFIA|DERMATITIS/i.test(rawField(auditCase, "evaluaciones_cualitativas", "otros_hallazgos_resultado")));
+  const hemoglobinStatuses = cases.map(hemoglobinStatus);
+  const safeAssociations = cases.reduce((sum, auditCase) => sum + (auditCase.trace || []).filter((item) => item.ruleId === "recommendation_structural_association_policy" && item.normalizedValue === "SAFE_ASSOCIATION").length, 0);
 
   return {
     workersReviewed: cases.length,
@@ -155,6 +187,23 @@ export function analyzeNarrativeCases(cases) {
       unsupportedPattern: flagCount("unsupported_pattern"),
       orphanRecommendations: affectedBy("orphan_recommendation"),
       decimalMonitoring: affectedBy("tts_decimal_monitoring"),
+      safeRecommendationAssociations: safeAssociations,
+      ambiguousRecommendationMappings: flagCount("ambiguous_recommendation_mapping"),
+      ecgPresent: ecgCases.length,
+      ecgNarrated: ecgCases.filter((auditCase) => /En el electrocardiograma se reporta/i.test(auditCase.displayText)).length,
+      ecgDeliberatelyNotNarrated: cases.filter((auditCase) => hasFlag(auditCase, "ecg_not_narrated_no_cardiology_recommendation")).length,
+      ecgAmbiguous: cases.filter((auditCase) => hasFlag(auditCase, "ecg_cardiology_association_ambiguous")).length,
+      cardiologyRecommendations: cases.filter((auditCase) => /CARDIOLOG/i.test(rawField(auditCase, "aptitud_y_recomendaciones", "recomendaciones_generales_texto"))).length,
+      dermatologySourceCases: dermatologyCases.length,
+      dermatologySpecific: dermatologyCases.filter((auditCase) => /evaluación dermatológica/i.test(auditCase.displayText)).length,
+      dermatologyGeneric: dermatologyCases.filter((auditCase) => /hallazgos dermatológicos registrados/i.test(auditCase.displayText)).length,
+      dermatologyDiscard: dermatologyCases.filter((auditCase) => /dermatológica.*descartar/i.test(auditCase.displayText)).length,
+      dermatologyConditionalCertainty: dermatologyCases.filter((auditCase) => /dermatológica.*(?:sospecha|compatible con)/i.test(auditCase.displayText)).length,
+      hemoglobinNormal: hemoglobinStatuses.filter((status) => status === "NORMAL").length,
+      hemoglobinLow: hemoglobinStatuses.filter((status) => status === "LOW").length,
+      hemoglobinHigh: hemoglobinStatuses.filter((status) => status === "HIGH").length,
+      hemoglobinMissingRange: hemoglobinStatuses.filter((status) => status === "MISSING").length,
+      hemoglobinAmbiguousRange: hemoglobinStatuses.filter((status) => status === "AMBIGUOUS").length,
     },
     patterns: patternResults.sort((a, b) => b.frequency - a.frequency || a.key.localeCompare(b.key)),
     ecgInventory,

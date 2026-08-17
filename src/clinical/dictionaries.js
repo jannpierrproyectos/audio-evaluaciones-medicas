@@ -31,6 +31,8 @@ export const CLINICAL_ACCENT_REPLACEMENTS = [
   [/\baudiometria\b/giu, "audiometría"],
   [/\bespirometria\b/giu, "espirometría"],
   [/\bcardiologia\b/giu, "cardiología"],
+  [/\bdermatologia\b/giu, "dermatología"],
+  [/\bdermatologica(s)?\b/giu, (_, plural = "") => plural ? "dermatológicas" : "dermatológica"],
   [/\bpsicologia\b/giu, "psicología"],
   [/\bvision\b/giu, "visión"],
   [/\baudicion\b/giu, "audición"],
