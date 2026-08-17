@@ -30,7 +30,7 @@ raw worker
 | `existing_audiometry_rule` | `audiometria_resultado` | Fuente contiene pendiente, hipoacusia, infranormal o alteración no debida a ruido | Conserva interpretación fuente | Solo recomendación audiométrica fuente | Dependiente del parser/patrón; golden |
 | `existing_spirometry_rule` | `espirometria_resultado` | Resultado no normal explícitamente presente | Conserva interpretación fuente; no crea diagnóstico | Solo recomendación fuente | Correcta y golden |
 | `existing_ecg_rule` | `ecg_resultado` | Resultado no normal y existe recomendación cardiológica | Conserva interpretación fuente | Recomendación fuente | Conservadora; hallazgo sin recomendación queda omitido y marcado internamente; falta test específico |
-| `existing_musculoskeletal_rule` | `musculoesqueletico_resultado` | Contiene regular, alterado, IMC o masa corporal | Conserva interpretación fuente | Recomendación fuente | Dependiente del parser; sin test específico |
+| `existing_musculoskeletal_rule` | `musculoesqueletico_resultado` | Contiene un hallazgo anormal explícito reconocido | Conserva interpretación fuente | Recomendación fuente | Los estados normal, regular o vinculados únicamente al IMC no se narran |
 | `existing_other_findings_rule` | `otros_hallazgos_resultado` | Onicomicosis, hipertrigliceridemia, hiperglicemia, hiperlipidemia mixta o texto no reconocido | Extrae patrones y conserva remanente desconocido | Solo recomendación fuente | Algunos patrones duplican laboratorio y se resuelven por prioridad; falta ampliar tests |
 | `normal_exam_summary` | Resultados cualitativos | Cada área debe estar explícitamente marcada normal | Nombra únicamente las áreas comprobadas | Ninguna | Corregida en Fase 5; golden |
 | `aptitude_source_only` | `aptitud_final` | Valor explícito distinto de pendiente | Conserva categoría oficial | Ninguna | Correcta; nunca inferida |
@@ -72,7 +72,13 @@ El parser conserva por analito el valor y la unidad originales, el texto de refe
 
 Glucosa usa el intervalo simple impreso en su propia página. Colesterol total y triglicéridos usan las categorías y etiquetas impresas; los límites no existen como constantes clínicas del motor. Si ninguna categoría cubre el valor, si más de una lo cubre o si la expresión no puede analizarse, el motor no completa el hueco ni elige una categoría: genera un flag específico de referencia y solicita REVIEW.
 
-La clasificación y la recomendación son decisiones separadas. Un valor bajo, normal, alto, límite alto o muy alto puede narrarse con su cifra y unidad, pero no genera diagnóstico, especialidad, dieta, tratamiento ni seguimiento. Las recomendaciones solo proceden de la fuente y un mapeo ambiguo continúa en REVIEW. El texto fuente diagnóstico se conserva como evidencia separada; solo se suprime en display una duplicación exacta y conservadora de “hipercolesterolemia límite alto” cuando la clasificación numérica fuente ya comunica ese mismo concepto.
+La clasificación y la recomendación son decisiones separadas. Los analitos normales se resumen en una sola frase, adaptada a los resultados disponibles, sin leer cifras ni unidades individuales. Los resultados bajos, altos, límite alto o muy alto se narran por separado con su cifra, unidad y clasificación derivada de la referencia fuente. Ninguna clasificación genera diagnóstico, especialidad, dieta, tratamiento ni seguimiento. Las recomendaciones solo proceden de la fuente y un mapeo ambiguo continúa en REVIEW. El texto fuente diagnóstico se conserva como evidencia separada; solo se suprime en display una duplicación exacta y conservadora de “hipercolesterolemia límite alto” cuando la clasificación numérica fuente ya comunica ese mismo concepto.
+
+### Musculoesquelético y anemia
+
+La evaluación musculoesquelética solo se incluye cuando existe un hallazgo anormal explícito reconocido. Un estado normal o regular, el IMC elevado y las recomendaciones por peso no crean por sí solos un bloque musculoesquelético.
+
+Cuando la fuente contiene explícitamente anemia y también una recomendación de Medicina Interna, ambas se presentan en el mismo bloque, primero el hallazgo y después la recomendación. La anemia aislada no crea una derivación y una recomendación de Medicina Interna aislada no crea anemia.
 
 ## Review flags
 

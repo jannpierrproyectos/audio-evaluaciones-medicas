@@ -242,6 +242,14 @@ function hasExplicitOphthalmologyFinding(value) {
   );
 }
 
+function hasExplicitMusculoskeletalAbnormality(value) {
+  const comparable = normalizeComparable(value);
+  if (!comparable || isNormalResult(comparable)) return false;
+  if (/(?:^|\s)REGULAR(?:\s|$)/.test(comparable)) return false;
+  if (/(?:IMC|INDICE DE MASA CORPORAL|MASA CORPORAL)/.test(comparable)) return false;
+  return true;
+}
+
 function getStructuredOtherFindingItems(evaluaciones = {}) {
   return Array.isArray(evaluaciones.otros_hallazgos_items)
     ? evaluaciones.otros_hallazgos_items.filter((item) => getString(item?.text))
@@ -794,7 +802,7 @@ function deriveQualitativeFindings(evaluaciones = {}, options = {}) {
       "musculoesqueletico_resultado",
       {
         matches: (value) =>
-          !isNormalResult(value) &&
+          hasExplicitMusculoskeletalAbnormality(value) &&
           !/(?:BUEN ESTADO|ADECUADO|CONSERVADO)/.test(value),
         ruleId: "structural_musculoskeletal_traumatology_association",
         recommendationAreas: ["traumatologia"],
@@ -808,10 +816,7 @@ function deriveQualitativeFindings(evaluaciones = {}, options = {}) {
       "musculoesqueletico_resultado",
       {
         matches: (value) =>
-          value.includes("REGULAR") ||
-          value.includes("ALTERADO") ||
-          value.includes("IMC") ||
-          value.includes("MASA CORPORAL"),
+          hasExplicitMusculoskeletalAbnormality(value) && value.includes("ALTERADO"),
       },
     );
   }
@@ -1222,6 +1227,28 @@ function buildNarrativeGroups({
     groups[area].recomendaciones.push(recommendation);
     groups[area].narrar = true;
   });
+
+  if (groups.medicina_interna.recomendaciones.length > 0) {
+    const anemiaFindings = groups.otros.hallazgos.filter(
+      (finding) => finding.rule_id === "safe_neutral_source_anemia",
+    );
+    if (anemiaFindings.length > 0) {
+      groups.otros.hallazgos = groups.otros.hallazgos.filter(
+        (finding) => finding.rule_id !== "safe_neutral_source_anemia",
+      );
+      groups.otros.narrar =
+        groups.otros.hallazgos.some((finding) => finding.narrar !== false) ||
+        groups.otros.recomendaciones.length > 0;
+      anemiaFindings.forEach((finding) => {
+        groups.medicina_interna.hallazgos.push({
+          ...finding,
+          area: "medicina_interna",
+          recommendation_areas: ["medicina_interna"],
+        });
+      });
+      groups.medicina_interna.narrar = true;
+    }
+  }
 
   applyRecommendationAssociations(groups, {
     anthropometryIsRelevant,

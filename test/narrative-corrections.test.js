@@ -7,7 +7,7 @@ import { validateExtractedWorker } from "../src/lib/data/validateExtractedWorker
 import { analyzeNarrativeCases } from "../scripts/lib/narrative-audit-core.js";
 import { baseWorker } from "./fixtures/clinical-cases.js";
 
-test("corrige restricciones, concordancia radiológica y estado musculoesquelético", () => {
+test("corrige restricciones y concordancia radiológica sin narrar estado musculoesquelético regular", () => {
   const result = processWorkerClinicalNarrative(baseWorker({
     evaluaciones_cualitativas: {
       radiografia_torax_resultado: "SIGNOS RADIOLOGICOS EN LOBULO SUEPERIOR DERECHO",
@@ -21,7 +21,7 @@ test("corrige restricciones, concordancia radiológica y estado musculoesquelét
   assert.match(result.displayText, /apto con restricciones/i);
   assert.doesNotMatch(result.displayText, /restricciónes|se evidencia signos|se evidencia en regular/i);
   assert.match(result.displayText, /se registran signos radiológicos en lóbulo superior derecho/i);
-  assert.match(result.displayText, /se registra un estado físico musculoesquelético regular/i);
+  assert.doesNotMatch(result.displayText, /musculoesquel/i);
   assert.doesNotMatch(result.displayText, /(?:,|y)\s+-\s+/i);
 });
 

@@ -512,7 +512,21 @@ function buildMetabolicParagraph(group) {
   if (!group?.narrar) return "";
 
   const classifiedItems = (group.hallazgos || []).filter((item) => item.reference_classification);
-  const classificationSentences = classifiedItems.map((item) => {
+  const normalAnalytes = [
+    ["glucosa_valor", "glucosa"],
+    ["colesterol_valor", "colesterol"],
+    ["trigliceridos_valor", "triglicéridos"],
+  ].filter(([field]) => classifiedItems.some(
+    (item) => item.field?.endsWith(field) && item.reference_classification === "NORMAL",
+  )).map(([, label]) => label);
+  const normalSummary = normalAnalytes.length === 0
+    ? ""
+    : normalAnalytes.length === 1
+      ? `Su resultado de ${normalAnalytes[0]} se encuentra dentro del rango de referencia.`
+      : `Sus resultados de ${joinNatural(normalAnalytes)} se encuentran dentro de los rangos de referencia.`;
+  const classificationSentences = classifiedItems
+    .filter((item) => item.reference_classification !== "NORMAL")
+    .map((item) => {
     const value = item.source_value || item.value;
     const unit = item.unit || "mg/dL";
     if (item.field?.endsWith("glucosa_valor")) {
@@ -556,7 +570,7 @@ function buildMetabolicParagraph(group) {
         : `Además, la fuente reporta ${sourceText}.`;
     });
 
-  if (!findings.length && !classificationSentences.length && !sourceStatements.length) return "";
+  if (!findings.length && !normalSummary && !classificationSentences.length && !sourceStatements.length) return "";
 
   const hasGlucose = findings.some((finding) => finding.includes("glucosa"));
   const hasHyperglycemia = hasGroupFinding(group, /hiperglicemia/);
@@ -615,7 +629,7 @@ function buildMetabolicParagraph(group) {
     sentence += `${sentence ? " " : ""}Como parte de las recomendaciones de la evaluacion, se indica ${joinNatural(recommendations)}.`;
   }
 
-  const classifiedText = classificationSentences.map(cleanupParagraph).join(" ");
+  const classifiedText = [normalSummary, ...classificationSentences].map(cleanupParagraph).filter(Boolean).join(" ");
   const sourceText = sourceStatements.map(cleanupParagraph).join(" ");
   const cleanedSentence = [classifiedText, sourceText, cleanupParagraph(sentence)].filter(Boolean).join(" ");
   if (cleanedSentence.split(/\s+/).length <= 50 || !recommendations.length) {
@@ -741,6 +755,28 @@ function buildGenericAreaParagraph(group, label, area = "") {
   return cleanupParagraph(paragraph);
 }
 
+function buildInternalMedicineParagraph(group) {
+  if (!group?.narrar) return "";
+
+  const findings = getFindingTexts(group);
+  const recommendations = normalizeAreaRecommendations(group, "medicina_interna");
+  const anemia = findings.filter((finding) => /^anemia\.?$/i.test(finding));
+  const remainingFindings = findings.filter((finding) => !/^anemia\.?$/i.test(finding));
+  const sentences = [];
+
+  if (anemia.length) sentences.push("Se reporta anemia.");
+  if (remainingFindings.length) {
+    sentences.push(cleanupParagraph(
+      `En medicina interna ${remainingFindings.length > 1 ? "se registran" : "se registra"} ${joinNatural(remainingFindings)}.`,
+    ));
+  }
+  if (recommendations.length) {
+    sentences.push(cleanupParagraph(`Se recomienda ${joinNatural(recommendations)}.`));
+  }
+
+  return cleanupParagraph(sentences.join(" "));
+}
+
 function buildCardiologyParagraph(group) {
   if (!group?.narrar) return "";
 
@@ -793,7 +829,7 @@ function buildFindingsParagraphs(findings) {
     buildGenericAreaParagraph(groups.espirometria, "la evaluacion espirometrica", "espirometria"),
     buildGenericAreaParagraph(groups.neumologia, "la evaluacion respiratoria", "neumologia"),
     buildDermatologyParagraph(groups.dermatologia),
-    buildGenericAreaParagraph(groups.medicina_interna, "medicina interna", "medicina_interna"),
+    buildInternalMedicineParagraph(groups.medicina_interna),
     buildGenericAreaParagraph(groups.musculoesqueletico, "la evaluacion musculoesqueletica", "musculoesqueletico"),
     buildGenericAreaParagraph(groups.radiografia_torax, "la radiografia de torax", "radiografia_torax"),
     buildCardiologyParagraph(groups.cardiologia),

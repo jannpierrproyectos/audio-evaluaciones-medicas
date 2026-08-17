@@ -189,7 +189,8 @@ test("discrepancia fuente-numero conserva ambos datos y genera REVIEW específic
     evaluaciones_cualitativas: { otros_hallazgos_resultado: "HIPERCOLESTEROLEMIA DEFINIDA" },
   }));
   assert.ok(result.reviewFlags.some((flag) => flag.type === "metabolic_source_classification_conflict"));
-  assert.match(result.displayText, /colesterol total es de 180/);
+  assert.match(result.displayText, /resultado de colesterol se encuentra dentro del rango de referencia/i);
+  assert.doesNotMatch(result.displayText, /colesterol total es de 180/i);
   assert.match(result.displayText, /fuente también reporta hipercolesterolemia definida/i);
   assert.match(result.displayText, /requiere revisión/i);
 });
