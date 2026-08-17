@@ -46,6 +46,7 @@ test("CSV escapa comillas, comas y saltos de linea", () => {
   assert.ok(csv.startsWith("\uFEFForden,"));
   assert.ok(csv.includes("orden,paginaMediWeb,codigo"));
   assert.ok(csv.includes("aptitud,categoriaAptitud"));
+  assert.ok(csv.includes("estado,telefono,numeroDocumento,archivoCompleto,archivoPdfCompleto"));
   assert.ok(csv.includes('"Empresa, ""Uno""\nLima"'));
 });
 

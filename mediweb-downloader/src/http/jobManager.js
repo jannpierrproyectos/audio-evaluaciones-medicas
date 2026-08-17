@@ -145,6 +145,27 @@ export class JobManager {
     };
   }
 
+  workerMetadata(id) {
+    const job = this.get(id);
+    if (job.status === "running" || job.status === "idle") {
+      throw new HttpError(409, "JOB_NOT_FINISHED", "El trabajo todavia esta procesando.");
+    }
+    if (job.status !== "completed") {
+      throw new HttpError(409, "JOB_NOT_COMPLETED", "El trabajo no termino correctamente.");
+    }
+    return {
+      mode: job.mode,
+      workers: (job.result?.manifest?.atenciones ?? [])
+        .filter((entry) => entry.estado === "correcto")
+        .map((entry) => ({
+          numeroDocumento: entry.numeroDocumento || "",
+          paginaConsolidado: entry.paginaConsolidado || "",
+          telefono: entry.telefono || "",
+          archivoPdfCompleto: entry.archivoPdfCompleto || "",
+        })),
+    };
+  }
+
   async firstPagesPath(id) {
     const job = this.get(id);
     if (job.status === "running" || job.status === "idle") {

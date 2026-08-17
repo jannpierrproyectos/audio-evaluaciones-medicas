@@ -10,6 +10,7 @@ import { isSessionExpired } from "./session.js";
 import { waitForReportReady } from "./reportLoader.js";
 import { appendFirstPage, createReportPdf, validatePdf } from "./pdfGenerator.js";
 import { uniqueReportPath } from "./fileNames.js";
+import { extractOperationalDataFromPdf } from "./phoneExtractor.js";
 import { createOutputPaths, removeTmpIfEmpty } from "./paths.js";
 import { getRuntimePaths } from "./paths.js";
 import {
@@ -263,7 +264,10 @@ export class DownloaderRunner {
       idcomprobante: report.idcomprobante,
       idpaciente: report.idpaciente,
       estado: "error_carga",
+      telefono: "",
+      numeroDocumento: "",
       archivoCompleto: "",
+      archivoPdfCompleto: "",
       paginaConsolidado: "",
       intentos: 0,
       mensajeError: "",
@@ -304,6 +308,14 @@ export class DownloaderRunner {
           const output = await uniqueReportPath(this.paths.full, report, fileOrder);
           await writeFile(output.absolute, buffer);
           entry.archivoCompleto = relativeOutputPath(this.paths.root, output.absolute);
+          entry.archivoPdfCompleto = output.relative;
+          try {
+            const operationalData = await extractOperationalDataFromPdf(buffer);
+            entry.telefono = operationalData.telefono;
+            entry.numeroDocumento = operationalData.numeroDocumento;
+          } catch {
+            // Un dato operativo ausente nunca invalida el PDF ni la atencion.
+          }
           this.manifest.reportesCompletosGenerados += 1;
         }
         if (mode === "first" || mode === "both") {

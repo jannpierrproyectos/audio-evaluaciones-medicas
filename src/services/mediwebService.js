@@ -91,6 +91,10 @@ export async function getMediwebManifest(jobId, { signal } = {}) {
   return requestJson(`/jobs/${encodeURIComponent(jobId)}/manifest`, { signal });
 }
 
+export async function getMediwebWorkerMetadata(jobId, { signal } = {}) {
+  return requestJson(`/jobs/${encodeURIComponent(jobId)}/worker-metadata`, { signal });
+}
+
 export async function getMediwebFirstPages(jobId, { signal } = {}) {
   const response = await request(`/jobs/${encodeURIComponent(jobId)}/first-pages`, { signal });
   if (!response.ok) throw await createHttpError(response);

@@ -4,6 +4,7 @@ import PdfWorkersPreview from "./components/PdfWorkersPreview.jsx";
 import MediwebImporter from "./components/MediwebImporter.jsx";
 import { analyzePdfBatch } from "./lib/data/pdf/analyzePdfBatch.js";
 import { validateExtractedWorker } from "./lib/data/validateExtractedWorker.js";
+import { attachMediwebWorkerMetadata } from "./lib/importMediwebPdf.js";
 
 function App() {
   const [pdfPreview, setPdfPreview] = useState("");
@@ -13,16 +14,17 @@ function App() {
   const [pdfSource, setPdfSource] = useState("mediweb");
   const [mediwebActivated, setMediwebActivated] = useState(true);
 
-  async function handlePdfSelected(file) {
+  async function handlePdfSelected(file, { mediwebWorkerMetadata } = {}) {
     try {
       setIsPdfProcessing(true);
       setPdfAnalysis(null);
       setSelectedPdfWorkerIndex(0);
       setPdfPreview(`Procesando PDF: ${file.name}`);
 
-      const analysis = await analyzePdfBatch(file);
-
-      console.log("Resultado completo del analisis PDF:", analysis);
+      const parsedAnalysis = await analyzePdfBatch(file);
+      const analysis = mediwebWorkerMetadata
+        ? attachMediwebWorkerMetadata(parsedAnalysis, mediwebWorkerMetadata)
+        : parsedAnalysis;
 
       setPdfAnalysis(analysis);
       setSelectedPdfWorkerIndex(0);

@@ -361,6 +361,16 @@ function WorkerSummary({
             className: "key-grid__item--span-4",
           },
           {
+            label: "Teléfono",
+            value: worker?.datos_operativos?.telefono,
+            className: "key-grid__item--span-4",
+          },
+          {
+            label: "Archivo PDF completo",
+            value: worker?.datos_operativos?.archivo_pdf_completo,
+            className: "key-grid__item--span-4",
+          },
+          {
             label: "Fecha",
             value: worker?.identificacion?.fecha_evaluacion,
             className: "key-grid__item--span-4",

@@ -158,7 +158,7 @@ downloads\YYYY-MM-DD_HH-mm-ss\
   control\resultados.csv
 ```
 
-No se crean consolidados por página. `manifest.json` y `resultados.csv` se reemplazan de forma segura después de cada atención y después de cada página. Cada atención y exclusión incluye `paginaMediWeb`.
+No se crean consolidados por página. `manifest.json` y `resultados.csv` se reemplazan de forma segura después de cada atención y después de cada página. Cada atención y exclusión incluye `paginaMediWeb`. Cuando existe un reporte completo, su registro conserva también `telefono`, `numeroDocumento` y `archivoPdfCompleto`; en modo `first` esos campos permanecen vacíos.
 
 El manifest contiene `perPageLimit`, un arreglo `pages` con detectadas, elegibles, seleccionadas, excluidas y duplicadas por página, además de `pagination.enabled`, `singlePage`, `maxPages`, `paginasVisitadas`, `ultimaPaginaCompletada` y `motivoFinalizacion`. Los motivos posibles son `ultima_pagina`, `limite_alcanzado`, `max_pages_alcanzado`, `single_page`, `pagina_repetida`, `error_paginacion` y `cancelado`.
 
@@ -209,6 +209,7 @@ Endpoints disponibles:
 - `POST /jobs/:jobId/cancel`: solicita cancelación cooperativa en el siguiente punto seguro.
 - `GET /jobs/:jobId/first-pages`: transmite `primeras-hojas.pdf` al completar un job `first` o `both`.
 - `GET /jobs/:jobId/manifest`: devuelve únicamente el resumen sanitizado, sin la lista de pacientes.
+- `GET /jobs/:jobId/worker-metadata`: entrega al origen web autorizado los metadatos operativos mínimos para asociar cada trabajador importado; rechaza solicitudes sin `Origin` y no altera el endpoint sanitizado del manifest.
 
 Solo se admite un job activo. Los jobs y su estado existen únicamente en la memoria del proceso de `npm run service`; no hay Redis, cola externa, worker remoto ni persistencia de jobs. Los PDF, manifest y CSV generados sí se conservan progresivamente en `downloads` como en la CLI.
 

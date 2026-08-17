@@ -60,7 +60,7 @@ export function createRoutes({ engine, jobManager, updateService, version }) {
       return json(response, 202, { ok: true, jobId: job.id });
     }
 
-    const match = url.pathname.match(/^\/jobs\/([^/]+)(?:\/(cancel|first-pages|manifest))?$/);
+    const match = url.pathname.match(/^\/jobs\/([^/]+)(?:\/(cancel|first-pages|manifest|worker-metadata))?$/);
     if (match) {
       const [, id, action] = match;
       if (request.method === "GET" && !action) return json(response, 200, jobManager.publicJob(jobManager.get(id)));
@@ -69,6 +69,10 @@ export function createRoutes({ engine, jobManager, updateService, version }) {
         return json(response, 200, { ok: true, ...job });
       }
       if (request.method === "GET" && action === "manifest") return json(response, 200, jobManager.manifest(id));
+      if (request.method === "GET" && action === "worker-metadata") {
+        if (!request.headers.origin) throw new HttpError(403, "ORIGIN_REQUIRED", "Origin es obligatorio para datos operativos.");
+        return json(response, 200, jobManager.workerMetadata(id));
+      }
       if (request.method === "GET" && action === "first-pages") {
         const file = await jobManager.firstPagesPath(id);
         response.writeHead(200, {

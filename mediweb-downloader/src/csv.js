@@ -1,6 +1,6 @@
 const COLUMNS = [
   "orden", "paginaMediWeb", "codigo", "fecha", "empresa", "subcontrata", "paciente", "tipoExamen", "tipoDocumento", "aptitud", "categoriaAptitud",
-  "idcomprobante", "idpaciente", "estado", "archivoCompleto", "paginaConsolidado", "intentos", "mensajeError",
+  "idcomprobante", "idpaciente", "estado", "telefono", "numeroDocumento", "archivoCompleto", "archivoPdfCompleto", "paginaConsolidado", "intentos", "mensajeError",
 ];
 
 function escapeCsv(value) {

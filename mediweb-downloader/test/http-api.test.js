@@ -37,6 +37,7 @@ class FakeEngine {
       primerasHojasAgregadas: 0,
       errores: 0,
       pagination: { motivoFinalizacion: null },
+      atenciones: [],
     };
     onProgress({ type: "page_started", currentPage: 1, totals: {
       totalDetectado: 10, totalElegible: 7, totalSeleccionado: 7, totalProcesado: 0,
@@ -50,6 +51,13 @@ class FakeEngine {
     manifest.reportesCompletosGenerados = options.mode === "full" || options.mode === "both" ? 7 : 0;
     manifest.primerasHojasAgregadas = options.mode === "first" || options.mode === "both" ? 7 : 0;
     manifest.pagination.motivoFinalizacion = "ultima_pagina";
+    manifest.atenciones = [{
+      estado: "correcto",
+      numeroDocumento: options.mode === "first" ? "" : "87654321",
+      paginaConsolidado: options.mode === "full" ? "" : 1,
+      telefono: options.mode === "first" ? "" : "977888999",
+      archivoPdfCompleto: options.mode === "first" ? "" : `reporte-${options.mode}-exacto.pdf`,
+    }];
     const paths = {};
     if (options.mode === "first" || options.mode === "both") {
       paths.consolidated = path.join(this.directory, `primeras-hojas-${Date.now()}.pdf`);
@@ -157,6 +165,13 @@ test("API HTTP local: health, CORS, jobs, PDF y cancelación con motor falso", a
     const absentPdf = await fetch(`${baseUrl}/jobs/${fullCreated.jobId}/first-pages`);
     assert.equal(absentPdf.status, 404);
     assert.equal((await absentPdf.json()).code, "FIRST_PAGES_NOT_FOUND");
+    assert.equal((await fetch(`${baseUrl}/jobs/${fullCreated.jobId}/worker-metadata`)).status, 403);
+    const fullMetadata = await fetch(`${baseUrl}/jobs/${fullCreated.jobId}/worker-metadata`, {
+      headers: { Origin: "http://localhost:5173" },
+    }).then((response) => response.json());
+    assert.deepEqual(fullMetadata.workers[0], {
+      numeroDocumento: "87654321", paginaConsolidado: "", telefono: "977888999", archivoPdfCompleto: "reporte-full-exacto.pdf",
+    });
 
     const missingPdfJob = await fetch(`${baseUrl}/jobs/unknown/first-pages`);
     assert.equal(missingPdfJob.status, 404);
@@ -178,6 +193,23 @@ test("API HTTP local: health, CORS, jobs, PDF y cancelación con motor falso", a
     assert.equal(sanitized.totalProcesado, 7);
     assert.equal(sanitized.motivoFinalizacion, "ultima_pagina");
     assert.equal("atenciones" in sanitized, false);
+    const firstMetadata = await fetch(`${baseUrl}/jobs/${firstCreated.jobId}/worker-metadata`, {
+      headers: { Origin: "http://localhost:5173" },
+    }).then((response) => response.json());
+    assert.deepEqual(firstMetadata.workers[0], {
+      numeroDocumento: "", paginaConsolidado: 1, telefono: "", archivoPdfCompleto: "",
+    });
+
+    const bothCreated = await fetch(`${baseUrl}/jobs`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "both" }),
+    }).then((response) => response.json());
+    await waitForStatus(baseUrl, bothCreated.jobId, "completed");
+    const bothMetadata = await fetch(`${baseUrl}/jobs/${bothCreated.jobId}/worker-metadata`, {
+      headers: { Origin: "http://localhost:5173" },
+    }).then((response) => response.json());
+    assert.deepEqual(bothMetadata.workers[0], {
+      numeroDocumento: "87654321", paginaConsolidado: 1, telefono: "977888999", archivoPdfCompleto: "reporte-both-exacto.pdf",
+    });
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await rm(directory, { recursive: true, force: true });

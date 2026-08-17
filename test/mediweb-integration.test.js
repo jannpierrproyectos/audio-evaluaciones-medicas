@@ -19,7 +19,7 @@ import {
   getMediwebJob,
   openMediweb,
 } from "../src/services/mediwebService.js";
-import { importMediwebPdfIntoExistingFlow } from "../src/lib/importMediwebPdf.js";
+import { attachMediwebWorkerMetadata, importMediwebPdfIntoExistingFlow } from "../src/lib/importMediwebPdf.js";
 import {
   createNewImportSnapshot,
   createSingleFlight,
@@ -200,6 +200,63 @@ test("obtiene first-pages como Blob/File y lo entrega al handler PDF existente",
   } finally {
     globalThis.File = originalFile;
   }
+});
+
+test("asocia telefono y nombre exacto del PDF por documento sin cruzar trabajadores", () => {
+  const analysis = {
+    groups: [{ start_page: 1 }, { start_page: 2 }, { start_page: 3 }],
+    workers: [
+      { identificacion: { dni: "11111111" } },
+      { identificacion: { dni: "22222222" } },
+      { identificacion: { dni: "33333333" } },
+    ],
+  };
+  const enriched = attachMediwebWorkerMetadata(analysis, {
+    mode: "both",
+    workers: [
+      { numeroDocumento: "33333333", paginaConsolidado: 3, telefono: "933333333", archivoPdfCompleto: "003_33333333_real.pdf" },
+      { numeroDocumento: "11111111", paginaConsolidado: 1, telefono: "911111111", archivoPdfCompleto: "001_nombre-exacto.pdf" },
+      { numeroDocumento: "22222222", paginaConsolidado: 2, telefono: "922222222", archivoPdfCompleto: "002_22222222_2.pdf" },
+    ],
+  });
+
+  assert.deepEqual(enriched.workers.map((worker) => worker.datos_operativos), [
+    { telefono: "911111111", archivo_pdf_completo: "001_nombre-exacto.pdf" },
+    { telefono: "922222222", archivo_pdf_completo: "002_22222222_2.pdf" },
+    { telefono: "933333333", archivo_pdf_completo: "003_33333333_real.pdf" },
+  ]);
+});
+
+test("usa paginaConsolidado como respaldo trazable y no reutiliza una atencion", () => {
+  const analysis = {
+    groups: [{ start_page: 4 }, { start_page: 7 }],
+    workers: [{ identificacion: { dni: "" } }, { identificacion: { dni: "" } }],
+  };
+  const enriched = attachMediwebWorkerMetadata(analysis, {
+    workers: [
+      { paginaConsolidado: 7, telefono: "977777777", archivoPdfCompleto: "segundo.pdf" },
+      { paginaConsolidado: 4, telefono: "944444444", archivoPdfCompleto: "primero.pdf" },
+    ],
+  });
+  assert.equal(enriched.workers[0].datos_operativos.telefono, "944444444");
+  assert.equal(enriched.workers[1].datos_operativos.telefono, "977777777");
+});
+
+test("metadatos operativos respetan first, full y both", () => {
+  const analysis = { groups: [{ start_page: 1 }], workers: [{ identificacion: { dni: "12345678" } }] };
+  const first = attachMediwebWorkerMetadata(analysis, {
+    mode: "first", workers: [{ numeroDocumento: "", paginaConsolidado: 1, telefono: "", archivoPdfCompleto: "" }],
+  });
+  const full = attachMediwebWorkerMetadata(analysis, {
+    mode: "full", workers: [{ numeroDocumento: "12345678", telefono: "955555555", archivoPdfCompleto: "reporte-full-real.pdf" }],
+  });
+  const both = attachMediwebWorkerMetadata(analysis, {
+    mode: "both", workers: [{ numeroDocumento: "12345678", paginaConsolidado: 1, telefono: "966666666", archivoPdfCompleto: "reporte-both-real.pdf" }],
+  });
+
+  assert.deepEqual(first.workers[0].datos_operativos, { telefono: "", archivo_pdf_completo: "" });
+  assert.deepEqual(full.workers[0].datos_operativos, { telefono: "955555555", archivo_pdf_completo: "reporte-full-real.pdf" });
+  assert.deepEqual(both.workers[0].datos_operativos, { telefono: "966666666", archivo_pdf_completo: "reporte-both-real.pdf" });
 });
 
 test("preview y progreso del job permanecen separados", async () => {
