@@ -2,6 +2,16 @@ import { useMemo, useState } from "react";
 import PdfWorkerReviewForm from "./PdfWorkerReviewForm.jsx";
 import { processWorkerClinicalNarrative } from "../clinical/index.js";
 import { synthesizeAudioFromText } from "../lib/ttsClient.js";
+import {
+  DEFAULT_NARRATIVE_GREETING,
+  NARRATIVE_GREETINGS,
+  applyNarrativeGreeting,
+} from "../lib/narrativeGreeting.js";
+import {
+  createAudioRequestGuard,
+  getAudioGenerationIntent,
+  hasExistingAudio,
+} from "../lib/audioRequestGuard.js";
 
 const FILTERS = [
   { id: "all", label: "Todos" },
@@ -134,7 +144,7 @@ function NarrativeList({ items, emptyLabel, renderItem }) {
   );
 }
 
-function PdfSummaryBar({ analysis, workers }) {
+function PdfSummaryBar({ analysis, workers, greeting, onGreetingChange }) {
   const reviewedCount = workers.filter((worker) => worker?.derived_states?.reviewed_by_user).length;
   const needsReviewCount = workers.filter(
     (worker) => worker?.derived_states?.needs_review || worker?.app_fields?.needs_review,
@@ -160,6 +170,16 @@ function PdfSummaryBar({ analysis, workers }) {
           <strong>{renderValue(value)}</strong>
         </div>
       ))}
+      <label className="pdf-greeting-selector">
+        <span>Saludo:</span>
+        <select value={greeting} onChange={(event) => onGreetingChange(event.target.value)}>
+          {NARRATIVE_GREETINGS.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </label>
     </section>
   );
 }
@@ -462,11 +482,13 @@ function WorkerTextAudioPanel({
   onUpdateWorker,
   isDraftVisible,
   onDraftVisibilityChange,
+  audioRequestGuard,
 }) {
+  const [isRegenerationConfirmationOpen, setIsRegenerationConfirmationOpen] = useState(false);
   const canUseAsFinal = Boolean(
     draft.can_generate && worker?.derived_states?.reviewed_by_user,
   );
-  const finalText = worker?.app_fields?.texto_final || "";
+  const finalText = draft.applyGreeting(worker?.app_fields?.texto_final || "");
   const audioStatus = String(worker?.app_fields?.audio_status || "pendiente").toLowerCase();
   const aptitud = normalizeComparable(worker?.aptitud_y_recomendaciones?.aptitud_final);
   const canGenerateAudio = Boolean(
@@ -478,20 +500,14 @@ function WorkerTextAudioPanel({
       !worker?.validation?.has_errors &&
       audioStatus !== "generando",
   );
-  const hasGeneratedAudio = ["listo", "generado"].includes(audioStatus) && worker?.app_fields?.audio_url;
+  const hasGeneratedAudio = hasExistingAudio(worker?.app_fields);
+  const workerRequestKey = worker?.identificacion?.dni || `worker-${workerIndex}`;
 
   function handleUseAsFinal() {
     if (!canUseAsFinal || !draft.text) return;
 
     onUpdateWorker?.(workerIndex, (currentWorker) => {
-      const previousAudioUrl = currentWorker.app_fields?.audio_url;
-
-      if (
-        typeof previousAudioUrl === "string" &&
-        previousAudioUrl.startsWith("blob:")
-      ) {
-        window.URL.revokeObjectURL(previousAudioUrl);
-      }
+      const currentHasAudio = hasExistingAudio(currentWorker.app_fields);
 
       return {
         ...currentWorker,
@@ -503,12 +519,11 @@ function WorkerTextAudioPanel({
           ...(currentWorker.app_fields || {}),
           texto_borrador: draft.text,
           texto_final: draft.text,
-          audio_status: "pendiente",
-          audio_url: "",
-          audio_filename: "",
-          audio_mime_type: "",
+          audio_status: currentHasAudio
+            ? currentWorker.app_fields.audio_status
+            : "pendiente",
           audio_error: "",
-          audio_stale: false,
+          audio_stale: currentHasAudio,
           last_generated_at: new Date().toISOString(),
         },
       };
@@ -519,34 +534,38 @@ function WorkerTextAudioPanel({
 
   function handleFinalTextChange(value) {
     onUpdateWorker?.(workerIndex, (currentWorker) => {
-      const previousAudioUrl = currentWorker.app_fields?.audio_url;
-
-      if (
-        typeof previousAudioUrl === "string" &&
-        previousAudioUrl.startsWith("blob:")
-      ) {
-        window.URL.revokeObjectURL(previousAudioUrl);
-      }
+      const currentHasAudio = hasExistingAudio(currentWorker.app_fields);
 
       return {
         ...currentWorker,
         app_fields: {
           ...(currentWorker.app_fields || {}),
           texto_final: value,
-          audio_status: "pendiente",
-          audio_url: "",
-          audio_filename: "",
-          audio_mime_type: "",
+          audio_status: currentHasAudio
+            ? currentWorker.app_fields.audio_status
+            : "pendiente",
           audio_error: "",
-          audio_stale: true,
+          audio_stale: currentHasAudio,
           last_edited_at: new Date().toISOString(),
         },
       };
     });
   }
 
-  async function handleGenerateAudio() {
+  async function handleGenerateAudio({ regenerationConfirmed = false } = {}) {
     if (!canGenerateAudio) return;
+
+    if (
+      getAudioGenerationIntent(worker?.app_fields, { regenerationConfirmed }) ===
+      "confirm"
+    ) {
+      setIsRegenerationConfirmationOpen(true);
+      return;
+    }
+
+    if (!audioRequestGuard.start(workerRequestKey)) return;
+
+    setIsRegenerationConfirmationOpen(false);
 
     onUpdateWorker?.(workerIndex, (currentWorker) => ({
       ...currentWorker,
@@ -554,7 +573,7 @@ function WorkerTextAudioPanel({
         ...(currentWorker.app_fields || {}),
         audio_status: "generando",
         audio_error: "",
-        audio_stale: false,
+        audio_stale: hasExistingAudio(currentWorker.app_fields),
       },
     }));
 
@@ -563,6 +582,10 @@ function WorkerTextAudioPanel({
         text: finalText,
         filenameHint: createPdfAudioFilenameHint(worker),
       });
+
+      if (!result?.audioUrl || !result?.audioFilename) {
+        throw new Error("La síntesis no devolvió un archivo de audio válido.");
+      }
 
       onUpdateWorker?.(workerIndex, (currentWorker) => {
         const previousAudioUrl = currentWorker.app_fields?.audio_url;
@@ -594,11 +617,13 @@ function WorkerTextAudioPanel({
         ...currentWorker,
         app_fields: {
           ...(currentWorker.app_fields || {}),
-          audio_status: "error",
+          audio_status: hasExistingAudio(currentWorker.app_fields) ? "listo" : "error",
           audio_error:
             "No se pudo generar el audio. Verifique que el servicio TTS este encendido y vuelva a intentar.",
         },
       }));
+    } finally {
+      audioRequestGuard.finish(workerRequestKey);
     }
   }
 
@@ -678,9 +703,44 @@ function WorkerTextAudioPanel({
           onClick={handleGenerateAudio}
           disabled={!canGenerateAudio}
         >
-          {audioStatus === "generando" ? "Generando audio..." : "Generar audio"}
+          {audioStatus === "generando"
+            ? "Generando audio..."
+            : hasGeneratedAudio
+              ? "Regenerar audio"
+              : "Generar audio"}
         </button>
       </div>
+
+      {isRegenerationConfirmationOpen && (
+        <div
+          className="audio-regeneration-confirmation"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="audio-regeneration-title"
+          aria-describedby="audio-regeneration-description"
+        >
+          <strong id="audio-regeneration-title">Confirmar regeneración</strong>
+          <p id="audio-regeneration-description">
+            Ya existe un audio generado. Generar una nueva versión volverá a consumir créditos de voz. ¿Deseas continuar?
+          </p>
+          <div className="audio-regeneration-confirmation__actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => setIsRegenerationConfirmationOpen(false)}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => handleGenerateAudio({ regenerationConfirmed: true })}
+            >
+              Regenerar audio
+            </button>
+          </div>
+        </div>
+      )}
 
       {!finalText.trim() && (
         <p className="muted-text">El texto final esta vacio. Genera o escribe el texto antes de crear audio.</p>
@@ -825,6 +885,7 @@ function WorkerDetailPanel({
   onChangeWorker,
   onConfirmWorker,
   onUpdateWorker,
+  audioRequestGuard,
 }) {
   const [activeTab, setActiveTab] = useState("summary");
   const [isEditing, setIsEditing] = useState(false);
@@ -885,6 +946,7 @@ function WorkerDetailPanel({
             onUpdateWorker={onUpdateWorker}
             isDraftVisible={isDraftVisible}
             onDraftVisibilityChange={setIsDraftVisible}
+            audioRequestGuard={audioRequestGuard}
           />
         )}
 
@@ -906,6 +968,8 @@ function PdfWorkersPreview({
 }) {
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
+  const [greeting, setGreeting] = useState(DEFAULT_NARRATIVE_GREETING);
+  const [audioRequestGuard] = useState(() => createAudioRequestGuard());
 
   if (!analysis) {
     return (
@@ -926,13 +990,19 @@ function PdfWorkersPreview({
     ? {
         can_generate: clinicalResult.canGenerate,
         blocking_reasons: clinicalResult.blockingReasons,
-        text: clinicalResult.displayText,
+        text: applyNarrativeGreeting(clinicalResult.displayText, greeting),
+        applyGreeting: (text) => applyNarrativeGreeting(text, greeting),
       }
     : null;
 
   return (
     <div className="pdf-workspace">
-      <PdfSummaryBar analysis={analysis} workers={workers} />
+      <PdfSummaryBar
+        analysis={analysis}
+        workers={workers}
+        greeting={greeting}
+        onGreetingChange={setGreeting}
+      />
 
       <div className="pdf-operational-layout">
         <section className="pdf-worker-panel">
@@ -971,6 +1041,7 @@ function PdfWorkersPreview({
             onChangeWorker={onChangeWorker}
             onConfirmWorker={onConfirmWorker}
             onUpdateWorker={onUpdateWorker}
+            audioRequestGuard={audioRequestGuard}
           />
         ) : (
           <section className="pdf-detail-panel">
