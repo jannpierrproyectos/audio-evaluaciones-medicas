@@ -3,7 +3,6 @@ import PdfWorkerReviewForm from "./PdfWorkerReviewForm.jsx";
 import { processWorkerClinicalNarrative } from "../clinical/index.js";
 import { synthesizeAudioFromText } from "../lib/ttsClient.js";
 import {
-  DEFAULT_NARRATIVE_GREETING,
   NARRATIVE_GREETINGS,
   applyNarrativeGreeting,
 } from "../lib/narrativeGreeting.js";
@@ -13,6 +12,8 @@ import {
   hasExistingAudio,
 } from "../lib/audioRequestGuard.js";
 import {
+  getWorkerFullPdfName,
+  getWorkerPhone,
   resolveEditableNarrative,
 } from "../lib/workerReviewUx.js";
 
@@ -138,11 +139,25 @@ function NarrativeList({ items, emptyLabel, renderItem }) {
 }
 
 function PdfSummaryBar({ analysis, workers, greeting, onGreetingChange }) {
+  const metadata = analysis.batch_metadata || {
+    fileName: analysis.file_name || "",
+    pageCount: analysis.total_pages ?? null,
+    workerCount: analysis.workers_detected ?? workers.length,
+  };
+
   return (
     <section className="pdf-summary-bar is-compact" aria-label="Resumen del lote cargado">
+      <div className="pdf-summary-item" title={metadata.fileName || undefined}>
+        <span>Archivo</span>
+        <strong>{renderValue(metadata.fileName)}</strong>
+      </div>
+      <div className="pdf-summary-item">
+        <span>Paginas</span>
+        <strong>{renderValue(metadata.pageCount)}</strong>
+      </div>
       <div className="pdf-summary-item">
         <span>Trabajadores</span>
-        <strong>{renderValue(analysis.workers_detected || workers.length)}</strong>
+        <strong>{renderValue(metadata.workerCount)}</strong>
       </div>
       <label className="pdf-greeting-selector">
         <span>Saludo:</span>
@@ -701,6 +716,8 @@ function WorkerDetailPanel({
 }) {
   const [activeTab, setActiveTab] = useState("text-audio");
   const [isEditing, setIsEditing] = useState(false);
+  const workerPhone = getWorkerPhone(worker);
+  const workerFullPdfName = getWorkerFullPdfName(worker);
 
   return (
     <section className="pdf-detail-panel is-simplified">
@@ -716,6 +733,14 @@ function WorkerDetailPanel({
           <p className="worker-company-inline">
             {worker?.identificacion?.empresa || "Empresa pendiente"}
           </p>
+          {workerPhone ? (
+            <p className="worker-phone-inline">Teléfono: {workerPhone}</p>
+          ) : null}
+          {workerFullPdfName ? (
+            <p className="worker-pdf-inline" title={workerFullPdfName}>
+              PDF: {workerFullPdfName}
+            </p>
+          ) : null}
         </div>
         <span className="status-pill">{formatReviewStatus(worker)}</span>
       </div>
@@ -767,10 +792,11 @@ function PdfWorkersPreview({
   onSelectWorker,
   onChangeWorker,
   onUpdateWorker,
+  greeting,
+  onGreetingChange,
 }) {
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
-  const [greeting, setGreeting] = useState(DEFAULT_NARRATIVE_GREETING);
   const [audioRequestGuard] = useState(() => createAudioRequestGuard());
 
   if (!analysis) {
@@ -803,7 +829,7 @@ function PdfWorkersPreview({
         analysis={analysis}
         workers={workers}
         greeting={greeting}
-        onGreetingChange={setGreeting}
+        onGreetingChange={onGreetingChange}
       />
 
       <div className="pdf-operational-layout">

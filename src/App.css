@@ -1239,8 +1239,7 @@ h1 {
 }
 
 .pdf-summary-bar.is-compact {
-  grid-template-columns: minmax(140px, 180px) minmax(180px, 240px);
-  justify-content: space-between;
+  grid-template-columns: minmax(180px, 2fr) repeat(2, minmax(90px, 0.7fr)) minmax(170px, 1fr);
 }
 
 .pdf-greeting-selector {
@@ -1524,11 +1523,23 @@ h1 {
   font-weight: 800;
 }
 
-.worker-company-inline {
+.worker-company-inline,
+.worker-phone-inline {
   margin: 4px 0 0;
   color: var(--text-muted);
   font-size: 13px;
   font-weight: 600;
+}
+
+.worker-pdf-inline {
+  max-width: min(100%, 680px);
+  margin: 4px 0 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .detail-tabs {

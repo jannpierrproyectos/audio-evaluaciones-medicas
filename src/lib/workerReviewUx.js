@@ -1,3 +1,5 @@
+import { createBatchMetadata } from "./batchState.js";
+
 export const PDF_SOURCE_MODE = "pdf";
 export const MEDIWEB_SOURCE_MODE = "mediweb";
 
@@ -8,11 +10,13 @@ export function prepareAnalysisForReview(
 ) {
   if (!analysis) return analysis;
 
-  return {
+  const normalizedSourceMode = sourceMode === MEDIWEB_SOURCE_MODE
+    ? MEDIWEB_SOURCE_MODE
+    : PDF_SOURCE_MODE;
+
+  const prepared = {
     ...analysis,
-    source_mode: sourceMode === MEDIWEB_SOURCE_MODE
-      ? MEDIWEB_SOURCE_MODE
-      : PDF_SOURCE_MODE,
+    source_mode: normalizedSourceMode,
     workers: (analysis.workers || []).map((worker) => ({
       ...worker,
       derived_states: {
@@ -26,8 +30,21 @@ export function prepareAnalysisForReview(
       },
     })),
   };
+
+  return {
+    ...prepared,
+    batch_metadata: createBatchMetadata(prepared, normalizedSourceMode),
+  };
 }
 
 export function resolveEditableNarrative({ savedText, generatedText }) {
   return savedText || generatedText || "";
+}
+
+export function getWorkerPhone(worker) {
+  return String(worker?.datos_operativos?.telefono || "").trim();
+}
+
+export function getWorkerFullPdfName(worker) {
+  return String(worker?.datos_operativos?.archivo_pdf_completo || "").trim();
 }

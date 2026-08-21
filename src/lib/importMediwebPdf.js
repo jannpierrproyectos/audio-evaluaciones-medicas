@@ -1,7 +1,7 @@
 import { getMediwebFirstPages, getMediwebWorkerMetadata } from "../services/mediwebService.js";
 
-export function createMediwebPdfFile(blob) {
-  return new File([blob], "primeras-hojas-mediweb.pdf", { type: "application/pdf" });
+export function createMediwebPdfFile(blob, fileName) {
+  return new File([blob], fileName, { type: blob.type || "application/pdf" });
 }
 
 function normalizeDocument(value) {
@@ -51,11 +51,11 @@ export function attachMediwebWorkerMetadata(analysis, metadata = {}) {
 }
 
 export async function importMediwebPdfIntoExistingFlow(jobId, handlePdfSelected, { signal } = {}) {
-  const [blob, metadata] = await Promise.all([
+  const [firstPages, metadata] = await Promise.all([
     getMediwebFirstPages(jobId, { signal }),
     getMediwebWorkerMetadata(jobId, { signal }).catch(() => ({ workers: [] })),
   ]);
-  const file = createMediwebPdfFile(blob);
+  const file = createMediwebPdfFile(firstPages.blob, firstPages.fileName);
   const processingResult = await handlePdfSelected(file, { mediwebWorkerMetadata: metadata });
   return { file, processingResult };
 }

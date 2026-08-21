@@ -98,7 +98,19 @@ export async function getMediwebWorkerMetadata(jobId, { signal } = {}) {
 export async function getMediwebFirstPages(jobId, { signal } = {}) {
   const response = await request(`/jobs/${encodeURIComponent(jobId)}/first-pages`, { signal });
   if (!response.ok) throw await createHttpError(response);
-  return response.blob();
+  return {
+    blob: await response.blob(),
+    fileName: getResponseFileName(response),
+  };
+}
+
+export function getResponseFileName(response) {
+  const disposition = response?.headers?.get?.("Content-Disposition") || "";
+  const encodedMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encodedMatch) return decodeURIComponent(encodedMatch[1].trim().replace(/^"|"$/g, ""));
+
+  const plainMatch = disposition.match(/filename="([^"]+)"|filename=([^;]+)/i);
+  return (plainMatch?.[1] || plainMatch?.[2] || "").trim();
 }
 
 export function getMediwebErrorMessage(error) {

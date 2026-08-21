@@ -179,9 +179,16 @@ test("obtiene first-pages como Blob/File y lo entrega al handler PDF existente",
   globalThis.File = globalThis.File || NodeFile;
   const pdfBytes = new TextEncoder().encode("%PDF-1.4\n% prueba local");
   try {
-    await withFetch(async () => new Response(pdfBytes, { status: 200, headers: { "Content-Type": "application/pdf" } }), async () => {
-      const blob = await getMediwebFirstPages("job-pdf");
-      assert.equal(blob.type, "application/pdf");
+    await withFetch(async () => new Response(pdfBytes, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": 'inline; filename="lote-mediweb-real.pdf"',
+      },
+    }), async () => {
+      const firstPages = await getMediwebFirstPages("job-pdf");
+      assert.equal(firstPages.blob.type, "application/pdf");
+      assert.equal(firstPages.fileName, "lote-mediweb-real.pdf");
 
       let receivedFile = null;
       const existingPdfHandler = async (file) => {
@@ -193,7 +200,7 @@ test("obtiene first-pages como Blob/File y lo entrega al handler PDF existente",
       });
       assert.equal(receivedFile, file);
       assert.equal(processingResult.workers.length, 1);
-      assert.equal(file.name, "primeras-hojas-mediweb.pdf");
+      assert.equal(file.name, "lote-mediweb-real.pdf");
       assert.equal(file.type, "application/pdf");
       assert.match(await file.text(), /^%PDF/);
     });
@@ -361,7 +368,7 @@ test("la indisponibilidad del Connector no elimina la carga PDF manual", async (
   const appSource = await readFile(new URL("../src/App.jsx", import.meta.url), "utf8");
   assert.match(appSource, /setPdfSource\("manual"\)/);
   assert.match(appSource, /id="pdf-primary-input"[\s\S]*accept="\.pdf,application\/pdf"/);
-  assert.match(appSource, /<MediwebImporter onPdfSelected=\{handlePdfSelected\}/);
+  assert.match(appSource, /<MediwebImporter[\s\S]*?onPdfSelected=\{handlePdfSelected\}/);
 });
 
 test("frontend clasifica Connector actualizado, update opcional, obligatorio y manifest caído", () => {

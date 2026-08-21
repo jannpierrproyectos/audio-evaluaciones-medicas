@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import "./App.css";
 import PdfWorkersPreview from "./components/PdfWorkersPreview.jsx";
 import MediwebImporter from "./components/MediwebImporter.jsx";
@@ -10,23 +10,39 @@ import {
   PDF_SOURCE_MODE,
   prepareAnalysisForReview,
 } from "./lib/workerReviewUx.js";
+import { revokeBatchAudioObjectUrls } from "./lib/batchState.js";
+import { DEFAULT_NARRATIVE_GREETING } from "./lib/narrativeGreeting.js";
 
 function App() {
   const [pdfPreview, setPdfPreview] = useState("");
   const [pdfAnalysis, setPdfAnalysis] = useState(null);
-  const [selectedPdfWorkerIndex, setSelectedPdfWorkerIndex] = useState(0);
+  const [selectedPdfWorkerIndex, setSelectedPdfWorkerIndex] = useState(null);
   const [isPdfProcessing, setIsPdfProcessing] = useState(false);
   const [pdfSource, setPdfSource] = useState("mediweb");
   const [mediwebActivated, setMediwebActivated] = useState(true);
+  const [greeting, setGreeting] = useState(DEFAULT_NARRATIVE_GREETING);
+  const batchOperationIdRef = useRef(0);
+
+  const resetCurrentBatch = useCallback(() => {
+    batchOperationIdRef.current += 1;
+    setPdfAnalysis((currentAnalysis) => {
+      revokeBatchAudioObjectUrls(currentAnalysis);
+      return null;
+    });
+    setSelectedPdfWorkerIndex(null);
+    setPdfPreview("");
+    setIsPdfProcessing(false);
+    return batchOperationIdRef.current;
+  }, []);
 
   async function handlePdfSelected(file, { mediwebWorkerMetadata } = {}) {
+    const operationId = resetCurrentBatch();
     try {
       setIsPdfProcessing(true);
-      setPdfAnalysis(null);
-      setSelectedPdfWorkerIndex(0);
       setPdfPreview(`Procesando PDF: ${file.name}`);
 
       const parsedAnalysis = await analyzePdfBatch(file);
+      if (operationId !== batchOperationIdRef.current) return null;
       const parsedWithMetadata = mediwebWorkerMetadata
         ? attachMediwebWorkerMetadata(parsedAnalysis, mediwebWorkerMetadata)
         : parsedAnalysis;
@@ -40,6 +56,7 @@ function App() {
       setPdfPreview("");
       return analysis;
     } catch (error) {
+      if (operationId !== batchOperationIdRef.current) return null;
       console.error("Error analizando PDF:", error);
       setPdfAnalysis(null);
 
@@ -51,7 +68,7 @@ ${error?.message || "Error desconocido"}`
       );
       return null;
     } finally {
-      setIsPdfProcessing(false);
+      if (operationId === batchOperationIdRef.current) setIsPdfProcessing(false);
     }
   }
 
@@ -206,7 +223,10 @@ ${error?.message || "Error desconocido"}`
 
               {mediwebActivated ? (
                 <div hidden={pdfSource !== "mediweb"}>
-                  <MediwebImporter onPdfSelected={handlePdfSelected} />
+                  <MediwebImporter
+                    onPdfSelected={handlePdfSelected}
+                    onBatchStarted={resetCurrentBatch}
+                  />
                 </div>
               ) : null}
 
@@ -224,10 +244,12 @@ ${error?.message || "Error desconocido"}`
                     onSelectWorker={setSelectedPdfWorkerIndex}
                     onChangeWorker={handlePdfWorkerChange}
                     onUpdateWorker={updatePdfWorkerAtIndex}
+                    greeting={greeting}
+                    onGreetingChange={setGreeting}
                   />
                 </div>
               ) : (
-                !pdfPreview && (
+                !pdfPreview && pdfSource === "manual" && (
                   <div className="preview-placeholder">
                     Selecciona un PDF para iniciar la extraccion y revision de trabajadores.
                   </div>

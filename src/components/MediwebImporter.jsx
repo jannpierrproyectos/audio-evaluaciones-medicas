@@ -99,7 +99,7 @@ function JobMetrics({ job }) {
   );
 }
 
-export default function MediwebImporter({ onPdfSelected }) {
+export default function MediwebImporter({ onPdfSelected, onBatchStarted }) {
   const [connectorStatus, setConnectorStatus] = useState("checking");
   const [connectorVersion, setConnectorVersion] = useState("");
   const [releaseManifest, setReleaseManifest] = useState(null);
@@ -323,6 +323,7 @@ export default function MediwebImporter({ onPdfSelected }) {
     setFeedback("Iniciando el procesamiento…");
     try {
       const created = await createMediwebJob(options, { signal: controller.signal });
+      onBatchStarted?.();
       setJobId(created.jobId);
       setImportCompleted(false);
       setJobProgress({
