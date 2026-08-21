@@ -82,7 +82,7 @@ function updateWorkerField(worker, section, field, value) {
   };
 }
 
-function PdfWorkerReviewForm({ worker, onChange, onConfirm }) {
+function PdfWorkerReviewForm({ worker, onChange, onConfirm, showConfirmAction = true }) {
   if (!worker) {
     return null;
   }
@@ -92,7 +92,7 @@ function PdfWorkerReviewForm({ worker, onChange, onConfirm }) {
       style={{ display: "grid", gap: "0.85rem" }}
       onSubmit={(event) => {
         event.preventDefault();
-        onConfirm?.();
+        if (showConfirmAction) onConfirm?.();
       }}
     >
       <div style={{ display: "grid", gap: "0.75rem" }}>
@@ -183,9 +183,11 @@ function PdfWorkerReviewForm({ worker, onChange, onConfirm }) {
         })}
       </div>
 
-      <button type="submit" className="primary-button">
-        Confirmar trabajador
-      </button>
+      {showConfirmAction ? (
+        <button type="submit" className="primary-button">
+          Confirmar trabajador
+        </button>
+      ) : null}
     </form>
   );
 }

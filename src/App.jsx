@@ -5,6 +5,11 @@ import MediwebImporter from "./components/MediwebImporter.jsx";
 import { analyzePdfBatch } from "./lib/data/pdf/analyzePdfBatch.js";
 import { validateExtractedWorker } from "./lib/data/validateExtractedWorker.js";
 import { attachMediwebWorkerMetadata } from "./lib/importMediwebPdf.js";
+import {
+  MEDIWEB_SOURCE_MODE,
+  PDF_SOURCE_MODE,
+  prepareAnalysisForSource,
+} from "./lib/mediwebUx.js";
 
 function App() {
   const [pdfPreview, setPdfPreview] = useState("");
@@ -22,9 +27,13 @@ function App() {
       setPdfPreview(`Procesando PDF: ${file.name}`);
 
       const parsedAnalysis = await analyzePdfBatch(file);
-      const analysis = mediwebWorkerMetadata
+      const parsedWithMetadata = mediwebWorkerMetadata
         ? attachMediwebWorkerMetadata(parsedAnalysis, mediwebWorkerMetadata)
         : parsedAnalysis;
+      const analysis = prepareAnalysisForSource(
+        parsedWithMetadata,
+        mediwebWorkerMetadata ? MEDIWEB_SOURCE_MODE : PDF_SOURCE_MODE,
+      );
 
       setPdfAnalysis(analysis);
       setSelectedPdfWorkerIndex(0);
@@ -95,16 +104,20 @@ ${error?.message || "Error desconocido"}`
   }
 
   function handlePdfWorkerChange(workerIndex, nextWorker) {
+    const isMediwebWorker = pdfAnalysis?.source_mode === MEDIWEB_SOURCE_MODE;
+
     updatePdfWorkerAtIndex(workerIndex, {
       ...nextWorker,
       derived_states: {
         ...(nextWorker.derived_states || {}),
-        reviewed_by_user: false,
-        reviewed_at: "",
+        reviewed_by_user: isMediwebWorker,
+        reviewed_at: isMediwebWorker
+          ? nextWorker.derived_states?.reviewed_at || new Date().toISOString()
+          : "",
       },
       app_fields: {
         ...(nextWorker.app_fields || {}),
-        needs_review: true,
+        needs_review: !isMediwebWorker,
       },
     });
   }
@@ -227,6 +240,7 @@ ${error?.message || "Error desconocido"}`
                 <div id="pdf-workers-results" tabIndex="-1" className="pdf-results-focus-target">
                   <PdfWorkersPreview
                     analysis={pdfAnalysis}
+                    sourceMode={pdfAnalysis.source_mode}
                     selectedWorkerIndex={selectedPdfWorkerIndex}
                     onSelectWorker={setSelectedPdfWorkerIndex}
                     onChangeWorker={handlePdfWorkerChange}

@@ -12,6 +12,12 @@ import {
   getAudioGenerationIntent,
   hasExistingAudio,
 } from "../src/lib/audioRequestGuard.js";
+import {
+  MEDIWEB_SOURCE_MODE,
+  PDF_SOURCE_MODE,
+  prepareAnalysisForSource,
+  resolveEditableNarrative,
+} from "../src/lib/mediwebUx.js";
 
 const BASE_NARRATIVE =
   "Buenos días, señor Juan Pérez. Le saludamos de parte de la clínica Innomedic.";
@@ -175,4 +181,64 @@ test("la interfaz expone estado generando y confirmación con acciones seguras",
   assert.match(componentSource, /role="alertdialog"/);
   assert.match(componentSource, />\s*Cancelar\s*</);
   assert.match(componentSource, />\s*Regenerar audio\s*</);
+});
+
+test("MediWeb auto-confirma trabajadores sin eliminar validacion ni flags", () => {
+  const warning = { severity: "REVIEW", message: "Revisar dato" };
+  const analysis = prepareAnalysisForSource({
+    workers: [{
+      derived_states: { reviewed_by_user: false, needs_review: true },
+      app_fields: { needs_review: true },
+      validation: { warnings: [warning], has_errors: false },
+      review_flags: [{ type: "synthetic_flag" }],
+    }],
+  }, MEDIWEB_SOURCE_MODE, "2026-08-20T12:00:00.000Z");
+
+  assert.equal(analysis.source_mode, MEDIWEB_SOURCE_MODE);
+  assert.equal(analysis.workers[0].derived_states.reviewed_by_user, true);
+  assert.equal(analysis.workers[0].app_fields.needs_review, false);
+  assert.deepEqual(analysis.workers[0].validation.warnings, [warning]);
+  assert.deepEqual(analysis.workers[0].review_flags, [{ type: "synthetic_flag" }]);
+});
+
+test("el PDF manual conserva la confirmacion pendiente", () => {
+  const analysis = prepareAnalysisForSource({
+    workers: [{ derived_states: { reviewed_by_user: false } }],
+  }, PDF_SOURCE_MODE);
+
+  assert.equal(analysis.source_mode, PDF_SOURCE_MODE);
+  assert.equal(analysis.workers[0].derived_states.reviewed_by_user, false);
+});
+
+test("MediWeb precarga el texto generado y preserva una edicion guardada", () => {
+  assert.equal(resolveEditableNarrative({
+    sourceMode: MEDIWEB_SOURCE_MODE,
+    savedText: "",
+    generatedText: "Narrativa ya generada",
+  }), "Narrativa ya generada");
+  assert.equal(resolveEditableNarrative({
+    sourceMode: MEDIWEB_SOURCE_MODE,
+    savedText: "Edicion manual",
+    generatedText: "Narrativa ya generada",
+  }), "Edicion manual");
+  assert.equal(resolveEditableNarrative({
+    sourceMode: PDF_SOURCE_MODE,
+    savedText: "",
+    generatedText: "Narrativa ya generada",
+  }), "");
+});
+
+test("MediWeb abre Texto y audio y relega controles tecnicos", async () => {
+  const componentSource = await readFile(
+    new URL("../src/components/PdfWorkersPreview.jsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(componentSource, /useState\(isSimplified \? "text-audio" : "summary"\)/);
+  assert.match(componentSource, /tab\.id !== "summary"/);
+  assert.match(componentSource, /!isSimplified \? \(\s*<div className="narrative-actions">/);
+  assert.match(componentSource, /<summary>Alertas principales<\/summary>/);
+  assert.match(componentSource, /<summary>Elementos a revisar<\/summary>/);
+  assert.match(componentSource, /<summary>Ver borrador original<\/summary>/);
+  assert.match(componentSource, /trace=\{clinicalResult\.trace\}/);
 });

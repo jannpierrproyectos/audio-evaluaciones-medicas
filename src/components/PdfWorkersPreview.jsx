@@ -12,6 +12,10 @@ import {
   getAudioGenerationIntent,
   hasExistingAudio,
 } from "../lib/audioRequestGuard.js";
+import {
+  isMediwebSourceMode,
+  resolveEditableNarrative,
+} from "../lib/mediwebUx.js";
 
 const FILTERS = [
   { id: "all", label: "Todos" },
@@ -144,7 +148,7 @@ function NarrativeList({ items, emptyLabel, renderItem }) {
   );
 }
 
-function PdfSummaryBar({ analysis, workers, greeting, onGreetingChange }) {
+function PdfSummaryBar({ analysis, workers, greeting, onGreetingChange, isSimplified }) {
   const reviewedCount = workers.filter((worker) => worker?.derived_states?.reviewed_by_user).length;
   const needsReviewCount = workers.filter(
     (worker) => worker?.derived_states?.needs_review || worker?.app_fields?.needs_review,
@@ -162,9 +166,13 @@ function PdfSummaryBar({ analysis, workers, greeting, onGreetingChange }) {
     ["Con errores", errorsCount],
   ];
 
+  const visibleStats = isSimplified
+    ? [["Trabajadores", analysis.workers_detected || workers.length]]
+    : stats;
+
   return (
-    <section className="pdf-summary-bar" aria-label="Resumen del PDF cargado">
-      {stats.map(([label, value]) => (
+    <section className={`pdf-summary-bar${isSimplified ? " is-compact" : ""}`} aria-label="Resumen del lote cargado">
+      {visibleStats.map(([label, value]) => (
         <div key={label} className="pdf-summary-item">
           <span>{label}</span>
           <strong>{renderValue(value)}</strong>
@@ -184,7 +192,11 @@ function PdfSummaryBar({ analysis, workers, greeting, onGreetingChange }) {
   );
 }
 
-function WorkerFilters({ query, onQueryChange, activeFilter, onFilterChange }) {
+function WorkerFilters({ query, onQueryChange, activeFilter, onFilterChange, isSimplified }) {
+  const visibleFilters = isSimplified
+    ? FILTERS.filter((filter) => filter.id !== "warnings")
+    : FILTERS;
+
   return (
     <div className="worker-filters">
       <label className="worker-search">
@@ -198,7 +210,7 @@ function WorkerFilters({ query, onQueryChange, activeFilter, onFilterChange }) {
       </label>
 
       <div className="filter-chips" aria-label="Filtros de trabajadores">
-        {FILTERS.map((filter) => (
+        {visibleFilters.map((filter) => (
           <button
             key={filter.id}
             type="button"
@@ -235,6 +247,7 @@ function WorkerList({
   onSelectWorker,
   query,
   activeFilter,
+  isSimplified,
 }) {
   const filteredWorkers = useMemo(() => {
     const normalizedQuery = normalizeSearch(query);
@@ -293,14 +306,16 @@ function WorkerList({
               <span>{worker?.aptitud_y_recomendaciones?.aptitud_final || "Pendiente"}</span>
               <small>{formatReviewStatus(worker)}</small>
             </span>
-            <span className="worker-row__badges">
-              <span className={`count-badge${warningCount ? " is-warning" : ""}`}>
-                A {warningCount}
+            {!isSimplified ? (
+              <span className="worker-row__badges">
+                <span className={`count-badge${warningCount ? " is-warning" : ""}`}>
+                  A {warningCount}
+                </span>
+                <span className={`count-badge${errorCount ? " is-error" : ""}`}>
+                  E {errorCount}
+                </span>
               </span>
-              <span className={`count-badge${errorCount ? " is-error" : ""}`}>
-                E {errorCount}
-              </span>
-            </span>
+            ) : null}
           </button>
         );
       })}
@@ -483,12 +498,19 @@ function WorkerTextAudioPanel({
   isDraftVisible,
   onDraftVisibilityChange,
   audioRequestGuard,
+  sourceMode,
 }) {
+  const isSimplified = isMediwebSourceMode(sourceMode);
   const [isRegenerationConfirmationOpen, setIsRegenerationConfirmationOpen] = useState(false);
   const canUseAsFinal = Boolean(
     draft.can_generate && worker?.derived_states?.reviewed_by_user,
   );
-  const finalText = draft.applyGreeting(worker?.app_fields?.texto_final || "");
+  const editableNarrative = resolveEditableNarrative({
+    sourceMode,
+    savedText: worker?.app_fields?.texto_final,
+    generatedText: draft.text,
+  });
+  const finalText = draft.applyGreeting(editableNarrative);
   const audioStatus = String(worker?.app_fields?.audio_status || "pendiente").toLowerCase();
   const aptitud = normalizeComparable(worker?.aptitud_y_recomendaciones?.aptitud_final);
   const canGenerateAudio = Boolean(
@@ -638,7 +660,7 @@ function WorkerTextAudioPanel({
             renderItem={(reason) => reason}
           />
         </div>
-      ) : (
+      ) : !isSimplified ? (
         <div className="narrative-actions">
           <button
             type="button"
@@ -656,9 +678,9 @@ function WorkerTextAudioPanel({
             {isDraftVisible ? "Ocultar borrador generado" : "Ver borrador generado"}
           </button>
         </div>
-      )}
+      ) : null}
 
-      <details className="draft-preview-shell" open={isDraftVisible}>
+      {!isSimplified ? <details className="draft-preview-shell" open={isDraftVisible}>
         <summary onClick={(event) => {
           event.preventDefault();
           onDraftVisibilityChange(!isDraftVisible);
@@ -672,7 +694,7 @@ function WorkerTextAudioPanel({
           rows={8}
           aria-label="Borrador narrativo preliminar"
         />
-      </details>
+      </details> : null}
 
       <h4>Texto final editable</h4>
       <textarea
@@ -772,7 +794,18 @@ function WorkerTextAudioPanel({
   );
 }
 
-function TechnicalDetailsPanel({ worker, findings, reviewFlags = [] }) {
+function TechnicalDetailsPanel({
+  worker,
+  findings,
+  reviewFlags = [],
+  trace = [],
+  draft,
+  isEditing,
+  onToggleEditing,
+  onChangeWorker,
+  onConfirm,
+  isSimplified,
+}) {
   const narrativeGroupEntries = Object.entries(findings.narrative_groups || {}).filter(
     ([, group]) => group.narrar,
   );
@@ -781,6 +814,54 @@ function TechnicalDetailsPanel({ worker, findings, reviewFlags = [] }) {
 
   return (
     <div className="technical-stack">
+      {isSimplified ? (
+        <div className="detail-actions detail-actions--technical">
+          <button type="button" className="secondary-button is-quiet" onClick={onToggleEditing}>
+            {isEditing ? "Ocultar edicion de campos" : "Editar campos"}
+          </button>
+        </div>
+      ) : null}
+
+      {isSimplified && isEditing ? (
+        <div className="review-form-shell">
+          <PdfWorkerReviewForm
+            worker={worker}
+            onChange={onChangeWorker}
+            onConfirm={onConfirm}
+            showConfirmAction={false}
+          />
+        </div>
+      ) : null}
+
+      <details className="technical-detail">
+        <summary>Alertas principales</summary>
+        <NarrativeList
+          items={[...(worker?.validation?.errors || []), ...(worker?.validation?.warnings || [])]}
+          emptyLabel="Sin alertas automaticas."
+          renderItem={(item) => `[${item.severity}] ${item.message}`}
+        />
+      </details>
+
+      <details className="technical-detail">
+        <summary>Elementos a revisar</summary>
+        <NarrativeList
+          items={reviewFlags}
+          emptyLabel="Sin flags del motor clinico."
+          renderItem={(flag) => `[${flag.confidence}] ${flag.type}: ${flag.message} (${flag.sourceField})`}
+        />
+      </details>
+
+      <details className="technical-detail">
+        <summary>Ver borrador original</summary>
+        <textarea
+          className="editor-area pdf-editor pdf-editor--preview"
+          value={draft?.text || ""}
+          readOnly
+          rows={8}
+          aria-label="Borrador narrativo original"
+        />
+      </details>
+
       <details className="technical-detail">
         <summary>Campos detectados</summary>
         <KeyValueGrid
@@ -872,6 +953,15 @@ function TechnicalDetailsPanel({ worker, findings, reviewFlags = [] }) {
           <p className="muted-text">Sin grupos narrativos activos.</p>
         )}
       </details>
+
+      <details className="technical-detail">
+        <summary>Trazas clinicas y de normalizacion</summary>
+        <NarrativeList
+          items={trace}
+          emptyLabel="Sin trazas disponibles."
+          renderItem={(item) => `${item.ruleId || item.field || "trace"}: ${item.message || item.action || JSON.stringify(item)}`}
+        />
+      </details>
     </div>
   );
 }
@@ -886,8 +976,11 @@ function WorkerDetailPanel({
   onConfirmWorker,
   onUpdateWorker,
   audioRequestGuard,
+  sourceMode,
+  trace,
 }) {
-  const [activeTab, setActiveTab] = useState("summary");
+  const isSimplified = isMediwebSourceMode(sourceMode);
+  const [activeTab, setActiveTab] = useState(isSimplified ? "text-audio" : "summary");
   const [isEditing, setIsEditing] = useState(false);
   const [isDraftVisible, setIsDraftVisible] = useState(false);
 
@@ -899,21 +992,25 @@ function WorkerDetailPanel({
   }
 
   return (
-    <section className="pdf-detail-panel">
+    <section className={`pdf-detail-panel${isSimplified ? " is-simplified" : ""}`}>
       <div className="pdf-detail-header">
         <div>
-          <p className="section-label">Detalle del trabajador</p>
           <h3>{getWorkerName(worker)}</h3>
           <p className="section-text">
             {worker?.identificacion?.dni || "DNI pendiente"} ·{" "}
-            {worker?.aptitud_y_recomendaciones?.aptitud_final || "Aptitud pendiente"}
+            <span className="worker-aptitude-inline">
+              {worker?.aptitud_y_recomendaciones?.aptitud_final || "Aptitud pendiente"}
+            </span>
+          </p>
+          <p className="worker-company-inline">
+            {worker?.identificacion?.empresa || "Empresa pendiente"}
           </p>
         </div>
         <span className="status-pill">{formatReviewStatus(worker)}</span>
       </div>
 
       <div className="detail-tabs" role="tablist" aria-label="Detalle PDF">
-        {DETAIL_TABS.map((tab) => (
+        {DETAIL_TABS.filter((tab) => !isSimplified || tab.id !== "summary").map((tab) => (
           <button
             key={tab.id}
             type="button"
@@ -947,11 +1044,23 @@ function WorkerDetailPanel({
             isDraftVisible={isDraftVisible}
             onDraftVisibilityChange={setIsDraftVisible}
             audioRequestGuard={audioRequestGuard}
+            sourceMode={sourceMode}
           />
         )}
 
         {activeTab === "technical" && (
-          <TechnicalDetailsPanel worker={worker} findings={findings} reviewFlags={reviewFlags} />
+          <TechnicalDetailsPanel
+            worker={worker}
+            findings={findings}
+            reviewFlags={reviewFlags}
+            trace={trace}
+            draft={draft}
+            isEditing={isEditing}
+            onToggleEditing={() => setIsEditing((value) => !value)}
+            onChangeWorker={(nextWorker) => onChangeWorker?.(workerIndex, nextWorker)}
+            onConfirm={handleConfirmWorker}
+            isSimplified={isSimplified}
+          />
         )}
       </div>
     </section>
@@ -965,11 +1074,13 @@ function PdfWorkersPreview({
   onChangeWorker,
   onConfirmWorker,
   onUpdateWorker,
+  sourceMode,
 }) {
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
   const [greeting, setGreeting] = useState(DEFAULT_NARRATIVE_GREETING);
   const [audioRequestGuard] = useState(() => createAudioRequestGuard());
+  const isSimplified = isMediwebSourceMode(sourceMode);
 
   if (!analysis) {
     return (
@@ -1002,6 +1113,7 @@ function PdfWorkersPreview({
         workers={workers}
         greeting={greeting}
         onGreetingChange={setGreeting}
+        isSimplified={isSimplified}
       />
 
       <div className="pdf-operational-layout">
@@ -1019,6 +1131,7 @@ function PdfWorkersPreview({
             onQueryChange={setQuery}
             activeFilter={activeFilter}
             onFilterChange={setActiveFilter}
+            isSimplified={isSimplified}
           />
 
           <WorkerList
@@ -1027,6 +1140,7 @@ function PdfWorkersPreview({
             onSelectWorker={onSelectWorker}
             query={query}
             activeFilter={activeFilter}
+            isSimplified={isSimplified}
           />
         </section>
 
@@ -1042,6 +1156,8 @@ function PdfWorkersPreview({
             onConfirmWorker={onConfirmWorker}
             onUpdateWorker={onUpdateWorker}
             audioRequestGuard={audioRequestGuard}
+            sourceMode={sourceMode}
+            trace={clinicalResult.trace}
           />
         ) : (
           <section className="pdf-detail-panel">
