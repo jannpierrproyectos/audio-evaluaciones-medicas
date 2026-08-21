@@ -8,8 +8,8 @@ import { attachMediwebWorkerMetadata } from "./lib/importMediwebPdf.js";
 import {
   MEDIWEB_SOURCE_MODE,
   PDF_SOURCE_MODE,
-  prepareAnalysisForSource,
-} from "./lib/mediwebUx.js";
+  prepareAnalysisForReview,
+} from "./lib/workerReviewUx.js";
 
 function App() {
   const [pdfPreview, setPdfPreview] = useState("");
@@ -30,7 +30,7 @@ function App() {
       const parsedWithMetadata = mediwebWorkerMetadata
         ? attachMediwebWorkerMetadata(parsedAnalysis, mediwebWorkerMetadata)
         : parsedAnalysis;
-      const analysis = prepareAnalysisForSource(
+      const analysis = prepareAnalysisForReview(
         parsedWithMetadata,
         mediwebWorkerMetadata ? MEDIWEB_SOURCE_MODE : PDF_SOURCE_MODE,
       );
@@ -104,38 +104,18 @@ ${error?.message || "Error desconocido"}`
   }
 
   function handlePdfWorkerChange(workerIndex, nextWorker) {
-    const isMediwebWorker = pdfAnalysis?.source_mode === MEDIWEB_SOURCE_MODE;
-
     updatePdfWorkerAtIndex(workerIndex, {
       ...nextWorker,
       derived_states: {
         ...(nextWorker.derived_states || {}),
-        reviewed_by_user: isMediwebWorker,
-        reviewed_at: isMediwebWorker
-          ? nextWorker.derived_states?.reviewed_at || new Date().toISOString()
-          : "",
+        reviewed_by_user: true,
+        reviewed_at: nextWorker.derived_states?.reviewed_at || new Date().toISOString(),
       },
       app_fields: {
         ...(nextWorker.app_fields || {}),
-        needs_review: !isMediwebWorker,
+        needs_review: false,
       },
     });
-  }
-
-  function handlePdfWorkerConfirm(workerIndex) {
-    updatePdfWorkerAtIndex(workerIndex, (currentWorker) => ({
-      ...currentWorker,
-      derived_states: {
-        ...(currentWorker.derived_states || {}),
-        needs_review: false,
-        reviewed_by_user: true,
-        reviewed_at: new Date().toISOString(),
-      },
-      app_fields: {
-        ...(currentWorker.app_fields || {}),
-        needs_review: false,
-      },
-    }));
   }
 
   return (
@@ -240,11 +220,9 @@ ${error?.message || "Error desconocido"}`
                 <div id="pdf-workers-results" tabIndex="-1" className="pdf-results-focus-target">
                   <PdfWorkersPreview
                     analysis={pdfAnalysis}
-                    sourceMode={pdfAnalysis.source_mode}
                     selectedWorkerIndex={selectedPdfWorkerIndex}
                     onSelectWorker={setSelectedPdfWorkerIndex}
                     onChangeWorker={handlePdfWorkerChange}
-                    onConfirmWorker={handlePdfWorkerConfirm}
                     onUpdateWorker={updatePdfWorkerAtIndex}
                   />
                 </div>

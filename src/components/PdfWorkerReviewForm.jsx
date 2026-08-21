@@ -82,18 +82,14 @@ function updateWorkerField(worker, section, field, value) {
   };
 }
 
-function PdfWorkerReviewForm({ worker, onChange, onConfirm, showConfirmAction = true }) {
+function PdfWorkerReviewForm({ worker, onChange }) {
   if (!worker) {
     return null;
   }
 
   return (
-    <form
+    <div
       style={{ display: "grid", gap: "0.85rem" }}
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (showConfirmAction) onConfirm?.();
-      }}
     >
       <div style={{ display: "grid", gap: "0.75rem" }}>
         {REVIEW_FIELDS.map((item) => {
@@ -183,12 +179,7 @@ function PdfWorkerReviewForm({ worker, onChange, onConfirm, showConfirmAction = 
         })}
       </div>
 
-      {showConfirmAction ? (
-        <button type="submit" className="primary-button">
-          Confirmar trabajador
-        </button>
-      ) : null}
-    </form>
+    </div>
   );
 }
 

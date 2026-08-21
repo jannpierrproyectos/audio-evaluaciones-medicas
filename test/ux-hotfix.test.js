@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
+import { processWorkerClinicalNarrative } from "../src/clinical/index.js";
 import { prepareTextForTts } from "../src/clinical/ttsNormalizer.js";
 import {
   DEFAULT_NARRATIVE_GREETING,
@@ -15,9 +16,9 @@ import {
 import {
   MEDIWEB_SOURCE_MODE,
   PDF_SOURCE_MODE,
-  prepareAnalysisForSource,
+  prepareAnalysisForReview,
   resolveEditableNarrative,
-} from "../src/lib/mediwebUx.js";
+} from "../src/lib/workerReviewUx.js";
 
 const BASE_NARRATIVE =
   "Buenos días, señor Juan Pérez. Le saludamos de parte de la clínica Innomedic.";
@@ -175,7 +176,6 @@ test("la interfaz expone estado generando y confirmación con acciones seguras",
     new URL("../src/components/PdfWorkersPreview.jsx", import.meta.url),
     "utf8",
   );
-
   assert.match(componentSource, /disabled={!canGenerateAudio}/);
   assert.match(componentSource, /Generando audio\.\.\./);
   assert.match(componentSource, /role="alertdialog"/);
@@ -185,7 +185,7 @@ test("la interfaz expone estado generando y confirmación con acciones seguras",
 
 test("MediWeb auto-confirma trabajadores sin eliminar validacion ni flags", () => {
   const warning = { severity: "REVIEW", message: "Revisar dato" };
-  const analysis = prepareAnalysisForSource({
+  const analysis = prepareAnalysisForReview({
     workers: [{
       derived_states: { reviewed_by_user: false, needs_review: true },
       app_fields: { needs_review: true },
@@ -201,44 +201,73 @@ test("MediWeb auto-confirma trabajadores sin eliminar validacion ni flags", () =
   assert.deepEqual(analysis.workers[0].review_flags, [{ type: "synthetic_flag" }]);
 });
 
-test("el PDF manual conserva la confirmacion pendiente", () => {
-  const analysis = prepareAnalysisForSource({
-    workers: [{ derived_states: { reviewed_by_user: false } }],
+test("el PDF manual usa la misma auto-confirmacion de interfaz y conserva errores", () => {
+  const error = { severity: "ERROR", message: "Dato bloqueante" };
+  const analysis = prepareAnalysisForReview({
+    workers: [{
+      derived_states: { reviewed_by_user: false },
+      validation: { errors: [error], has_errors: true },
+    }],
   }, PDF_SOURCE_MODE);
 
   assert.equal(analysis.source_mode, PDF_SOURCE_MODE);
-  assert.equal(analysis.workers[0].derived_states.reviewed_by_user, false);
+  assert.equal(analysis.workers[0].derived_states.reviewed_by_user, true);
+  assert.equal(analysis.workers[0].validation.has_errors, true);
+  assert.deepEqual(analysis.workers[0].validation.errors, [error]);
+
+  const clinicalResult = processWorkerClinicalNarrative({
+    ...analysis.workers[0],
+    identificacion: { nombres: "Ana", apellidos: "Prueba" },
+    aptitud_y_recomendaciones: { aptitud_final: "APTO" },
+  });
+  assert.equal(clinicalResult.canGenerate, false);
+  assert.ok(clinicalResult.blockingReasons.some((reason) => /errores/i.test(reason)));
 });
 
 test("MediWeb precarga el texto generado y preserva una edicion guardada", () => {
   assert.equal(resolveEditableNarrative({
-    sourceMode: MEDIWEB_SOURCE_MODE,
     savedText: "",
     generatedText: "Narrativa ya generada",
   }), "Narrativa ya generada");
   assert.equal(resolveEditableNarrative({
-    sourceMode: MEDIWEB_SOURCE_MODE,
     savedText: "Edicion manual",
     generatedText: "Narrativa ya generada",
   }), "Edicion manual");
-  assert.equal(resolveEditableNarrative({
-    sourceMode: PDF_SOURCE_MODE,
-    savedText: "",
-    generatedText: "Narrativa ya generada",
-  }), "");
 });
 
-test("MediWeb abre Texto y audio y relega controles tecnicos", async () => {
+test("PDF precarga la narrativa y da prioridad a la edicion manual", () => {
+  assert.equal(resolveEditableNarrative({
+    savedText: "",
+    generatedText: "Narrativa ya generada",
+  }), "Narrativa ya generada");
+  assert.equal(resolveEditableNarrative({
+    savedText: "Edicion PDF",
+    generatedText: "Narrativa ya generada",
+  }), "Edicion PDF");
+});
+
+test("MediWeb y PDF comparten Texto y audio y relegan auditoria a detalles", async () => {
   const componentSource = await readFile(
     new URL("../src/components/PdfWorkersPreview.jsx", import.meta.url),
     "utf8",
   );
+  const reviewFormSource = await readFile(
+    new URL("../src/components/PdfWorkerReviewForm.jsx", import.meta.url),
+    "utf8",
+  );
 
-  assert.match(componentSource, /useState\(isSimplified \? "text-audio" : "summary"\)/);
-  assert.match(componentSource, /tab\.id !== "summary"/);
-  assert.match(componentSource, /!isSimplified \? \(\s*<div className="narrative-actions">/);
-  assert.match(componentSource, /<summary>Alertas principales<\/summary>/);
-  assert.match(componentSource, /<summary>Elementos a revisar<\/summary>/);
-  assert.match(componentSource, /<summary>Ver borrador original<\/summary>/);
+  const technicalStart = componentSource.indexOf("function TechnicalDetailsPanel");
+  const operationalSource = componentSource.slice(0, technicalStart);
+  const technicalSource = componentSource.slice(technicalStart);
+
+  assert.match(componentSource, /useState\("text-audio"\)/);
+  assert.doesNotMatch(componentSource, /id: "summary"/);
+  assert.doesNotMatch(`${componentSource}\n${reviewFormSource}`, /Confirmar trabajador/);
+  assert.doesNotMatch(componentSource, />\s*Generar texto final editable\s*</);
+  assert.doesNotMatch(operationalSource, /Alertas principales|Elementos a revisar|Borrador generado/);
+  assert.match(technicalSource, /<summary>Alertas principales<\/summary>/);
+  assert.match(technicalSource, /<summary>Elementos a revisar<\/summary>/);
+  assert.match(technicalSource, /<summary>Ver borrador original<\/summary>/);
   assert.match(componentSource, /trace=\{clinicalResult\.trace\}/);
+  assert.match(componentSource, /!worker\?\.validation\?\.has_errors/);
 });

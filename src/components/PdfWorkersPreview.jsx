@@ -13,23 +13,20 @@ import {
   hasExistingAudio,
 } from "../lib/audioRequestGuard.js";
 import {
-  isMediwebSourceMode,
   resolveEditableNarrative,
-} from "../lib/mediwebUx.js";
+} from "../lib/workerReviewUx.js";
 
 const FILTERS = [
   { id: "all", label: "Todos" },
   { id: "reviewed", label: "Revisados" },
   { id: "needs-review", label: "Requieren revision" },
   { id: "errors", label: "Con errores" },
-  { id: "warnings", label: "Con alertas" },
   { id: "apto", label: "Apto" },
   { id: "restricted", label: "Apto con restricciones" },
   { id: "not-apt", label: "No apto" },
 ];
 
 const DETAIL_TABS = [
-  { id: "summary", label: "Resumen" },
   { id: "text-audio", label: "Texto y audio" },
   { id: "technical", label: "Detalles tecnicos" },
 ];
@@ -48,14 +45,6 @@ function formatReviewStatus(worker) {
 
 function getErrorCount(worker) {
   return worker?.validation?.error_count || 0;
-}
-
-function getWarningCount(worker) {
-  return worker?.validation?.warning_count || 0;
-}
-
-function canSendToNarrative(worker) {
-  return !worker?.validation?.has_errors;
 }
 
 function getMissingFields(worker) {
@@ -148,36 +137,13 @@ function NarrativeList({ items, emptyLabel, renderItem }) {
   );
 }
 
-function PdfSummaryBar({ analysis, workers, greeting, onGreetingChange, isSimplified }) {
-  const reviewedCount = workers.filter((worker) => worker?.derived_states?.reviewed_by_user).length;
-  const needsReviewCount = workers.filter(
-    (worker) => worker?.derived_states?.needs_review || worker?.app_fields?.needs_review,
-  ).length;
-  const warningsCount = workers.filter((worker) => getWarningCount(worker) > 0).length;
-  const errorsCount = workers.filter((worker) => getErrorCount(worker) > 0).length;
-
-  const stats = [
-    ["Archivo", analysis.file_name || "Sin archivo"],
-    ["Paginas", analysis.total_pages],
-    ["Trabajadores", analysis.workers_detected || workers.length],
-    ["Revisados", reviewedCount],
-    ["Requieren revision", needsReviewCount],
-    ["Con alertas", warningsCount],
-    ["Con errores", errorsCount],
-  ];
-
-  const visibleStats = isSimplified
-    ? [["Trabajadores", analysis.workers_detected || workers.length]]
-    : stats;
-
+function PdfSummaryBar({ analysis, workers, greeting, onGreetingChange }) {
   return (
-    <section className={`pdf-summary-bar${isSimplified ? " is-compact" : ""}`} aria-label="Resumen del lote cargado">
-      {visibleStats.map(([label, value]) => (
-        <div key={label} className="pdf-summary-item">
-          <span>{label}</span>
-          <strong>{renderValue(value)}</strong>
-        </div>
-      ))}
+    <section className="pdf-summary-bar is-compact" aria-label="Resumen del lote cargado">
+      <div className="pdf-summary-item">
+        <span>Trabajadores</span>
+        <strong>{renderValue(analysis.workers_detected || workers.length)}</strong>
+      </div>
       <label className="pdf-greeting-selector">
         <span>Saludo:</span>
         <select value={greeting} onChange={(event) => onGreetingChange(event.target.value)}>
@@ -192,11 +158,7 @@ function PdfSummaryBar({ analysis, workers, greeting, onGreetingChange, isSimpli
   );
 }
 
-function WorkerFilters({ query, onQueryChange, activeFilter, onFilterChange, isSimplified }) {
-  const visibleFilters = isSimplified
-    ? FILTERS.filter((filter) => filter.id !== "warnings")
-    : FILTERS;
-
+function WorkerFilters({ query, onQueryChange, activeFilter, onFilterChange }) {
   return (
     <div className="worker-filters">
       <label className="worker-search">
@@ -210,7 +172,7 @@ function WorkerFilters({ query, onQueryChange, activeFilter, onFilterChange, isS
       </label>
 
       <div className="filter-chips" aria-label="Filtros de trabajadores">
-        {visibleFilters.map((filter) => (
+        {FILTERS.map((filter) => (
           <button
             key={filter.id}
             type="button"
@@ -233,7 +195,6 @@ function workerMatchesFilter(worker, filter) {
     return Boolean(worker?.derived_states?.needs_review || worker?.app_fields?.needs_review);
   }
   if (filter === "errors") return getErrorCount(worker) > 0;
-  if (filter === "warnings") return getWarningCount(worker) > 0;
   if (filter === "apto") return aptitud === "APTO";
   if (filter === "restricted") return aptitud === "APTO CON RESTRICCIONES";
   if (filter === "not-apt") return aptitud === "NO APTO";
@@ -247,7 +208,6 @@ function WorkerList({
   onSelectWorker,
   query,
   activeFilter,
-  isSimplified,
 }) {
   const filteredWorkers = useMemo(() => {
     const normalizedQuery = normalizeSearch(query);
@@ -282,9 +242,6 @@ function WorkerList({
     <div className="worker-list" role="listbox" aria-label="Trabajadores extraidos">
       {filteredWorkers.map(({ worker, index }) => {
         const isSelected = index === selectedWorkerIndex;
-        const warningCount = getWarningCount(worker);
-        const errorCount = getErrorCount(worker);
-
         return (
           <button
             key={`${worker?.identificacion?.dni || "sin-dni"}-${index}`}
@@ -306,16 +263,6 @@ function WorkerList({
               <span>{worker?.aptitud_y_recomendaciones?.aptitud_final || "Pendiente"}</span>
               <small>{formatReviewStatus(worker)}</small>
             </span>
-            {!isSimplified ? (
-              <span className="worker-row__badges">
-                <span className={`count-badge${warningCount ? " is-warning" : ""}`}>
-                  A {warningCount}
-                </span>
-                <span className={`count-badge${errorCount ? " is-error" : ""}`}>
-                  E {errorCount}
-                </span>
-              </span>
-            ) : null}
           </button>
         );
       })}
@@ -345,168 +292,15 @@ function KeyValueGrid({ items, className = "" }) {
   );
 }
 
-function hasAutomaticNameSplitWarning(warnings) {
-  return warnings.some((warning) => {
-    const field = String(warning?.field || "");
-    const message = normalizeSearch(warning?.message || "");
-
-    return (
-      (field === "identificacion.nombres" || field === "identificacion.apellidos") &&
-      message.includes("separados automaticamente")
-    );
-  });
-}
-
-function WorkerSummary({
-  worker,
-  findings,
-  reviewFlags = [],
-  isEditing,
-  onToggleEditing,
-  onConfirm,
-  onChangeWorker,
-}) {
-  const pendingReviewFields = getPendingReviewFields(worker, findings);
-  const warnings = worker?.validation?.warnings || [];
-  const shouldReviewNameSplit = hasAutomaticNameSplitWarning(warnings);
-
-  return (
-    <div className="detail-tab-panel">
-      <KeyValueGrid
-        className="key-grid--worker-summary"
-        items={[
-          {
-            label: "Apellidos detectados",
-            value: worker?.identificacion?.apellidos,
-            className: "key-grid__item--span-4",
-          },
-          {
-            label: "Nombres detectados",
-            value: worker?.identificacion?.nombres,
-            className: "key-grid__item--span-4",
-          },
-          {
-            label: "DNI",
-            value: worker?.identificacion?.dni,
-            className: "key-grid__item--span-4",
-          },
-          {
-            label: "Empresa",
-            value: worker?.identificacion?.empresa,
-            className: "key-grid__item--span-4",
-          },
-          {
-            label: "Teléfono",
-            value: worker?.datos_operativos?.telefono,
-            className: "key-grid__item--span-4",
-          },
-          {
-            label: "Archivo PDF completo",
-            value: worker?.datos_operativos?.archivo_pdf_completo,
-            className: "key-grid__item--span-4",
-          },
-          {
-            label: "Fecha",
-            value: worker?.identificacion?.fecha_evaluacion,
-            className: "key-grid__item--span-4",
-          },
-          {
-            label: "Aptitud",
-            value: worker?.aptitud_y_recomendaciones?.aptitud_final,
-            className: "key-grid__item--span-4",
-          },
-          {
-            label: "Estado",
-            value: formatReviewStatus(worker),
-            className: "key-grid__item--span-3",
-          },
-          {
-            label: "Errores",
-            value: getErrorCount(worker),
-            className: "key-grid__item--span-3",
-          },
-          {
-            label: "Alertas",
-            value: getWarningCount(worker),
-            className: "key-grid__item--span-3",
-          },
-          {
-            label: "Puede narrar",
-            value: canSendToNarrative(worker) ? "si" : "no",
-            className: "key-grid__item--span-3",
-          },
-        ]}
-      />
-
-      {shouldReviewNameSplit && (
-        <div className="summary-review-badge" role="status">
-          Revisar separacion
-        </div>
-      )}
-
-      <div className="detail-actions">
-        <button type="button" className="secondary-button" onClick={onToggleEditing}>
-          {isEditing ? "Ocultar edicion" : "Editar campos"}
-        </button>
-        <button type="button" className="primary-button" onClick={onConfirm}>
-          Confirmar trabajador
-        </button>
-      </div>
-
-      {warnings.length > 0 && (
-        <details className="technical-detail" open>
-          <summary>Alertas principales</summary>
-          <NarrativeList
-            items={warnings.slice(0, 5)}
-            emptyLabel="Sin alertas automaticas."
-            renderItem={(warning) => `[${warning.severity}] ${warning.message}`}
-          />
-        </details>
-      )}
-
-      {reviewFlags.some((flag) => flag.confidence !== "automatic") && (
-        <details className="technical-detail" open>
-          <summary>Elementos a revisar</summary>
-          <NarrativeList
-            items={reviewFlags.filter((flag) => flag.confidence !== "automatic")}
-            emptyLabel="Sin elementos clínicos pendientes."
-            renderItem={(flag) => `${flag.message} (${flag.sourceField})`}
-          />
-        </details>
-      )}
-
-      {pendingReviewFields.length > 0 && (
-        <p className="muted-text">
-          Campos pendientes de revision: {pendingReviewFields.join(", ")}
-        </p>
-      )}
-
-      {isEditing && (
-        <div className="review-form-shell">
-          <PdfWorkerReviewForm worker={worker} onChange={onChangeWorker} onConfirm={onConfirm} />
-        </div>
-      )}
-    </div>
-  );
-}
-
 function WorkerTextAudioPanel({
   draft,
   worker,
   workerIndex,
   onUpdateWorker,
-  isDraftVisible,
-  onDraftVisibilityChange,
   audioRequestGuard,
-  sourceMode,
 }) {
-  const isSimplified = isMediwebSourceMode(sourceMode);
   const [isRegenerationConfirmationOpen, setIsRegenerationConfirmationOpen] = useState(false);
-  const canUseAsFinal = Boolean(
-    draft.can_generate && worker?.derived_states?.reviewed_by_user,
-  );
   const editableNarrative = resolveEditableNarrative({
-    sourceMode,
     savedText: worker?.app_fields?.texto_final,
     generatedText: draft.text,
   });
@@ -524,35 +318,6 @@ function WorkerTextAudioPanel({
   );
   const hasGeneratedAudio = hasExistingAudio(worker?.app_fields);
   const workerRequestKey = worker?.identificacion?.dni || `worker-${workerIndex}`;
-
-  function handleUseAsFinal() {
-    if (!canUseAsFinal || !draft.text) return;
-
-    onUpdateWorker?.(workerIndex, (currentWorker) => {
-      const currentHasAudio = hasExistingAudio(currentWorker.app_fields);
-
-      return {
-        ...currentWorker,
-        derived_states: {
-          ...(currentWorker.derived_states || {}),
-          reviewed_by_user: true,
-        },
-        app_fields: {
-          ...(currentWorker.app_fields || {}),
-          texto_borrador: draft.text,
-          texto_final: draft.text,
-          audio_status: currentHasAudio
-            ? currentWorker.app_fields.audio_status
-            : "pendiente",
-          audio_error: "",
-          audio_stale: currentHasAudio,
-          last_generated_at: new Date().toISOString(),
-        },
-      };
-    });
-
-    onDraftVisibilityChange(false);
-  }
 
   function handleFinalTextChange(value) {
     onUpdateWorker?.(workerIndex, (currentWorker) => {
@@ -660,41 +425,7 @@ function WorkerTextAudioPanel({
             renderItem={(reason) => reason}
           />
         </div>
-      ) : !isSimplified ? (
-        <div className="narrative-actions">
-          <button
-            type="button"
-            className="primary-button"
-            onClick={handleUseAsFinal}
-            disabled={!canUseAsFinal}
-          >
-            Generar texto final editable
-          </button>
-          <button
-            type="button"
-            className={`secondary-button${isDraftVisible ? " is-active-toggle" : ""}`}
-            onClick={() => onDraftVisibilityChange(!isDraftVisible)}
-          >
-            {isDraftVisible ? "Ocultar borrador generado" : "Ver borrador generado"}
-          </button>
-        </div>
       ) : null}
-
-      {!isSimplified ? <details className="draft-preview-shell" open={isDraftVisible}>
-        <summary onClick={(event) => {
-          event.preventDefault();
-          onDraftVisibilityChange(!isDraftVisible);
-        }}>
-          Borrador generado
-        </summary>
-        <textarea
-          className="editor-area pdf-editor pdf-editor--preview"
-          value={draft.text}
-          readOnly
-          rows={8}
-          aria-label="Borrador narrativo preliminar"
-        />
-      </details> : null}
 
       <h4>Texto final editable</h4>
       <textarea
@@ -803,8 +534,6 @@ function TechnicalDetailsPanel({
   isEditing,
   onToggleEditing,
   onChangeWorker,
-  onConfirm,
-  isSimplified,
 }) {
   const narrativeGroupEntries = Object.entries(findings.narrative_groups || {}).filter(
     ([, group]) => group.narrar,
@@ -814,22 +543,15 @@ function TechnicalDetailsPanel({
 
   return (
     <div className="technical-stack">
-      {isSimplified ? (
-        <div className="detail-actions detail-actions--technical">
-          <button type="button" className="secondary-button is-quiet" onClick={onToggleEditing}>
-            {isEditing ? "Ocultar edicion de campos" : "Editar campos"}
-          </button>
-        </div>
-      ) : null}
+      <div className="detail-actions detail-actions--technical">
+        <button type="button" className="secondary-button is-quiet" onClick={onToggleEditing}>
+          {isEditing ? "Ocultar edicion de campos" : "Editar campos"}
+        </button>
+      </div>
 
-      {isSimplified && isEditing ? (
+      {isEditing ? (
         <div className="review-form-shell">
-          <PdfWorkerReviewForm
-            worker={worker}
-            onChange={onChangeWorker}
-            onConfirm={onConfirm}
-            showConfirmAction={false}
-          />
+          <PdfWorkerReviewForm worker={worker} onChange={onChangeWorker} />
         </div>
       ) : null}
 
@@ -973,26 +695,15 @@ function WorkerDetailPanel({
   draft,
   reviewFlags,
   onChangeWorker,
-  onConfirmWorker,
   onUpdateWorker,
   audioRequestGuard,
-  sourceMode,
   trace,
 }) {
-  const isSimplified = isMediwebSourceMode(sourceMode);
-  const [activeTab, setActiveTab] = useState(isSimplified ? "text-audio" : "summary");
+  const [activeTab, setActiveTab] = useState("text-audio");
   const [isEditing, setIsEditing] = useState(false);
-  const [isDraftVisible, setIsDraftVisible] = useState(false);
-
-  function handleConfirmWorker() {
-    onConfirmWorker?.(workerIndex);
-    setIsEditing(false);
-    setActiveTab("text-audio");
-    setIsDraftVisible(true);
-  }
 
   return (
-    <section className={`pdf-detail-panel${isSimplified ? " is-simplified" : ""}`}>
+    <section className="pdf-detail-panel is-simplified">
       <div className="pdf-detail-header">
         <div>
           <h3>{getWorkerName(worker)}</h3>
@@ -1010,7 +721,7 @@ function WorkerDetailPanel({
       </div>
 
       <div className="detail-tabs" role="tablist" aria-label="Detalle PDF">
-        {DETAIL_TABS.filter((tab) => !isSimplified || tab.id !== "summary").map((tab) => (
+        {DETAIL_TABS.map((tab) => (
           <button
             key={tab.id}
             type="button"
@@ -1023,28 +734,13 @@ function WorkerDetailPanel({
       </div>
 
       <div className="pdf-detail-scroll">
-        {activeTab === "summary" && (
-          <WorkerSummary
-            worker={worker}
-            findings={findings}
-            reviewFlags={reviewFlags}
-            isEditing={isEditing}
-            onToggleEditing={() => setIsEditing((value) => !value)}
-            onConfirm={handleConfirmWorker}
-            onChangeWorker={(nextWorker) => onChangeWorker?.(workerIndex, nextWorker)}
-          />
-        )}
-
         {activeTab === "text-audio" && (
           <WorkerTextAudioPanel
             draft={draft}
             worker={worker}
             workerIndex={workerIndex}
             onUpdateWorker={onUpdateWorker}
-            isDraftVisible={isDraftVisible}
-            onDraftVisibilityChange={setIsDraftVisible}
             audioRequestGuard={audioRequestGuard}
-            sourceMode={sourceMode}
           />
         )}
 
@@ -1058,8 +754,6 @@ function WorkerDetailPanel({
             isEditing={isEditing}
             onToggleEditing={() => setIsEditing((value) => !value)}
             onChangeWorker={(nextWorker) => onChangeWorker?.(workerIndex, nextWorker)}
-            onConfirm={handleConfirmWorker}
-            isSimplified={isSimplified}
           />
         )}
       </div>
@@ -1072,15 +766,12 @@ function PdfWorkersPreview({
   selectedWorkerIndex,
   onSelectWorker,
   onChangeWorker,
-  onConfirmWorker,
   onUpdateWorker,
-  sourceMode,
 }) {
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
   const [greeting, setGreeting] = useState(DEFAULT_NARRATIVE_GREETING);
   const [audioRequestGuard] = useState(() => createAudioRequestGuard());
-  const isSimplified = isMediwebSourceMode(sourceMode);
 
   if (!analysis) {
     return (
@@ -1113,7 +804,6 @@ function PdfWorkersPreview({
         workers={workers}
         greeting={greeting}
         onGreetingChange={setGreeting}
-        isSimplified={isSimplified}
       />
 
       <div className="pdf-operational-layout">
@@ -1131,7 +821,6 @@ function PdfWorkersPreview({
             onQueryChange={setQuery}
             activeFilter={activeFilter}
             onFilterChange={setActiveFilter}
-            isSimplified={isSimplified}
           />
 
           <WorkerList
@@ -1140,7 +829,6 @@ function PdfWorkersPreview({
             onSelectWorker={onSelectWorker}
             query={query}
             activeFilter={activeFilter}
-            isSimplified={isSimplified}
           />
         </section>
 
@@ -1153,10 +841,8 @@ function PdfWorkersPreview({
             draft={narrativeDraft}
             reviewFlags={clinicalResult.reviewFlags}
             onChangeWorker={onChangeWorker}
-            onConfirmWorker={onConfirmWorker}
             onUpdateWorker={onUpdateWorker}
             audioRequestGuard={audioRequestGuard}
-            sourceMode={sourceMode}
             trace={clinicalResult.trace}
           />
         ) : (

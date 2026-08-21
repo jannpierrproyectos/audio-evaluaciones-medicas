@@ -1,24 +1,18 @@
 export const PDF_SOURCE_MODE = "pdf";
 export const MEDIWEB_SOURCE_MODE = "mediweb";
 
-export function isMediwebSourceMode(sourceMode) {
-  return sourceMode === MEDIWEB_SOURCE_MODE;
-}
-
-export function prepareAnalysisForSource(
+export function prepareAnalysisForReview(
   analysis,
   sourceMode,
   reviewedAt = new Date().toISOString(),
 ) {
   if (!analysis) return analysis;
 
-  if (!isMediwebSourceMode(sourceMode)) {
-    return { ...analysis, source_mode: PDF_SOURCE_MODE };
-  }
-
   return {
     ...analysis,
-    source_mode: MEDIWEB_SOURCE_MODE,
+    source_mode: sourceMode === MEDIWEB_SOURCE_MODE
+      ? MEDIWEB_SOURCE_MODE
+      : PDF_SOURCE_MODE,
     workers: (analysis.workers || []).map((worker) => ({
       ...worker,
       derived_states: {
@@ -34,7 +28,6 @@ export function prepareAnalysisForSource(
   };
 }
 
-export function resolveEditableNarrative({ sourceMode, savedText, generatedText }) {
-  if (savedText) return savedText;
-  return isMediwebSourceMode(sourceMode) ? generatedText || "" : "";
+export function resolveEditableNarrative({ savedText, generatedText }) {
+  return savedText || generatedText || "";
 }
