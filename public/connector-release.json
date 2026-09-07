@@ -1,13 +1,13 @@
 {
   "product": "AudioEvaluaciones Connector",
-  "latestVersion": "0.4.0",
+  "latestVersion": "0.5.0",
   "minimumSupportedVersion": "0.2.0",
-  "publishedAt": "2026-08-17T18:57:08.291Z",
+  "publishedAt": "2026-09-07T20:24:47.612Z",
   "windows": {
     "architecture": "x64",
-    "fileName": "AudioEvaluacionesConnector-0.4.0-Setup.exe",
-    "downloadUrl": "https://github.com/jannpierrproyectos/audio-evaluaciones-medicas/releases/download/v0.4.0/AudioEvaluacionesConnector-0.4.0-Setup.exe",
-    "sha256": "b65ba461822d4f57724c0d0e94567cb3f0c7bed4a632bdf2fbf7676a2bc68dd4"
+    "fileName": "AudioEvaluacionesConnector-0.5.0-Setup.exe",
+    "downloadUrl": "https://github.com/jannpierrproyectos/audio-evaluaciones-medicas/releases/download/v0.5.0/AudioEvaluacionesConnector-0.5.0-Setup.exe",
+    "sha256": "2bb2402369a42d7f5e902f68f480dcb0eff2121d0101f873b90994b2f92d39c5"
   },
-  "releaseNotesUrl": "https://github.com/jannpierrproyectos/audio-evaluaciones-medicas/releases/tag/v0.4.0"
+  "releaseNotesUrl": "https://github.com/jannpierrproyectos/audio-evaluaciones-medicas/releases/tag/v0.5.0"
 }

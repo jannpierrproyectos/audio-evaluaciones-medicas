@@ -1,8 +1,9 @@
 import { access, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
-const FORBIDDEN_DIRECTORIES = new Set([".auth", "downloads", "logs", "tmp", "test", "tests", "coverage", ".git"]);
+const FORBIDDEN_DIRECTORIES = new Set([".auth", ".venv", "venv", "downloads", "logs", "tmp", "tts_cache", "test", "tests", "coverage", ".git"]);
 const FORBIDDEN_FILES = new Set([".env", ".env.local", "manifest.json", "resultados.csv"]);
+const FORBIDDEN_EXTENSIONS = new Set([".csv", ".log", ".mp3", ".pdf", ".wav"]);
 
 export async function validateStaging(stagingRoot) {
   const required = [
@@ -12,6 +13,7 @@ export async function validateStaging(stagingRoot) {
     "app/package.json",
     "app/src/trayService.js",
     "app/src/service.js",
+    "app/src/managedFiles.js",
     "app/src/phoneExtractor.js",
     "app/node_modules/playwright-core/package.json",
     "app/node_modules/pdfjs-dist/package.json",
@@ -25,7 +27,7 @@ export async function validateStaging(stagingRoot) {
     const lowerName = entry.name.toLowerCase();
     if (entry.isDirectory() && FORBIDDEN_DIRECTORIES.has(lowerName)) violations.push(absolute);
     if (entry.isFile() && (FORBIDDEN_FILES.has(lowerName) || lowerName.startsWith(".env."))) violations.push(absolute);
-    if (entry.isFile() && [".pdf", ".csv"].includes(path.extname(lowerName))) violations.push(absolute);
+    if (entry.isFile() && FORBIDDEN_EXTENSIONS.has(path.extname(lowerName))) violations.push(absolute);
   });
   if (violations.length > 0) throw new Error(`El staging contiene rutas prohibidas:\n${violations.join("\n")}`);
 

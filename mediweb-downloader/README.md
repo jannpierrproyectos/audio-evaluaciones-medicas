@@ -323,11 +323,11 @@ Los logs locales están en `%LOCALAPPDATA%\AudioEvaluacionesConnector\logs`. El 
 
 ### Versionado y upgrade
 
-La versión proviene de `package.json` y se inyecta en `/health`, el host nativo, los metadatos Inno y `AudioEvaluacionesConnector-<version>-Setup.exe`. El `AppId` de Inno permanece estable para que 0.2.0 actualice 0.1.0 en la misma entrada de Aplicaciones instaladas.
+La versión proviene de `package.json` y se inyecta en `/health`, el host nativo, los metadatos Inno y `AudioEvaluacionesConnector-<version>-Setup.exe`. El `AppId` de Inno permanece estable para que una versión nueva actualice la instalación anterior en la misma entrada de Aplicaciones instaladas.
 
 Durante upgrade, Inno solicita cierre cooperativo al host nuevo. Para 0.1.0 conserva además un fallback restringido a la ventana cuyo título exacto es **AudioEvaluaciones Connector**; nunca termina procesos Node arbitrarios. La actualización reemplaza Program Files, pero no ejecuta la limpieza de desinstalación: conserva `auth`, `config.json` y Documentos. Una desinstalación real elimina LocalAppData y conserva los reportes.
 
-## Actualizaciones seguras y distribución (0.4.0)
+## Actualizaciones seguras y distribución (0.5.0)
 
 La versión se obtiene únicamente de `package.json`. `/health` la expone como `version`; React y el Connector consultan por HTTPS el contrato público `https://audio-evaluaciones-medicas.vercel.app/connector-release.json`. Las comparaciones usan `semver`, no comparación lexicográfica. El contrato distingue `latestVersion` y `minimumSupportedVersion`: una versión compatible anterior muestra un aviso opcional, mientras una versión inferior al mínimo bloquea solamente la integración MediWeb. Una caída del manifest no bloquea el uso del Connector actual.
 
@@ -343,7 +343,7 @@ Todas estas rutas reutilizan el bind `127.0.0.1` y la misma allowlist CORS exact
 
 Los archivos verificados quedan en `%LOCALAPPDATA%\AudioEvaluacionesConnector\updates\<version>\`. Se conservan la versión pendiente y, como máximo, una anterior. Inno se abre en modo normal después del cierre cooperativo de Playwright, HTTP y Node. El upgrade conserva `auth`, `config.json`, la preferencia HKCU Run y `Documents\AudioEvaluaciones\Descargas`; `configVersion: 1` y la combinación defaults + config existente permiten añadir campos sin invalidar configuraciones 0.2.0.
 
-### Preparar v0.4.0 sin publicarla
+### Preparar v0.5.0 sin publicarla
 
 ```powershell
 cd C:\Users\USER\Documents\AudioEvaluaciones\mediweb-downloader
@@ -356,7 +356,7 @@ npm run release:prepare
 
 Para firma Authenticode futura, configura fuera del repositorio `WINDOWS_SIGN_CERT_PATH`, `WINDOWS_SIGN_CERT_PASSWORD` y, opcionalmente, `WINDOWS_SIGN_TIMESTAMP_URL`/`SIGNTOOL_PATH`. Sin certificado el build continúa con una advertencia. La firma ayuda a identificar al editor; SmartScreen también depende de reputación y no se promete que sus avisos desaparezcan de inmediato.
 
-Publicación manual: revisa los cuatro artifacts, crea manualmente el Release `v0.4.0` en `jannpierrproyectos/audio-evaluaciones-medicas`, sube únicamente Setup y `SHA256SUMS.txt`, copia las notas generadas, publica el Release y despliega después el manifest ya generado en Vercel. No reemplaces un binario publicado bajo la misma versión: cualquier cambio exige incrementar SemVer.
+Publicación manual: revisa los cuatro artifacts, crea el Release correspondiente al tag de `package.json` en `jannpierrproyectos/audio-evaluaciones-medicas`, sube únicamente Setup y `SHA256SUMS.txt`, copia las notas generadas, publica el Release y despliega después el manifest ya generado en Vercel. No reemplaces un binario publicado bajo la misma versión: cualquier cambio exige incrementar SemVer.
 
 ### Prueba manual del Setup en esta PC
 

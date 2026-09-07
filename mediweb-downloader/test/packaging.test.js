@@ -14,6 +14,7 @@ test("validador exige runtime/app/config y rechaza datos sensibles o tests", asy
       "app/package.json",
       "app/src/trayService.js",
       "app/src/service.js",
+      "app/src/managedFiles.js",
       "app/src/phoneExtractor.js",
       "app/node_modules/playwright-core/package.json",
       "app/node_modules/pdfjs-dist/package.json",
@@ -36,6 +37,9 @@ test("validador exige runtime/app/config y rechaza datos sensibles o tests", asy
     await assert.rejects(validateStaging(staging), /rutas prohibidas/);
     await rm(path.join(staging, "app", "test"), { recursive: true });
     await writeFile(path.join(staging, ".env.local"), "SECRET=fake");
+    await assert.rejects(validateStaging(staging), /rutas prohibidas/);
+    await rm(path.join(staging, ".env.local"));
+    await writeFile(path.join(staging, "audio-real.mp3"), "ID3dato");
     await assert.rejects(validateStaging(staging), /rutas prohibidas/);
   } finally {
     await rm(staging, { recursive: true, force: true });
