@@ -10,12 +10,10 @@
 | `ECG` | `electrocardiograma` | Acrónimo clínico inequívoco |
 | `PA: ...` | `presión arterial: ...` | Solo ante separador/contexto de presión |
 | `HDL`, `LDL`, `FEV1`, `FVC` | Deletreo controlado | Solo tokens completos |
-| `mg/dL` | `miligramos por decilitro` | Unidad completa |
-| `g/dL` | `gramos por decilitro` | Unidad completa; incluye hemoglobina |
-| `mmHg` | `milímetros de mercurio` | Unidad completa |
-| `kg`, `cm`, número + `m` | Unidad en palabras | Tokens completos/contexto numérico para metros |
-| `120/80 mmHg` | `ciento veinte sobre ochenta milímetros de mercurio` | La barra solo cambia cuando sigue la unidad de presión |
-| `98%` | `noventa y ocho por ciento` | Enteros de 0 a 999 |
+| `kg` | `kilogramos` | Única unidad de peso verbalizada |
+| `cm` | `centímetros` | Única unidad de talla verbalizada |
+| `mg/dL`, `g/dL`, `mmHg`, `dB`, `%`, número + `m` | Se omite la unidad y se conserva el valor | Reduce texto enviado a TTS |
+| `120/80 mmHg` | `ciento veinte sobre ochenta` | Conserva la lectura natural de la presión sin verbalizar la unidad |
 | `<`, `>`, `≤`, `≥`, `±` | Frase equivalente | Solo en TTS |
 
 Los párrafos en mayúsculas se normalizan antes de llegar al servicio. La puntuación y los límites de párrafo se convierten en pausas mediante texto simple; no se usa SSML.
@@ -24,7 +22,7 @@ Los párrafos en mayúsculas se normalizan antes de llegar al servicio. La puntu
 
 Los decimales conservan su representación (`24.8`) hasta contar con evidencia de pronunciación de la voz configurada. Los nombres no reciben tildes inventadas. Se admite `pronunciationOverrides` explícito y documentado, pero el motor no genera pronunciaciones automáticamente.
 
-La clasificación de hemoglobina no cambia esta política: el valor decimal se conserva y únicamente `g/dL` se expande a `gramos por decilitro` en `ttsText`.
+La política de unidades se aplica solo al `ttsText`: el `displayText` conserva las unidades clínicas originales para lectura y edición. En audio solo se verbalizan `kilogramos` y `centímetros`.
 
 ## Servicio sin cambios
 
