@@ -14,14 +14,16 @@
 | `mg/dL`, `g/dL` | `miligramos por decilitro`, `gramos por decilitro` | Conserva la unidad clínica presente en display |
 | `mmHg`, `dB`, `%` | `milímetros de mercurio`, `decibeles`, `por ciento` | Solo en `ttsText` |
 | `120/80 mmHg` | `ciento veinte sobre ochenta milímetros de mercurio` | Lectura completa de presión arterial |
-| `14.2` | `catorce punto dos` | Decimales clínicos; la fracción se dicta dígito por dígito |
+| `14.2` | `catorce punto dos` | Decimal clínico de un dígito |
+| `32.17` | `treinta y dos punto diecisiete` | La fracción sin cero inicial se verbaliza como número completo |
+| `1.05` | `uno punto cero cinco` | Los ceros iniciales de la fracción se preservan verbalmente |
 | `<`, `>`, `≤`, `≥`, `±` | Frase equivalente | Solo en TTS |
 
 Los párrafos en mayúsculas se normalizan antes de llegar al servicio. La puntuación y los límites de párrafo se convierten en pausas mediante texto simple; no se usa SSML.
 
 ## Decimales y nombres
 
-Los decimales clínicos de hasta tres dígitos enteros se verbalizan de forma determinística; por ejemplo, `24.8` pasa a `veinticuatro punto ocho`. Los nombres no reciben tildes inventadas. Se admite `pronunciationOverrides` explícito y documentado, pero el motor no genera pronunciaciones automáticamente.
+Los decimales clínicos de hasta tres dígitos enteros se verbalizan de forma determinística. La fracción se lee como un número completo cuando no empieza por cero (`32.17` pasa a `treinta y dos punto diecisiete`). Si contiene ceros iniciales, se leen sus dígitos para no alterar la precisión comunicada (`1.05` pasa a `uno punto cero cinco`). Los nombres no reciben tildes inventadas. Se admite `pronunciationOverrides` explícito y documentado, pero el motor no genera pronunciaciones automáticamente.
 
 La política de unidades se aplica solo al `ttsText`: el `displayText` conserva las unidades clínicas originales para lectura y edición. El normalizador es idempotente, de modo que el paso defensivo del cliente no duplica unidades ya expandidas.
 

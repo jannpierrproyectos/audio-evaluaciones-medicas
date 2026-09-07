@@ -29,11 +29,19 @@ function normalizeDecimalNumbers(text) {
   return text.replace(/\b(\d{1,3})[.,](\d+)\b/g, (match, integerPart, fractionalPart) => {
     const integerText = numberToSpanish(integerPart);
     if (/\d/.test(integerText)) return match;
-    const fractionalText = [...fractionalPart]
-      .map((digit) => SMALL_NUMBERS[Number(digit)])
-      .join(" ");
+    const fractionalText = normalizeFractionalPart(fractionalPart);
     return `${integerText} punto ${fractionalText}`;
   });
+}
+
+function normalizeFractionalPart(fractionalPart) {
+  const digitsText = [...fractionalPart]
+    .map((digit) => SMALL_NUMBERS[Number(digit)])
+    .join(" ");
+  if (fractionalPart.length > 1 && fractionalPart.startsWith("0")) return digitsText;
+
+  const numberText = numberToSpanish(fractionalPart);
+  return /\d/.test(numberText) ? digitsText : numberText;
 }
 
 function normalizeDates(text) {
