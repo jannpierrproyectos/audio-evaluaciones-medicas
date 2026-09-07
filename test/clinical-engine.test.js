@@ -18,13 +18,13 @@ test("normaliza placeholders, mayúsculas, tildes y nombres sin inventar tildes"
   assert.equal(normalizePersonName("JUAN PEREZ GARCIA"), "Juan Perez Garcia");
 });
 
-test("prepara dicción sin modificar el display", () => {
-  const display = "PA: 120/80 mmHg. IMC 24.8. Glucosa: 98 mg/dL. Saturación: 98%. ECG normal. Resultado ≥ 10 y < 20.";
+test("prepara dicción sin modificar el display y solo verbaliza kg y cm", () => {
+  const display = "PA: 120/80 mmHg. IMC 24.8. Glucosa: 98 mg/dL. Saturación: 98%. Peso: 72 kg. Talla: 165 cm. ECG normal. Resultado ≥ 10 y < 20.";
   const tts = prepareTextForTts(display);
-  assert.equal(display, "PA: 120/80 mmHg. IMC 24.8. Glucosa: 98 mg/dL. Saturación: 98%. ECG normal. Resultado ≥ 10 y < 20.");
+  assert.equal(display, "PA: 120/80 mmHg. IMC 24.8. Glucosa: 98 mg/dL. Saturación: 98%. Peso: 72 kg. Talla: 165 cm. ECG normal. Resultado ≥ 10 y < 20.");
   assert.equal(
     tts,
-    "presión arterial: ciento veinte sobre ochenta milímetros de mercurio. índice de masa corporal 24.8. Glucosa: 98 miligramos por decilitro. Saturación: noventa y ocho por ciento. electrocardiograma normal. Resultado mayor o igual que 10 y menor que 20.",
+    "presión arterial: ciento veinte sobre ochenta. índice de masa corporal 24.8. Glucosa: 98. Saturación: 98. Peso: 72 kilogramos. Talla: 165 centímetros. electrocardiograma normal. Resultado mayor o igual que 10 y menor que 20.",
   );
 });
 
