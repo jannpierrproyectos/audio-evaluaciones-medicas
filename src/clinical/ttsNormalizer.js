@@ -25,8 +25,13 @@ function normalizeBloodPressure(text) {
   );
 }
 
-function normalizePercentages(text) {
-  return text.replace(/\b(\d{1,3})\s*%/g, (_, value) => `${numberToSpanish(value)} por ciento`);
+function stripNonessentialUnits(text) {
+  return text
+    .replace(/\s*\b(?:g|mg)\s*\/\s*dL\b/giu, "")
+    .replace(/\s*\bmmHg\b/giu, "")
+    .replace(/\s*\bdB\b/giu, "")
+    .replace(/\s*%/g, "")
+    .replace(/(\d(?:[.,]\d+)?)\s*m\b/giu, "$1");
 }
 
 function normalizeDates(text) {
@@ -47,11 +52,11 @@ export function prepareTextForTts(displayText, options = {}) {
   TTS_ABBREVIATIONS.forEach(([pattern, replacement]) => { text = text.replace(pattern, replacement); });
   text = text
     .replace(/\bEPP\b(?=\s+auditivo)/giu, "equipo de protección personal")
-    .replace(/\buso (?:obligatorio )?de EPP\b/giu, (match) => match.replace(/EPP/iu, "equipo de protección personal"))
-    .replace(/(\d(?:[.,]\d+)?)\s*dB\b/giu, "$1 decibeles");
+    .replace(/\buso (?:obligatorio )?de EPP\b/giu, (match) => match.replace(/EPP/iu, "equipo de protección personal"));
   text = normalizeBloodPressure(text);
+  text = stripNonessentialUnits(text);
   TTS_UNITS.forEach(([pattern, replacement]) => { text = text.replace(pattern, replacement); });
-  text = normalizeDates(normalizePercentages(text))
+  text = normalizeDates(text)
     .replace(/>=|=>/g, " mayor o igual que ")
     .replace(/<=|=</g, " menor o igual que ")
     .replace(/>\s*igual\s+a\b/giu, " mayor o igual que ")
