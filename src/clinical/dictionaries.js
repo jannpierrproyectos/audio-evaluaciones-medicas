@@ -81,10 +81,6 @@ export const TTS_ABBREVIATIONS = [
 ];
 
 export const TTS_UNITS = [
-  [/\bg\s*\/\s*dL\b/giu, "gramos por decilitro"],
-  [/\bmg\s*\/\s*dL\b/giu, "miligramos por decilitro"],
-  [/\bmmHg\b/giu, "milímetros de mercurio"],
   [/\bkg\b/giu, "kilogramos"],
   [/\bcm\b/giu, "centímetros"],
-  [/(\d(?:[.,]\d+)?)\s*m\b/giu, "$1 metros"],
 ];
