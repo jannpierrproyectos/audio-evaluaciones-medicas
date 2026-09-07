@@ -65,7 +65,7 @@ test("agrupa glucosa, colesterol y triglicéridos normales sin valores", () => {
     triglycerides: 120,
   }));
 
-  assert.match(result.displayText, /resultados de glucosa, colesterol y triglicéridos se encuentran dentro de los rangos de referencia/i);
+  assert.match(result.displayText, /resultados de glucosa, colesterol y triglicéridos son normales/i);
   assert.doesNotMatch(result.displayText, /\b(?:90|180|120)\b|mg\/dL/i);
   assert.doesNotMatch(result.ttsText, /\b(?:90|180|120)\b|miligramos por decilitro/i);
 });
@@ -77,8 +77,8 @@ test("agrupa dos analitos normales e individualiza triglicéridos altos", () => 
     triglycerides: 260,
   }));
 
-  assert.match(result.displayText, /resultados de glucosa y colesterol se encuentran dentro de los rangos de referencia/i);
-  assert.match(result.displayText, /triglicéridos son de 260 mg\/dL.+rango alto reportado/i);
+  assert.match(result.displayText, /resultados de glucosa y colesterol son normales/i);
+  assert.match(result.displayText, /triglicéridos son de 260 mg\/dL.+están elevados/i);
   assert.doesNotMatch(result.displayText, /\b(?:92|180)\b/);
   assert.match(result.ttsText, /260 miligramos por decilitro/i);
 });
@@ -90,8 +90,8 @@ test("resume triglicéridos normales e individualiza glucosa alta y colesterol l
     triglycerides: 100,
   }));
 
-  assert.match(result.displayText, /resultado de triglicéridos se encuentra dentro del rango de referencia/i);
-  assert.match(result.displayText, /glucosa es de 118 mg\/dL.+por encima del rango/i);
+  assert.match(result.displayText, /resultado de triglicéridos es normal/i);
+  assert.match(result.displayText, /glucosa es de 118 mg\/dL.+está elevada/i);
   assert.match(result.displayText, /colesterol total es de 220 mg\/dL.+límite alto/i);
   assert.doesNotMatch(result.displayText, /triglicéridos son de 100/i);
 });
@@ -99,8 +99,16 @@ test("resume triglicéridos normales e individualiza glucosa alta y colesterol l
 test("un único analito normal se resume sin valor exacto", () => {
   const result = processWorkerClinicalNarrative(metabolicWorker({ glucose: 96 }));
 
-  assert.match(result.displayText, /resultado de glucosa se encuentra dentro del rango de referencia/i);
+  assert.match(result.displayText, /resultado de glucosa es normal/i);
   assert.doesNotMatch(result.displayText, /\b96\b|mg\/dL/i);
+});
+
+test("glucosa baja conserva la clasificación y la unidad en display y TTS", () => {
+  const result = processWorkerClinicalNarrative(metabolicWorker({ glucose: 60 }));
+
+  assert.match(result.displayText, /glucosa es de 60 mg\/dL y está disminuida/i);
+  assert.match(result.ttsText, /glucosa es de 60 miligramos por decilitro y está disminuida/i);
+  assert.doesNotMatch(result.displayText, /normal|elevada/i);
 });
 
 test("omite musculoesquelético regular incluso con IMC elevado", () => {

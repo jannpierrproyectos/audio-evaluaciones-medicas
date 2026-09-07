@@ -71,16 +71,22 @@ export const CLINICAL_ACCENT_REPLACEMENTS = [
 ];
 
 export const TTS_ABBREVIATIONS = [
-  [/\bIMC\b/g, "índice de masa corporal"],
-  [/\bECG\b/g, "electrocardiograma"],
-  [/\bPA(?=\s*[:=]|\s+fue|\s+de)\b/g, "presión arterial"],
-  [/\bFEV1\b/g, "efe, e, uve, uno"],
-  [/\bFVC\b/g, "efe, uve, ce"],
-  [/\bHDL\b/g, "hache, de, ele"],
-  [/\bLDL\b/g, "ele, de, ele"],
+  [/\bIMC\b/giu, "índice de masa corporal"],
+  [/\bECG\b/giu, "electrocardiograma"],
+  [/\bPA(?=\s*[:=]|\s+fue|\s+de)\b/giu, "presión arterial"],
+  [/\bFEV1\b/giu, "efe, e, uve, uno"],
+  [/\bFVC\b/giu, "efe, uve, ce"],
+  [/\bHDL\b/giu, "hache, de, ele"],
+  [/\bLDL\b/giu, "ele, de, ele"],
 ];
 
 export const TTS_UNITS = [
+  [/\bkg\s*\/\s*m(?:²|2)(?=\s|[.,;:]|$)/giu, "kilogramos por metro cuadrado"],
+  [/\bmg\s*\/\s*dL\b/giu, "miligramos por decilitro"],
+  [/\bg\s*\/\s*dL\b/giu, "gramos por decilitro"],
+  [/\bmmHg\b/giu, "milímetros de mercurio"],
+  [/\bdB\b/giu, "decibeles"],
+  [/\s*%/g, " por ciento"],
   [/\bkg\b/giu, "kilogramos"],
   [/\bcm\b/giu, "centímetros"],
 ];

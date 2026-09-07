@@ -258,8 +258,8 @@ function auditNarrative(worker, clinicalResult) {
   if (new Set(recommendations).size < recommendations.length) {
     flags.push(createFlag("duplicate_recommendation_source", "narrative", "La fuente contiene recomendaciones duplicadas."));
   }
-  if (/\b(?:IMC|ECG|PA|HDL|LDL|FEV1|FVC)\b/.test(tts)) flags.push(createFlag("unresolved_abbreviation", "tts", "Quedó una abreviatura clínica sin resolver en TTS."));
-  if (/\b(?:mg\s*\/\s*dL|mmHg|kg|cm)\b/i.test(tts)) flags.push(createFlag("unnormalized_tts_unit", "tts", "Quedó una unidad abreviada en TTS."));
+  if (/\b(?:IMC|ECG|EKG|PA|EPP|OD|OI|HDL|LDL|VLDL|TGO|TGP|GGT|FEV1|FVC|Rx)\b/.test(tts)) flags.push(createFlag("unresolved_abbreviation", "tts", "Quedó una abreviatura clínica sin resolver en TTS."));
+  if (/(?:\b(?:mg\s*\/\s*dL|g\s*\/\s*dL|mmHg|dB|kg|cm)\b|\bkg\s*\/\s*m(?:²|2)|%)/i.test(tts)) flags.push(createFlag("unnormalized_tts_unit", "tts", "Quedó una unidad abreviada en TTS."));
   if (tts.split(/(?<=[.!?])\s+/).some((sentence) => sentence.split(/\s+/).filter(Boolean).length > 50)) {
     flags.push(createFlag("long_tts_sentence", "tts", "El texto TTS contiene una frase de más de 50 palabras."));
   }

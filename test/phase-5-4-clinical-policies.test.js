@@ -154,17 +154,18 @@ test("parser extrae rangos de hemoglobina del documento y detecta variantes ambi
 });
 
 for (const [label, worker, expectedStatus, expectedText] of [
-  ["masculina normal", hemoglobinWorker("MASCULINO", 14.5, maleRange), "NORMAL", /dentro del rango normal/i],
-  ["masculina baja", hemoglobinWorker("MASCULINO", 12.9, maleRange), "LOW", /se encuentra baja/i],
-  ["masculina alta", hemoglobinWorker("MASCULINO", 18.1, maleRange), "HIGH", /se encuentra elevada/i],
-  ["femenina normal", hemoglobinWorker("FEMENINO", 13, femaleRange), "NORMAL", /dentro del rango normal/i],
-  ["femenina baja", hemoglobinWorker("FEMENINO", 11.9, femaleRange), "LOW", /se encuentra baja/i],
-  ["femenina alta", hemoglobinWorker("FEMENINO", 16.1, femaleRange), "HIGH", /se encuentra elevada/i],
+  ["masculina normal", hemoglobinWorker("MASCULINO", 14.5, maleRange), "NORMAL", /está normal/i],
+  ["masculina baja", hemoglobinWorker("MASCULINO", 12.9, maleRange), "LOW", /está disminuida/i],
+  ["masculina alta", hemoglobinWorker("MASCULINO", 18.1, maleRange), "HIGH", /está elevada/i],
+  ["femenina normal", hemoglobinWorker("FEMENINO", 13, femaleRange), "NORMAL", /está normal/i],
+  ["femenina baja", hemoglobinWorker("FEMENINO", 11.9, femaleRange), "LOW", /está disminuida/i],
+  ["femenina alta", hemoglobinWorker("FEMENINO", 16.1, femaleRange), "HIGH", /está elevada/i],
 ]) {
   test(`hemoglobina usa únicamente rango fuente: ${label}`, () => {
     const result = processWorkerClinicalNarrative(worker);
     assert.equal(result.findings.laboratorio_basico.hemoglobina_estado, expectedStatus);
     assert.match(result.displayText, expectedText);
+    assert.match(result.ttsText, expectedText);
     assert.match(result.ttsText, /gramos por decilitro/i);
     assert.doesNotMatch(result.displayText, /anemia|policitemia/i);
   });
@@ -176,7 +177,7 @@ test("hemoglobina sin rango, ambigua o sin sexo no se clasifica", () => {
   const noSex = processWorkerClinicalNarrative(hemoglobinWorker("", 14.5, { ...maleRange, ...femaleRange }));
   for (const result of [missing, ambiguous, noSex]) {
     assert.equal(result.findings.laboratorio_basico.hemoglobina_estado, "");
-    assert.doesNotMatch(result.displayText, /rango normal|se encuentra baja|se encuentra elevada/i);
+    assert.doesNotMatch(result.displayText, /está normal|está disminuida|está elevada/i);
   }
   assert.ok(flagTypes(missing).has("hemoglobin_reference_range_missing"));
   assert.ok(flagTypes(ambiguous).has("hemoglobin_reference_range_ambiguous"));

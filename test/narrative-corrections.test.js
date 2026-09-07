@@ -72,6 +72,7 @@ test("normaliza símbolos TTS solo en contextos inequívocos y conserva presión
   assert.match(text, /nitrilo o PVC/i);
   assert.match(text, /trece de enero de dos mil veintisiete/i);
   assert.doesNotMatch(text, /[/()]/);
+  assert.doesNotMatch(text, /,\s*\./);
 });
 
 test("retira paréntesis de variante normal sin alterar el significado para TTS", () => {
@@ -129,6 +130,22 @@ test("decimales son solo informational y no convierten un caso en problemático"
     ttsText: "Su índice de masa corporal es 24.8.",
   }]);
   assert.deepEqual(result.statusCounts, { ERROR: 0, REVIEW: 0, INFORMATIONAL: 1, OK: 0 });
+});
+
+test("la auditoría detecta prosa de laboratorio verbosa y conectores repetidos", () => {
+  const result = analyzeNarrativeCases([{
+    caseNumber: 1,
+    fileName: "sintetico.pdf",
+    pageStart: 1,
+    flags: [],
+    rawClinical: {},
+    displayText: "La glucosa está dentro del rango de referencia. Por ello, se recomienda control. Por ello, la evaluación concluye.",
+    ttsText: "La glucosa está dentro del rango de referencia. Por ello, se recomienda control. Por ello, la evaluación concluye.",
+  }]);
+  const keys = new Set(result.patterns.map((pattern) => pattern.key));
+  assert.ok(keys.has("verbose_laboratory_reference_phrase"));
+  assert.ok(keys.has("repetitive_por_ello"));
+  assert.equal(result.statusCounts.ERROR, 1);
 });
 
 test("divide restricciones extensas en oraciones sintácticas", () => {

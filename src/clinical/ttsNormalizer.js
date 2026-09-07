@@ -25,13 +25,15 @@ function normalizeBloodPressure(text) {
   );
 }
 
-function stripNonessentialUnits(text) {
-  return text
-    .replace(/\s*\b(?:g|mg)\s*\/\s*dL\b/giu, "")
-    .replace(/\s*\bmmHg\b/giu, "")
-    .replace(/\s*\bdB\b/giu, "")
-    .replace(/\s*%/g, "")
-    .replace(/(\d(?:[.,]\d+)?)\s*m\b/giu, "$1");
+function normalizeDecimalNumbers(text) {
+  return text.replace(/\b(\d{1,3})[.,](\d+)\b/g, (match, integerPart, fractionalPart) => {
+    const integerText = numberToSpanish(integerPart);
+    if (/\d/.test(integerText)) return match;
+    const fractionalText = [...fractionalPart]
+      .map((digit) => SMALL_NUMBERS[Number(digit)])
+      .join(" ");
+    return `${integerText} punto ${fractionalText}`;
+  });
 }
 
 function normalizeDates(text) {
@@ -54,9 +56,9 @@ export function prepareTextForTts(displayText, options = {}) {
     .replace(/\bEPP\b(?=\s+auditivo)/giu, "equipo de protección personal")
     .replace(/\buso (?:obligatorio )?de EPP\b/giu, (match) => match.replace(/EPP/iu, "equipo de protección personal"));
   text = normalizeBloodPressure(text);
-  text = stripNonessentialUnits(text);
+  text = normalizeDates(text);
   TTS_UNITS.forEach(([pattern, replacement]) => { text = text.replace(pattern, replacement); });
-  text = normalizeDates(text)
+  text = normalizeDecimalNumbers(text)
     .replace(/>=|=>/g, " mayor o igual que ")
     .replace(/<=|=</g, " menor o igual que ")
     .replace(/>\s*igual\s+a\b/giu, " mayor o igual que ")
@@ -72,6 +74,7 @@ export function prepareTextForTts(displayText, options = {}) {
     .replace(/\bmascarilla\s*\/\s*respirador\b/giu, "mascarilla o respirador")
     .replace(/\(\s*(nitrilo\s+o\s+PVC)\s*\)/giu, ", $1,")
     .replace(/\(\s*(variante\s+normal)\s*\)/giu, "$1")
+    .replace(/,\s*([.!?])/g, "$1")
     .replace(/\s+/g, " ")
     .replace(/\s+([,.;:!?])/g, "$1")
     .trim();

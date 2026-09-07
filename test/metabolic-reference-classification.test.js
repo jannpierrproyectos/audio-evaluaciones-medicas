@@ -127,9 +127,9 @@ test("narrativa clasifica sin inventar diagnóstico ni recomendación", () => {
       trigliceridos_valor: 260, trigliceridos_valor_fuente: "260", trigliceridos_unidad: "mg/dL", trigliceridos_referencia: triglyceridesReference(),
     },
   }));
-  assert.match(result.displayText, /glucosa es de 110 mg\/dL.+por encima del rango/);
-  assert.match(result.displayText, /colesterol total es de 250 mg\/dL.+rango alto/);
-  assert.match(result.displayText, /triglicéridos son de 260 mg\/dL.+rango alto/);
+  assert.match(result.displayText, /glucosa es de 110 mg\/dL.+está elevada/);
+  assert.match(result.displayText, /colesterol total es de 250 mg\/dL.+está elevado/);
+  assert.match(result.displayText, /triglicéridos son de 260 mg\/dL.+están elevados/);
   assert.doesNotMatch(result.displayText, /diabetes|hiperglucemia|hipercolesterolemia|hipertrigliceridemia|nutrición|endocrinología|dieta/i);
 });
 
@@ -189,7 +189,7 @@ test("discrepancia fuente-numero conserva ambos datos y genera REVIEW específic
     evaluaciones_cualitativas: { otros_hallazgos_resultado: "HIPERCOLESTEROLEMIA DEFINIDA" },
   }));
   assert.ok(result.reviewFlags.some((flag) => flag.type === "metabolic_source_classification_conflict"));
-  assert.match(result.displayText, /resultado de colesterol se encuentra dentro del rango de referencia/i);
+  assert.match(result.displayText, /resultado de colesterol es normal/i);
   assert.doesNotMatch(result.displayText, /colesterol total es de 180/i);
   assert.match(result.displayText, /fuente también reporta hipercolesterolemia definida/i);
   assert.match(result.displayText, /requiere revisión/i);
@@ -274,9 +274,9 @@ test("control ORL sin hallazgo auditivo permanece TRUE orphan", () => {
   assert.doesNotMatch(result.displayText, /hipoacusia|p[eé]rdida auditiva/i);
 });
 
-test("TTS verbaliza mg/dL sin modificar decimales ni políticas ajenas", () => {
+test("TTS verbaliza mg/dL y decimales clínicos sin modificar políticas ajenas", () => {
   assert.equal(
     prepareTextForTts("Su glucosa es de 90.5 mg/dL."),
-    "Su glucosa es de 90.5 miligramos por decilitro.",
+    "Su glucosa es de noventa punto cinco miligramos por decilitro.",
   );
 });

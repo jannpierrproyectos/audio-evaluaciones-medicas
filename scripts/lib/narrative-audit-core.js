@@ -83,6 +83,8 @@ export const NARRATIVE_AUDIT_PATTERNS = [
   ["tts_bad_comparator", "ERROR", "TTS", (c) => /mayor que (?:igual a|a)\b|menor que (?:igual a|a)\b/i.test(c.ttsText)],
   ["lowercase_sentence_start", "ERROR", "Redacción", (c) => /\.\s+(?:se solicita|control regular|uso estricto)\b/.test(c.displayText)],
   ["known_clinical_typo", "ERROR", "Ortografía clínica", (c) => /\bsueperior\b/i.test(c.displayText)],
+  ["verbose_laboratory_reference_phrase", "ERROR", "Laboratorio", (c) => /(?:dentro|por encima|por debajo) (?:del|de los?) rangos? (?:normales? de |de )referencia/i.test(c.displayText)],
+  ["repetitive_por_ello", "ERROR", "Redacción", (c) => countMatches(c.displayText, /\bPor ello\b/gi) >= 2],
 ];
 
 function normalizeKey(value) {

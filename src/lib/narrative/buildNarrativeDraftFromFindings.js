@@ -447,11 +447,11 @@ function buildAnthropometryAndHemoglobin(findings) {
   if (hasText(lab.hemoglobina_valor)) {
     const unit = hasText(lab.hemoglobina_unidad) ? ` ${lab.hemoglobina_unidad}` : "";
     const statusText = lab.hemoglobina_estado === "NORMAL"
-      ? " y se encuentra dentro del rango normal de referencia"
+      ? " y está normal"
       : lab.hemoglobina_estado === "LOW"
-        ? " y se encuentra baja, por debajo del rango de referencia"
+        ? " y está disminuida"
         : lab.hemoglobina_estado === "HIGH"
-          ? " y se encuentra elevada, por encima del rango de referencia"
+          ? " y está elevada"
           : "";
     fragments.push(`En sus resultados de laboratorio, su hemoglobina es de ${lab.hemoglobina_valor}${unit}${statusText}.`);
   }
@@ -522,32 +522,31 @@ function buildMetabolicParagraph(group) {
   const normalSummary = normalAnalytes.length === 0
     ? ""
     : normalAnalytes.length === 1
-      ? `Su resultado de ${normalAnalytes[0]} se encuentra dentro del rango de referencia.`
-      : `Sus resultados de ${joinNatural(normalAnalytes)} se encuentran dentro de los rangos de referencia.`;
+      ? `Su resultado de ${normalAnalytes[0]} es normal.`
+      : `Sus resultados de ${joinNatural(normalAnalytes)} son normales.`;
   const classificationSentences = classifiedItems
     .filter((item) => item.reference_classification !== "NORMAL")
     .map((item) => {
     const value = item.source_value || item.value;
     const unit = item.unit || "mg/dL";
     if (item.field?.endsWith("glucosa_valor")) {
-      const relation = item.reference_classification === "LOW"
-        ? "por debajo del rango de referencia"
-        : item.reference_classification === "HIGH"
-          ? "por encima del rango de referencia"
-          : "dentro del rango de referencia";
-      return `Su glucosa es de ${value} ${unit} y se encuentra ${relation}.`;
+      const status = item.reference_classification === "LOW" ? "disminuida" : "elevada";
+      return `Su glucosa es de ${value} ${unit} y está ${status}.`;
     }
-    const descriptions = {
-      NORMAL: "dentro del rango normal reportado",
-      BORDERLINE_HIGH: "en el rango límite alto reportado",
-      HIGH: "en el rango alto reportado",
-      VERY_HIGH: "en el rango muy alto reportado",
-    };
-    const description = descriptions[item.reference_classification];
     if (item.field?.endsWith("colesterol_valor")) {
-      return `Su colesterol total es de ${value} ${unit} y se encuentra ${description}.`;
+      const status = item.reference_classification === "BORDERLINE_HIGH"
+        ? "se encuentra en el límite alto reportado"
+        : item.reference_classification === "VERY_HIGH"
+          ? "está muy elevado"
+          : "está elevado";
+      return `Su colesterol total es de ${value} ${unit} y ${status}.`;
     }
-    return `Sus triglicéridos son de ${value} ${unit} y se encuentran ${description}.`;
+    const status = item.reference_classification === "BORDERLINE_HIGH"
+      ? "se encuentran en el límite alto reportado"
+      : item.reference_classification === "VERY_HIGH"
+        ? "están muy elevados"
+        : "están elevados";
+    return `Sus triglicéridos son de ${value} ${unit} y ${status}.`;
   });
   const unclassifiedGroup = {
     ...group,
@@ -660,7 +659,7 @@ function buildOphthalmologyParagraph(group) {
 
   if (recommendations.length) {
     paragraph += group.association_status === "SAFE_ASSOCIATION"
-      ? ` Por ello, se recomienda ${joinNatural(recommendations)}.`
+      ? ` Se recomienda ${joinNatural(recommendations)}.`
       : ` Asimismo, se recomienda ${joinNatural(recommendations)}.`;
   }
 
@@ -748,7 +747,7 @@ function buildGenericAreaParagraph(group, label, area = "") {
 
   if (recommendations.length) {
     paragraph += group.association_status === "SAFE_ASSOCIATION"
-      ? ` Por ello, se recomienda ${joinNatural(recommendations)}.`
+      ? ` Se recomienda ${joinNatural(recommendations)}.`
       : ` Asimismo, se recomienda ${joinNatural(recommendations)}.`;
   }
 
@@ -905,7 +904,7 @@ function buildAptitude(findings) {
     return "";
   }
 
-  let paragraph = `Por ello, su calificacion final es ${normalizeClinicalText(findings.aptitud.resultado)}.`;
+  let paragraph = `Su calificacion final es ${normalizeClinicalText(findings.aptitud.resultado)}.`;
 
   if (findings.restricciones?.narrar && findings.restricciones.texto) {
     const restrictionsSentence = buildRestrictionsSentence(findings.restricciones.texto);

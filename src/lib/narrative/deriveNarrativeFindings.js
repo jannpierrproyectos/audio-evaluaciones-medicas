@@ -341,9 +341,9 @@ function deriveLaboratory(laboratorio = {}) {
   const hallazgosRelevantes = [];
 
   const classificationText = {
-    glucosa: { LOW: "por debajo del rango", NORMAL: "dentro del rango", HIGH: "por encima del rango" },
-    colesterol: { NORMAL: "normal", BORDERLINE_HIGH: "limite alto", HIGH: "alto" },
-    trigliceridos: { NORMAL: "normales", BORDERLINE_HIGH: "limite alto", HIGH: "altos", VERY_HIGH: "muy altos" },
+    glucosa: { LOW: "disminuida", NORMAL: "normal", HIGH: "elevada" },
+    colesterol: { NORMAL: "normal", BORDERLINE_HIGH: "en el límite alto", HIGH: "elevado" },
+    trigliceridos: { NORMAL: "normales", BORDERLINE_HIGH: "en el límite alto", HIGH: "elevados", VERY_HIGH: "muy elevados" },
   };
   [
     ["glucosa", "Glucosa"],

@@ -10,19 +10,20 @@
 | `ECG` | `electrocardiograma` | Acrónimo clínico inequívoco |
 | `PA: ...` | `presión arterial: ...` | Solo ante separador/contexto de presión |
 | `HDL`, `LDL`, `FEV1`, `FVC` | Deletreo controlado | Solo tokens completos |
-| `kg` | `kilogramos` | Única unidad de peso verbalizada |
-| `cm` | `centímetros` | Única unidad de talla verbalizada |
-| `mg/dL`, `g/dL`, `mmHg`, `dB`, `%`, número + `m` | Se omite la unidad y se conserva el valor | Reduce texto enviado a TTS |
-| `120/80 mmHg` | `ciento veinte sobre ochenta` | Conserva la lectura natural de la presión sin verbalizar la unidad |
+| `kg`, `cm`, `kg/m²` | `kilogramos`, `centímetros`, `kilogramos por metro cuadrado` | Unidades antropométricas inequívocas |
+| `mg/dL`, `g/dL` | `miligramos por decilitro`, `gramos por decilitro` | Conserva la unidad clínica presente en display |
+| `mmHg`, `dB`, `%` | `milímetros de mercurio`, `decibeles`, `por ciento` | Solo en `ttsText` |
+| `120/80 mmHg` | `ciento veinte sobre ochenta milímetros de mercurio` | Lectura completa de presión arterial |
+| `14.2` | `catorce punto dos` | Decimales clínicos; la fracción se dicta dígito por dígito |
 | `<`, `>`, `≤`, `≥`, `±` | Frase equivalente | Solo en TTS |
 
 Los párrafos en mayúsculas se normalizan antes de llegar al servicio. La puntuación y los límites de párrafo se convierten en pausas mediante texto simple; no se usa SSML.
 
 ## Decimales y nombres
 
-Los decimales conservan su representación (`24.8`) hasta contar con evidencia de pronunciación de la voz configurada. Los nombres no reciben tildes inventadas. Se admite `pronunciationOverrides` explícito y documentado, pero el motor no genera pronunciaciones automáticamente.
+Los decimales clínicos de hasta tres dígitos enteros se verbalizan de forma determinística; por ejemplo, `24.8` pasa a `veinticuatro punto ocho`. Los nombres no reciben tildes inventadas. Se admite `pronunciationOverrides` explícito y documentado, pero el motor no genera pronunciaciones automáticamente.
 
-La política de unidades se aplica solo al `ttsText`: el `displayText` conserva las unidades clínicas originales para lectura y edición. En audio solo se verbalizan `kilogramos` y `centímetros`.
+La política de unidades se aplica solo al `ttsText`: el `displayText` conserva las unidades clínicas originales para lectura y edición. El normalizador es idempotente, de modo que el paso defensivo del cliente no duplica unidades ya expandidas.
 
 ## Servicio sin cambios
 
