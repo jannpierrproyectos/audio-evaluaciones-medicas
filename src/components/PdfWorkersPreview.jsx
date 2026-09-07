@@ -1,7 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import PdfWorkerReviewForm from "./PdfWorkerReviewForm.jsx";
 import { processWorkerClinicalNarrative } from "../clinical/index.js";
 import { synthesizeAudioFromText } from "../lib/ttsClient.js";
+import {
+  revealManagedFile,
+  saveWhatsAppAudio,
+  validateManagedFile,
+} from "../services/mediwebService.js";
 import {
   NARRATIVE_GREETINGS,
   applyNarrativeGreeting,
@@ -16,6 +21,12 @@ import {
   getWorkerPhone,
   resolveEditableNarrative,
 } from "../lib/workerReviewUx.js";
+import {
+  buildWhatsAppAudioFilename,
+  buildWhatsAppMessage,
+  buildWhatsAppUrl,
+  getWhatsAppAvailability,
+} from "../lib/whatsappMessage.js";
 
 const FILTERS = [
   { id: "all", label: "Todos" },
@@ -410,6 +421,9 @@ function WorkerTextAudioPanel({
             texto_tts: result.ttsText,
             audio_error: "",
             audio_stale: false,
+            whatsapp_audio_file_id: "",
+            whatsapp_audio_filename: "",
+            whatsapp_audio_sha256: "",
             last_audio_generated_at: new Date().toISOString(),
           },
         };
@@ -536,7 +550,229 @@ function WorkerTextAudioPanel({
         </div>
       )}
       </div>
+
+      <WhatsAppPreparationPanel
+        worker={worker}
+        workerIndex={workerIndex}
+        onUpdateWorker={onUpdateWorker}
+      />
     </div>
+  );
+}
+
+function WhatsAppPreparationPanel({ worker, workerIndex, onUpdateWorker }) {
+  const [preparation, setPreparation] = useState({
+    status: "idle",
+    feedback: "",
+    pdfShown: false,
+    audioShown: false,
+    audioFile: null,
+  });
+  const requestControllerRef = useRef(null);
+  const availability = getWhatsAppAvailability(worker);
+  const isPreparing = preparation.status === "preparing";
+
+  useEffect(() => () => requestControllerRef.current?.abort(), []);
+
+  async function persistCurrentAudio(signal) {
+    const expectedAudioUrl = worker?.app_fields?.audio_url;
+    const file = await saveWhatsAppAudio({
+      audioUrl: expectedAudioUrl,
+      fileName: buildWhatsAppAudioFilename(worker),
+      signal,
+    });
+    if (signal?.aborted) throw new Error("La preparación fue cancelada.");
+    onUpdateWorker?.(workerIndex, (currentWorker) => {
+      if (currentWorker?.app_fields?.audio_url !== expectedAudioUrl) return currentWorker;
+      return {
+        ...currentWorker,
+        app_fields: {
+          ...(currentWorker.app_fields || {}),
+          whatsapp_audio_file_id: file.id,
+          whatsapp_audio_filename: file.name,
+          whatsapp_audio_sha256: file.sha256,
+        },
+      };
+    });
+    return file;
+  }
+
+  async function handlePrepareWhatsApp() {
+    if (!availability.canPrepare || requestControllerRef.current) {
+      setPreparation((current) => ({
+        ...current,
+        feedback: availability.missing.join(" "),
+      }));
+      return;
+    }
+
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
+    const whatsappUrl = buildWhatsAppUrl({
+      phone: availability.phone,
+      message: buildWhatsAppMessage(worker),
+    });
+    const whatsappWindow = window.open("about:blank", "_blank");
+    if (!whatsappWindow) {
+      requestControllerRef.current = null;
+      setPreparation((current) => ({
+        ...current,
+        feedback: "El navegador bloqueó la ventana de WhatsApp. Permite ventanas emergentes e inténtalo nuevamente.",
+      }));
+      return;
+    }
+
+    let whatsappOpened = false;
+    setPreparation((current) => ({ ...current, status: "preparing", feedback: "Preparando archivos locales…" }));
+    try {
+      const existingAudioId = worker?.app_fields?.whatsapp_audio_file_id;
+      const audioPromise = existingAudioId
+        ? Promise.resolve({
+            id: existingAudioId,
+            name: worker?.app_fields?.whatsapp_audio_filename || buildWhatsAppAudioFilename(worker),
+          })
+        : persistCurrentAudio(controller.signal);
+      const [audioFile] = await Promise.all([
+        audioPromise,
+        validateManagedFile(availability.pdfFileId, { signal: controller.signal }),
+      ]);
+
+      if (controller.signal.aborted) throw new Error("La preparación fue cancelada.");
+
+      whatsappWindow.opener = null;
+      whatsappWindow.location.replace(whatsappUrl);
+      whatsappOpened = true;
+
+      await revealManagedFile(availability.pdfFileId, { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      setPreparation({
+        status: "prepared",
+        feedback: "WhatsApp abierto y PDF mostrado en el Explorador. Envía primero el mensaje y luego adjunta el PDF.",
+        pdfShown: true,
+        audioShown: false,
+        audioFile,
+      });
+    } catch (error) {
+      if (!whatsappOpened) whatsappWindow.close();
+      if (controller.signal.aborted) return;
+      setPreparation((current) => ({
+        ...current,
+        status: "error",
+        feedback: error?.message || "No se pudo preparar el envío por WhatsApp.",
+      }));
+    } finally {
+      if (requestControllerRef.current === controller) requestControllerRef.current = null;
+    }
+  }
+
+  async function handleSelectAudio() {
+    if (requestControllerRef.current) return;
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
+    setPreparation((current) => ({ ...current, status: "preparing", feedback: "Mostrando el audio…" }));
+    try {
+      let audioFile = preparation.audioFile;
+      if (!audioFile?.id) audioFile = await persistCurrentAudio(controller.signal);
+      try {
+        await revealManagedFile(audioFile.id, { signal: controller.signal });
+      } catch (error) {
+        if (error?.code !== "FILE_NOT_FOUND") throw error;
+        audioFile = await persistCurrentAudio(controller.signal);
+        await revealManagedFile(audioFile.id, { signal: controller.signal });
+      }
+      if (controller.signal.aborted) return;
+      setPreparation((current) => ({
+        ...current,
+        status: "prepared",
+        feedback: "Audio mostrado en el Explorador. Adjúntalo manualmente al mismo chat después del PDF.",
+        audioShown: true,
+        audioFile,
+      }));
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setPreparation((current) => ({
+        ...current,
+        status: "prepared",
+        feedback: error?.message || "No se pudo mostrar el audio en el Explorador.",
+      }));
+    } finally {
+      if (requestControllerRef.current === controller) requestControllerRef.current = null;
+    }
+  }
+
+  return (
+    <section className="whatsapp-panel" aria-labelledby={`whatsapp-title-${workerIndex}`}>
+      <div className="whatsapp-panel__header">
+        <div>
+          <p className="section-label">Envío manual asistido</p>
+          <h4 id={`whatsapp-title-${workerIndex}`}>WhatsApp</h4>
+        </div>
+        {preparation.status === "prepared" ? <span className="status-pill">Envío preparado</span> : null}
+      </div>
+
+      <dl className="whatsapp-availability">
+        <div className={availability.hasValidPhone ? "is-available" : "is-missing"}>
+          <dt>Teléfono</dt>
+          <dd>{availability.hasValidPhone ? `✓ ${worker.datos_operativos.telefono}` : "Inválido"}</dd>
+        </div>
+        <div className={availability.hasPdf ? "is-available" : "is-missing"}>
+          <dt>PDF</dt>
+          <dd>{availability.hasPdf ? "✓ Disponible" : "Faltante"}</dd>
+        </div>
+        <div className={availability.hasAudio ? "is-available" : "is-missing"}>
+          <dt>Audio</dt>
+          <dd>{availability.hasAudio ? "✓ Disponible" : "Faltante"}</dd>
+        </div>
+      </dl>
+
+      {!availability.canPrepare ? (
+        <ul className="whatsapp-missing-list">
+          {availability.missing.map((message) => <li key={message}>{message}</li>)}
+        </ul>
+      ) : null}
+
+      {preparation.status !== "prepared" ? (
+        <button
+          type="button"
+          className="primary-button"
+          onClick={handlePrepareWhatsApp}
+          disabled={!availability.canPrepare || isPreparing}
+        >
+          {isPreparing ? "Preparando envío…" : "Preparar envío por WhatsApp"}
+        </button>
+      ) : (
+        <div className="whatsapp-prepared-steps">
+          <div>
+            <strong>1. Mensaje</strong>
+            <span>Chat abierto con el mensaje predeterminado</span>
+            <small>WhatsApp abierto</small>
+          </div>
+          <div>
+            <strong>2. PDF</strong>
+            <span title={availability.pdfName}>{availability.pdfName}</span>
+            <small>{preparation.pdfShown ? "PDF mostrado en Explorer" : "PDF preparado"}</small>
+          </div>
+          <div>
+            <strong>3. Audio</strong>
+            <span title={preparation.audioFile?.name}>{preparation.audioFile?.name}</span>
+            <small>{preparation.audioShown ? "Audio mostrado en Explorer" : "Audio preparado"}</small>
+            <button type="button" className="secondary-button" onClick={handleSelectAudio} disabled={isPreparing}>
+              Seleccionar audio en carpeta
+            </button>
+          </div>
+          <button
+            type="button"
+            className="secondary-button is-quiet"
+            onClick={() => setPreparation({ status: "idle", feedback: "", pdfShown: false, audioShown: false, audioFile: null })}
+          >
+            Finalizar preparación
+          </button>
+        </div>
+      )}
+
+      {preparation.feedback ? <p className="whatsapp-feedback" aria-live="polite">{preparation.feedback}</p> : null}
+      <p className="muted-text">AudioEvaluaciones prepara los archivos; el operador realiza y confirma cada envío en WhatsApp.</p>
+    </section>
   );
 }
 

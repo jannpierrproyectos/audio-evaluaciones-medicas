@@ -43,6 +43,9 @@ export function attachMediwebWorkerMetadata(analysis, metadata = {}) {
         ...(worker.datos_operativos || {}),
         telefono: entry?.telefono || "",
         archivo_pdf_completo: entry?.archivoPdfCompleto || "",
+        ...(entry?.archivoPdfCompletoId
+          ? { archivo_pdf_completo_id: entry.archivoPdfCompletoId }
+          : {}),
       },
     };
   });

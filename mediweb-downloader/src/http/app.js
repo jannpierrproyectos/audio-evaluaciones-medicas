@@ -5,6 +5,7 @@ import { DEFAULT_CONFIG } from "../config.js";
 
 export const DEFAULT_ALLOWED_ORIGINS = [...DEFAULT_CONFIG.allowedOrigins];
 const ALLOWED_PREFLIGHT_METHODS = new Set(["GET", "POST"]);
+const ALLOWED_PREFLIGHT_HEADERS = new Set(["content-type", "x-audio-filename"]);
 
 export function parseAllowedOrigins(value) {
   const origins = value === undefined ? DEFAULT_ALLOWED_ORIGINS : value.split(",").map((item) => item.trim()).filter(Boolean);
@@ -27,8 +28,8 @@ export function normalizeOrigin(value) {
   }
 }
 
-export function createApp({ engine, jobManager, updateService = null, version, allowedOrigins = parseAllowedOrigins(process.env.MEDIWEB_ALLOWED_ORIGINS) }) {
-  const route = createRoutes({ engine, jobManager, updateService, version });
+export function createApp({ engine, jobManager, managedFiles = null, updateService = null, version, allowedOrigins = parseAllowedOrigins(process.env.MEDIWEB_ALLOWED_ORIGINS) }) {
+  const route = createRoutes({ engine, jobManager, managedFiles, updateService, version });
   const normalizedAllowedOrigins = new Set([...allowedOrigins].map(normalizeOrigin));
   return async function app(request, response) {
     try {
@@ -51,7 +52,7 @@ export function createApp({ engine, jobManager, updateService = null, version, a
         if (!origin) throw new HttpError(400, "ORIGIN_REQUIRED", "Origin es obligatorio para preflight.");
         validatePreflight(request);
         response.setHeader("Access-Control-Allow-Methods", "GET, POST");
-        response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+        response.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Audio-Filename");
         response.setHeader("Access-Control-Max-Age", "600");
         if (request.headers["access-control-request-private-network"] === "true") {
           response.setHeader("Access-Control-Allow-Private-Network", "true");
@@ -84,7 +85,7 @@ function validatePreflight(request) {
     .split(",")
     .map((header) => header.trim().toLowerCase())
     .filter(Boolean);
-  if (requestedHeaders.some((header) => header !== "content-type")) {
+  if (requestedHeaders.some((header) => !ALLOWED_PREFLIGHT_HEADERS.has(header))) {
     throw new HttpError(403, "HEADERS_NOT_ALLOWED", "Headers no permitidos para preflight.");
   }
 }

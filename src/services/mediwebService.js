@@ -104,6 +104,58 @@ export async function getMediwebFirstPages(jobId, { signal } = {}) {
   };
 }
 
+export async function saveWhatsAppAudio({ audioUrl, fileName, signal } = {}) {
+  let audioResponse;
+  try {
+    audioResponse = await fetch(audioUrl, { signal });
+  } catch (error) {
+    throw new MediwebServiceError("AUDIO_UNAVAILABLE", "No se pudo leer el audio generado.", { cause: error });
+  }
+  if (!audioResponse.ok) {
+    throw new MediwebServiceError("AUDIO_UNAVAILABLE", "No se pudo leer el audio generado.", { status: audioResponse.status });
+  }
+  const audioBlob = await audioResponse.blob();
+  const contentType = String(audioBlob.type || audioResponse.headers.get("content-type") || "")
+    .split(";", 1)[0]
+    .toLowerCase();
+  if (contentType !== "audio/mpeg" && !String(fileName || "").toLowerCase().endsWith(".mp3")) {
+    throw new MediwebServiceError("INVALID_AUDIO_TYPE", "El audio generado no está en formato MP3.");
+  }
+  const response = await request("/files/audio", {
+    method: "POST",
+    rawBody: audioBlob,
+    headers: {
+      "Content-Type": "audio/mpeg",
+      "X-Audio-Filename": encodeURIComponent(fileName),
+    },
+    signal,
+    timeoutMs: 30000,
+  });
+  if (!response.ok) throw await createHttpError(response);
+  const payload = await response.json();
+  return payload.file;
+}
+
+export async function revealManagedFile(fileId, { signal } = {}) {
+  const result = await requestJson("/files/reveal", {
+    method: "POST",
+    body: { fileId },
+    signal,
+    timeoutMs: 10000,
+  });
+  return result.file;
+}
+
+export async function validateManagedFile(fileId, { signal } = {}) {
+  const result = await requestJson("/files/validate", {
+    method: "POST",
+    body: { fileId },
+    signal,
+    timeoutMs: 10000,
+  });
+  return result.file;
+}
+
 export function getResponseFileName(response) {
   const disposition = response?.headers?.get?.("Content-Disposition") || "";
   const encodedMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
@@ -145,13 +197,15 @@ async function requestJson(path, options = {}) {
   }
 }
 
-async function request(path, { method = "GET", body, signal, timeoutMs } = {}) {
+async function request(path, { method = "GET", body, rawBody, headers, signal, timeoutMs } = {}) {
   const requestControl = createRequestControl(signal, timeoutMs);
   try {
     return await fetch(`${MEDIWEB_SERVICE_URL}${path}`, {
       method,
-      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: headers || (body === undefined ? undefined : { "Content-Type": "application/json" }),
+      body: rawBody === undefined
+        ? (body === undefined ? undefined : JSON.stringify(body))
+        : rawBody,
       credentials: "omit",
       signal: requestControl.signal,
     });

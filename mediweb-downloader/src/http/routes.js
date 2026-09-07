@@ -3,10 +3,11 @@ import { HttpError, validateJobOptions } from "./jobManager.js";
 import { ResultsNotReadyError } from "../runner.js";
 import { BrowserUnavailableError } from "../browser.js";
 import { UpdateError } from "../updateService.js";
+import { ManagedFileError, MAX_AUDIO_BYTES } from "../managedFiles.js";
 
 const JSON_LIMIT = 16 * 1024;
 
-export function createRoutes({ engine, jobManager, updateService, version }) {
+export function createRoutes({ engine, jobManager, managedFiles, updateService, version }) {
   return async function route(request, response, url) {
     if (request.method === "GET" && url.pathname === "/health") {
       return json(response, 200, {
@@ -59,6 +60,32 @@ export function createRoutes({ engine, jobManager, updateService, version }) {
       const job = jobManager.create(validateJobOptions(body));
       return json(response, 202, { ok: true, jobId: job.id });
     }
+    if (request.method === "POST" && url.pathname === "/files/audio") {
+      requireBrowserOrigin(request);
+      requireManagedFiles(managedFiles);
+      const contentType = String(request.headers["content-type"] || "").split(";", 1)[0].trim().toLowerCase();
+      if (contentType !== "audio/mpeg") {
+        throw new HttpError(415, "INVALID_AUDIO_TYPE", "Content-Type debe ser audio/mpeg.");
+      }
+      const requestedFileName = decodeAudioFilename(request.headers["x-audio-filename"]);
+      const buffer = await readBuffer(request, MAX_AUDIO_BYTES);
+      const file = await managedAction(() => managedFiles.saveMp3(buffer, requestedFileName));
+      return json(response, 201, { ok: true, file });
+    }
+    if (request.method === "POST" && url.pathname === "/files/reveal") {
+      requireBrowserOrigin(request);
+      requireManagedFiles(managedFiles);
+      const body = await readFileIdBody(request);
+      const file = await managedAction(() => managedFiles.reveal(body.fileId));
+      return json(response, 200, { ok: true, file });
+    }
+    if (request.method === "POST" && url.pathname === "/files/validate") {
+      requireBrowserOrigin(request);
+      requireManagedFiles(managedFiles);
+      const body = await readFileIdBody(request);
+      const file = await managedAction(() => managedFiles.resolveFileId(body.fileId));
+      return json(response, 200, { ok: true, file });
+    }
 
     const match = url.pathname.match(/^\/jobs\/([^/]+)(?:\/(cancel|first-pages|manifest|worker-metadata))?$/);
     if (match) {
@@ -70,8 +97,22 @@ export function createRoutes({ engine, jobManager, updateService, version }) {
       }
       if (request.method === "GET" && action === "manifest") return json(response, 200, jobManager.manifest(id));
       if (request.method === "GET" && action === "worker-metadata") {
-        if (!request.headers.origin) throw new HttpError(403, "ORIGIN_REQUIRED", "Origin es obligatorio para datos operativos.");
-        return json(response, 200, jobManager.workerMetadata(id));
+        requireBrowserOrigin(request);
+        const metadata = jobManager.workerMetadata(id);
+        if (!managedFiles) return json(response, 200, metadata);
+        const workers = await Promise.all(metadata.workers.map(async (worker) => {
+          if (!worker.archivoPdfCompleto) {
+            return { ...worker, archivoPdfCompletoId: "", archivoPdfCompletoDisponible: false };
+          }
+          try {
+            const absolutePath = jobManager.workerFullPdfPath(id, worker.archivoPdfCompleto);
+            const file = await managedFiles.identifyAbsoluteFile(absolutePath, ".pdf");
+            return { ...worker, archivoPdfCompletoId: file.id, archivoPdfCompletoDisponible: true };
+          } catch {
+            return { ...worker, archivoPdfCompletoId: "", archivoPdfCompletoDisponible: false };
+          }
+        }));
+        return json(response, 200, { ...metadata, workers });
       }
       if (request.method === "GET" && action === "first-pages") {
         const file = await jobManager.firstPagesPath(id);
@@ -113,6 +154,59 @@ async function readJson(request) {
     return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
   } catch {
     throw new HttpError(400, "INVALID_JSON", "El cuerpo JSON no es válido.");
+  }
+}
+
+async function readBuffer(request, limit) {
+  const declaredLength = Number(request.headers["content-length"] || 0);
+  if (Number.isFinite(declaredLength) && declaredLength > limit) {
+    throw new HttpError(413, "REQUEST_TOO_LARGE", "El cuerpo excede el límite permitido.");
+  }
+  let size = 0;
+  const chunks = [];
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > limit) throw new HttpError(413, "REQUEST_TOO_LARGE", "El cuerpo excede el límite permitido.");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+async function readFileIdBody(request) {
+  const body = await readJson(request);
+  const unknown = Object.keys(body).filter((key) => key !== "fileId");
+  if (unknown.length) throw new HttpError(400, "INVALID_REQUEST", `Parámetro no permitido: ${unknown[0]}.`);
+  return body;
+}
+
+function requireBrowserOrigin(request) {
+  if (!request.headers.origin) {
+    throw new HttpError(403, "ORIGIN_REQUIRED", "Origin es obligatorio para operaciones con archivos.");
+  }
+}
+
+function requireManagedFiles(managedFiles) {
+  if (!managedFiles) throw new HttpError(503, "FILES_UNAVAILABLE", "La administración local de archivos no está disponible.");
+}
+
+function decodeAudioFilename(value) {
+  const encoded = String(value || "");
+  if (!encoded || encoded.length > 500) {
+    throw new HttpError(400, "INVALID_AUDIO_FILENAME", "Falta un nombre seguro para el audio.");
+  }
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    throw new HttpError(400, "INVALID_AUDIO_FILENAME", "El nombre del audio no es válido.");
+  }
+}
+
+async function managedAction(operation) {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof ManagedFileError) throw new HttpError(error.status, error.code, error.message);
+    throw error;
   }
 }
 

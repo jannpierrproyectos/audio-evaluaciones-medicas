@@ -9,6 +9,7 @@ import { loadConnectorConfig } from "./config.js";
 import { getRuntimePaths } from "./paths.js";
 import { EventEmitter } from "node:events";
 import { UpdateService } from "./updateService.js";
+import { createManagedFileService } from "./managedFiles.js";
 
 export const moduleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -30,6 +31,7 @@ export async function startConnectorService({
   } : logger;
   const engine = new DownloaderRunner({ moduleRoot, runtimePaths, logger: engineLogger, events });
   const jobManager = new JobManager({ engine, events, logger });
+  const managedFiles = createManagedFileService({ downloadsDir: runtimePaths.downloadsDir });
   const updateService = new UpdateService({
     installedVersion: packageJson.version,
     manifestUrl: resolvedConfig.releaseManifestUrl,
@@ -40,7 +42,7 @@ export async function startConnectorService({
     events,
     logger,
   });
-  const server = createServer(createApp({ engine, jobManager, updateService, version: packageJson.version, allowedOrigins }));
+  const server = createServer(createApp({ engine, jobManager, managedFiles, updateService, version: packageJson.version, allowedOrigins }));
   let shuttingDown = false;
   let updateTimer = null;
 

@@ -179,7 +179,7 @@ Definiciones de contadores:
 
 ## Privacidad y alcance
 
-La ejecución es local, secuencial y sin telemetría. El progreso no muestra DNI, nombre completo, URL ni contenido clínico. No incluye envío por WhatsApp/correo, frontend, AudioEvaluaciones, narrativa, audio, nube, cron ni automatización de credenciales.
+La ejecución es local, secuencial y sin telemetría. El progreso no muestra DNI, nombre completo, URL ni contenido clínico. El Connector puede guardar una copia MP3 y mostrar un PDF/MP3 administrado en Explorer para el flujo manual de WhatsApp de AudioEvaluaciones, pero no envía mensajes, no automatiza WhatsApp y no publica archivos. Tampoco incluye correo, nube, cron ni automatización de credenciales.
 
 ## Integración con AudioEvaluaciones
 
@@ -209,7 +209,10 @@ Endpoints disponibles:
 - `POST /jobs/:jobId/cancel`: solicita cancelación cooperativa en el siguiente punto seguro.
 - `GET /jobs/:jobId/first-pages`: transmite `primeras-hojas.pdf` al completar un job `first` o `both`.
 - `GET /jobs/:jobId/manifest`: devuelve únicamente el resumen sanitizado, sin la lista de pacientes.
-- `GET /jobs/:jobId/worker-metadata`: entrega al origen web autorizado los metadatos operativos mínimos para asociar cada trabajador importado; rechaza solicitudes sin `Origin` y no altera el endpoint sanitizado del manifest.
+- `GET /jobs/:jobId/worker-metadata`: entrega al origen web autorizado los metadatos operativos mínimos y, si el PDF existe dentro de descargas administradas, su identificador relativo controlado; rechaza solicitudes sin `Origin` y no altera el endpoint sanitizado del manifest.
+- `POST /files/audio`: recibe exclusivamente `audio/mpeg`, con límite de 25 MB, guarda una copia `.mp3` con nombre sanitizado dentro de `Descargas\audio-whatsapp` y devuelve solo un identificador relativo. Requiere un `Origin` permitido.
+- `POST /files/validate`: comprueba sin abrir Explorer que un identificador relativo sigue apuntando a un PDF o MP3 local permitido. Requiere un `Origin` permitido.
+- `POST /files/reveal`: muestra en Explorer un PDF o MP3 ya administrado usando su identificador relativo. Rechaza rutas absolutas, UNC, traversal, extensiones distintas y archivos inexistentes; requiere un `Origin` permitido.
 
 Solo se admite un job activo. Los jobs y su estado existen únicamente en la memoria del proceso de `npm run service`; no hay Redis, cola externa, worker remoto ni persistencia de jobs. Los PDF, manifest y CSV generados sí se conservan progresivamente en `downloads` como en la CLI.
 
@@ -225,7 +228,7 @@ npm run service
 
 La lista se normaliza eliminando espacios y el slash final; después se compara el origen serializado completo (`scheme + host + port`). La política CORS es estricta: no se emite `Access-Control-Allow-Origin: *`, no se aceptan `*.vercel.app` implícitamente y un `Origin` no configurado recibe `403`. Cada deployment preview debe añadirse por su origen exacto. Las peticiones HTTP sin `Origin` se permiten para PowerShell, CLI y pruebas locales; como el proceso escucha exclusivamente en loopback, siguen proviniendo de la misma PC. Cuando sí existe `Origin`, siempre se valida.
 
-Las peticiones `OPTIONS` no ejecutan rutas ni abren navegador o jobs. Solo autorizan los métodos `GET` y `POST` y, cuando se solicita, el header `Content-Type`. Si un preflight de un origen permitido incluye `Access-Control-Request-Private-Network: true`, el servicio responde `Access-Control-Allow-Private-Network: true`; un origen no permitido no recibe ese header. Todos los endpoints de estado/control y `first-pages` usan `Cache-Control: no-store`.
+Las peticiones `OPTIONS` no ejecutan rutas ni abren navegador o jobs. Solo autorizan los métodos `GET` y `POST` y los headers exactos `Content-Type` y `X-Audio-Filename`. Si un preflight de un origen permitido incluye `Access-Control-Request-Private-Network: true`, el servicio responde `Access-Control-Allow-Private-Network: true`; un origen no permitido no recibe ese header. Todos los endpoints usan `Cache-Control: no-store`.
 
 Los navegadores modernos también pueden solicitar al usuario permiso de acceso a la red local para una web HTTPS que llama a loopback. Ese permiso pertenece al navegador y no puede concederse desde el Connector. Se conserva la compatibilidad de preflight PNA, pero la prueba definitiva requiere aceptar el permiso del sitio en el navegador real. No se configura HTTPS local ni certificados en esta fase.
 

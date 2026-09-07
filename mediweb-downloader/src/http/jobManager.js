@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
+import path from "node:path";
 
 const MODES = new Set(["first", "full", "both"]);
 const INTEGER_FIELDS = ["limit", "maxPages", "perPageLimit"];
@@ -164,6 +165,22 @@ export class JobManager {
           archivoPdfCompleto: entry.archivoPdfCompleto || "",
         })),
     };
+  }
+
+  workerFullPdfPath(id, fileName) {
+    const job = this.get(id);
+    const matches = (job.result?.manifest?.atenciones ?? []).filter(
+      (entry) => entry.estado === "correcto" && entry.archivoPdfCompleto === fileName,
+    );
+    if (matches.length !== 1) {
+      throw new HttpError(404, "FULL_PDF_NOT_FOUND", "No se pudo localizar inequívocamente el PDF completo.");
+    }
+    const entry = matches[0];
+    if (entry.archivoCompleto && job.result?.paths?.root) {
+      return path.resolve(job.result.paths.root, entry.archivoCompleto);
+    }
+    if (job.result?.paths?.full) return path.join(job.result.paths.full, fileName);
+    throw new HttpError(404, "FULL_PDF_NOT_FOUND", "No se pudo localizar el PDF completo.");
   }
 
   async firstPagesPath(id) {

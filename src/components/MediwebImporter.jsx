@@ -36,7 +36,7 @@ const MODES = [
   {
     value: "both",
     label: "Ambos",
-    description: "Prepara las primeras hojas y también guarda los reportes completos.",
+    description: "Prepara las primeras hojas, guarda los reportes completos y habilita el flujo manual de WhatsApp.",
   },
 ];
 

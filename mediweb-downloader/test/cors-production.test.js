@@ -72,6 +72,9 @@ test("OPTIONS y Private Network Access solo responden a origins permitidos sin e
       "/jobs/job-id/cancel",
       "/jobs/job-id/first-pages",
       "/jobs/job-id/manifest",
+      "/files/audio",
+      "/files/reveal",
+      "/files/validate",
     ];
     for (const path of paths) {
       const response = await fetch(`${baseUrl}${path}`, {
@@ -79,7 +82,9 @@ test("OPTIONS y Private Network Access solo responden a origins permitidos sin e
         headers: {
           Origin: PRODUCTION_ORIGIN,
           "Access-Control-Request-Method": path.endsWith("open") || path.endsWith("detect") || path === "/jobs" || path.endsWith("cancel") ? "POST" : "GET",
-          "Access-Control-Request-Headers": path === "/jobs" ? "Content-Type" : "",
+          "Access-Control-Request-Headers": path === "/files/audio"
+            ? "Content-Type, X-Audio-Filename"
+            : path === "/jobs" || path === "/files/reveal" || path === "/files/validate" ? "Content-Type" : "",
         },
       });
       assert.equal(response.status, 204, path);

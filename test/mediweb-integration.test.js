@@ -18,6 +18,9 @@ import {
   getMediwebFirstPages,
   getMediwebJob,
   openMediweb,
+  revealManagedFile,
+  saveWhatsAppAudio,
+  validateManagedFile,
 } from "../src/services/mediwebService.js";
 import { attachMediwebWorkerMetadata, importMediwebPdfIntoExistingFlow } from "../src/lib/importMediwebPdf.js";
 import {
@@ -207,6 +210,48 @@ test("obtiene first-pages como Blob/File y lo entrega al handler PDF existente",
   } finally {
     globalThis.File = originalFile;
   }
+});
+
+test("persiste el Blob MP3 y revela archivos mediante el Connector sin rutas absolutas", async () => {
+  const calls = [];
+  await withFetch(async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (String(url) === "blob:audio-generado") {
+      return new Response(Buffer.from("ID3audio"), { headers: { "Content-Type": "audio/mpeg" } });
+    }
+    if (String(url).endsWith("/files/audio")) {
+      assert.equal(options.method, "POST");
+      assert.equal(options.headers["Content-Type"], "audio/mpeg");
+      assert.equal(decodeURIComponent(options.headers["X-Audio-Filename"]), "02_Audio_Juan_12345678.mp3");
+      assert.equal(options.body instanceof Blob, true);
+      return jsonResponse({
+        ok: true,
+        file: { id: "audio-whatsapp/02_Audio_Juan_12345678.mp3", name: "02_Audio_Juan_12345678.mp3" },
+      }, 201);
+    }
+    if (String(url).endsWith("/files/reveal")) {
+      assert.equal(options.method, "POST");
+      assert.deepEqual(JSON.parse(options.body), { fileId: "lote/reportes-completos/reporte.pdf" });
+      return jsonResponse({ ok: true, file: { id: "lote/reportes-completos/reporte.pdf", name: "reporte.pdf" } });
+    }
+    if (String(url).endsWith("/files/validate")) {
+      assert.equal(options.method, "POST");
+      assert.deepEqual(JSON.parse(options.body), { fileId: "lote/reportes-completos/reporte.pdf" });
+      return jsonResponse({ ok: true, file: { id: "lote/reportes-completos/reporte.pdf", name: "reporte.pdf" } });
+    }
+    throw new Error(`Solicitud inesperada: ${url}`);
+  }, async () => {
+    const audio = await saveWhatsAppAudio({
+      audioUrl: "blob:audio-generado",
+      fileName: "02_Audio_Juan_12345678.mp3",
+    });
+    assert.equal(audio.id, "audio-whatsapp/02_Audio_Juan_12345678.mp3");
+    const validatedPdf = await validateManagedFile("lote/reportes-completos/reporte.pdf");
+    assert.equal(validatedPdf.name, "reporte.pdf");
+    const pdf = await revealManagedFile("lote/reportes-completos/reporte.pdf");
+    assert.equal(pdf.name, "reporte.pdf");
+  });
+  assert.equal(calls.length, 4);
 });
 
 test("asocia telefono y nombre exacto del PDF por documento sin cruzar trabajadores", () => {
