@@ -58,7 +58,7 @@ test("audiometría conserva hallazgo y recomendación sin causalidad artificial"
 });
 
 test("normaliza comparadores en orden y expande EPP/dB solo en contexto seguro", () => {
-  assert.equal(prepareTextForTts("Uso de EPP auditivo >= 85 dB."), "Uso de equipo de protección personal auditivo mayor o igual que 85 decibeles.");
+  assert.equal(prepareTextForTts("Uso de EPP auditivo >= 85 dB."), "Uso de equipo de protección personal auditivo mayor o igual que 85.");
   assert.equal(prepareTextForTts("Valor <= 10."), "Valor menor o igual que 10.");
   assert.equal(prepareTextForTts("Valor > 10 y < 20."), "Valor mayor que 10 y menor que 20.");
   assert.match(prepareTextForTts("Guantes de PVC."), /PVC/i);
@@ -66,7 +66,7 @@ test("normaliza comparadores en orden y expande EPP/dB solo en contexto seguro",
 
 test("normaliza símbolos TTS solo en contextos inequívocos y conserva presión arterial", () => {
   const text = prepareTextForTts("PA: 120/80 mmHg. Descartar alergia y/o parasitosis. Usar mascarilla/respirador. Guantes (nitrilo o PVC). Fecha 13/01/2027.");
-  assert.match(text, /ciento veinte sobre ochenta milímetros de mercurio/i);
+  assert.match(text, /ciento veinte sobre ochenta\./i);
   assert.match(text, /y o parasitosis/i);
   assert.match(text, /mascarilla o respirador/i);
   assert.match(text, /nitrilo o PVC/i);

@@ -166,7 +166,7 @@ for (const [label, worker, expectedStatus, expectedText] of [
     assert.equal(result.findings.laboratorio_basico.hemoglobina_estado, expectedStatus);
     assert.match(result.displayText, expectedText);
     assert.match(result.ttsText, expectedText);
-    assert.match(result.ttsText, /gramos por decilitro/i);
+    assert.doesNotMatch(result.ttsText, /gramos por decilitro|g\s*\/\s*dL/i);
     assert.doesNotMatch(result.displayText, /anemia|policitemia/i);
   });
 }

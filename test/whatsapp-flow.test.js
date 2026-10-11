@@ -9,6 +9,7 @@ import {
   buildWhatsAppUrl,
   getWhatsAppRecipientName,
   getWhatsAppAvailability,
+  isWhatsAppConfirmed,
   normalizePhoneForWhatsApp,
   sanitizeWindowsFilePart,
 } from "../src/lib/whatsappMessage.js";
@@ -114,7 +115,6 @@ test("deriva disponibilidad de teléfono, PDF localizable y MP3 generado", () =>
   assert.deepEqual(missing.missing, [
     "Teléfono inválido o ausente.",
     "PDF completo no disponible en el Connector. En MediWeb, usa la opción Ambos.",
-    "Genera el audio antes de preparar el envío por WhatsApp.",
   ]);
 });
 
@@ -137,6 +137,22 @@ test("propaga el identificador controlado de PDF desde metadata sin exponer una 
     archivo_pdf_completo_id: "2026-01-01/reportes-completos/001_Juan.pdf",
   });
   assert.doesNotMatch(JSON.stringify(result), /C:\\/);
+});
+
+test("prepara WhatsApp sin MP3 y confirma únicamente el teléfono revisado", () => {
+  const worker = {
+    datos_operativos: { telefono: "999999999", archivo_pdf_completo: "reporte.pdf", archivo_pdf_completo_id: "reportes/reporte.pdf" },
+    app_fields: {},
+  };
+  assert.equal(getWhatsAppAvailability(worker).canPrepare, true);
+  assert.equal(getWhatsAppAvailability(worker).hasAudio, false);
+  assert.equal(isWhatsAppConfirmed(worker), false);
+  worker.app_fields.whatsapp_confirmed_phone = "51999999999";
+  assert.equal(isWhatsAppConfirmed(worker), true);
+  worker.datos_operativos.telefono = "988888888";
+  assert.equal(isWhatsAppConfirmed(worker), false);
+  worker.datos_operativos.telefono = "";
+  assert.equal(isWhatsAppConfirmed(worker), false);
 });
 
 test("la UI conserva el orden mensaje, PDF, audio y no afirma una entrega", async () => {

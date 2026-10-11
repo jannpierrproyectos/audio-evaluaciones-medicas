@@ -81,12 +81,12 @@ export const TTS_ABBREVIATIONS = [
 ];
 
 export const TTS_UNITS = [
-  [/\bkg\s*\/\s*m(?:²|2)(?=\s|[.,;:]|$)/giu, "kilogramos por metro cuadrado"],
-  [/\bmg\s*\/\s*dL\b/giu, "miligramos por decilitro"],
-  [/\bg\s*\/\s*dL\b/giu, "gramos por decilitro"],
-  [/\bmmHg\b/giu, "milímetros de mercurio"],
-  [/\bdB\b/giu, "decibeles"],
-  [/\s*%/g, " por ciento"],
+  [/\bkg\s*\/\s*m(?:²|2)(?=\s|[.,;:)]|$)/giu, ""],
+  [/(?<!\p{L})(?:mg|g|mmol|[µμu]mol|mEq|UI|U)\s*\/\s*(?:dL|L|mL)\b/giu, ""],
+  [/\b(?:kilogramos? por metro cuadrado|(?:mili|micro)?gramos? por (?:deci|mili)?litro|mil[ií]metros de mercurio|decibeles?|decibelios?|por ciento|latidos por minuto|respiraciones por minuto)\b/giu, ""],
+  [/(?<!\p{L})(?:mmHg|dB|lpm|rpm|bpm)\b/giu, ""],
+  [/(?<=\d)\s*(?:°\s*C|[kM]?Hz|mL|dL|mm|mg|g|L)(?=\s|[.,;:)]|$)/giu, ""],
+  [/\s*%/g, ""],
   [/\bkg\b/giu, "kilogramos"],
   [/\bcm\b/giu, "centímetros"],
 ];

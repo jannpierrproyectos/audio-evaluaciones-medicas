@@ -277,6 +277,6 @@ test("control ORL sin hallazgo auditivo permanece TRUE orphan", () => {
 test("TTS verbaliza mg/dL y decimales clínicos sin modificar políticas ajenas", () => {
   assert.equal(
     prepareTextForTts("Su glucosa es de 90.5 mg/dL."),
-    "Su glucosa es de noventa punto cinco miligramos por decilitro.",
+    "Su glucosa es de noventa punto cinco.",
   );
 });

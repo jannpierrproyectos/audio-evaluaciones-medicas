@@ -111,7 +111,6 @@ export function getWhatsAppAvailability(worker) {
   if (!pdfName || !pdfFileId) {
     missing.push("PDF completo no disponible en el Connector. En MediWeb, usa la opción Ambos.");
   }
-  if (!hasMp3) missing.push("Genera el audio antes de preparar el envío por WhatsApp.");
 
   return {
     phone,
@@ -123,4 +122,9 @@ export function getWhatsAppAvailability(worker) {
     canPrepare: missing.length === 0,
     missing,
   };
+}
+
+export function isWhatsAppConfirmed(worker) {
+  const phone = normalizePhoneForWhatsApp(worker?.datos_operativos?.telefono);
+  return Boolean(phone && worker?.app_fields?.whatsapp_confirmed_phone === phone);
 }

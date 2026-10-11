@@ -24,12 +24,12 @@ test("prepara unidades, porcentajes y decimales para dicción sin modificar el d
   assert.equal(display, "PA: 120/80 mmHg. IMC 24.8. Glucosa: 98 mg/dL. Saturación: 98%. Peso: 72 kg. Talla: 165 cm. ECG normal. Resultado ≥ 10 y < 20.");
   assert.equal(
     tts,
-    "presión arterial: ciento veinte sobre ochenta milímetros de mercurio. índice de masa corporal veinticuatro punto ocho. Glucosa: 98 miligramos por decilitro. Saturación: 98 por ciento. Peso: 72 kilogramos. Talla: 165 centímetros. electrocardiograma normal. Resultado mayor o igual que 10 y menor que 20.",
+    "presión arterial: ciento veinte sobre ochenta. índice de masa corporal veinticuatro punto ocho. Glucosa: 98. Saturación: 98. Peso: 72 kilogramos. Talla: 165 centímetros. electrocardiograma normal. Resultado mayor o igual que 10 y menor que 20.",
   );
   assert.equal(prepareTextForTts(tts), tts, "la preparación TTS debe ser idempotente");
   assert.equal(
     prepareTextForTts("IMC: 30.1 kg/m². Ruido: 85 dB. Hemoglobina: 14.2 g/dL."),
-    "índice de masa corporal: treinta punto uno kilogramos por metro cuadrado. Ruido: 85 decibeles. Hemoglobina: catorce punto dos gramos por decilitro.",
+    "índice de masa corporal: treinta punto uno. Ruido: 85. Hemoglobina: catorce punto dos.",
   );
 });
 

@@ -80,7 +80,7 @@ test("agrupa dos analitos normales e individualiza triglicéridos altos", () => 
   assert.match(result.displayText, /resultados de glucosa y colesterol son normales/i);
   assert.match(result.displayText, /triglicéridos son de 260 mg\/dL.+están elevados/i);
   assert.doesNotMatch(result.displayText, /\b(?:92|180)\b/);
-  assert.match(result.ttsText, /260 miligramos por decilitro/i);
+  assert.match(result.ttsText, /260/i);
 });
 
 test("resume triglicéridos normales e individualiza glucosa alta y colesterol límite alto", () => {
@@ -107,7 +107,7 @@ test("glucosa baja conserva la clasificación y la unidad en display y TTS", () 
   const result = processWorkerClinicalNarrative(metabolicWorker({ glucose: 60 }));
 
   assert.match(result.displayText, /glucosa es de 60 mg\/dL y está disminuida/i);
-  assert.match(result.ttsText, /glucosa es de 60 miligramos por decilitro y está disminuida/i);
+  assert.match(result.ttsText, /glucosa es de 60 y está disminuida/i);
   assert.doesNotMatch(result.displayText, /normal|elevada/i);
 });
 

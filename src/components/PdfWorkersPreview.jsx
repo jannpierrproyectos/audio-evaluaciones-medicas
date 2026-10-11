@@ -26,6 +26,7 @@ import {
   buildWhatsAppMessage,
   buildWhatsAppUrl,
   getWhatsAppAvailability,
+  isWhatsAppConfirmed,
 } from "../lib/whatsappMessage.js";
 
 const FILTERS = [
@@ -333,8 +334,11 @@ function WorkerTextAudioPanel({
   const finalText = draft.applyGreeting(editableNarrative);
   const audioStatus = String(worker?.app_fields?.audio_status || "pendiente").toLowerCase();
   const aptitud = normalizeComparable(worker?.aptitud_y_recomendaciones?.aptitud_final);
+  const needsWhatsAppCheck = Boolean(worker?.datos_operativos);
+  const whatsappConfirmed = isWhatsAppConfirmed(worker);
   const canGenerateAudio = Boolean(
     finalText.trim() &&
+      (!needsWhatsAppCheck || whatsappConfirmed) &&
       worker?.derived_states?.reviewed_by_user &&
       (!worker?.app_fields?.needs_review || worker?.derived_states?.reviewed_by_user) &&
       aptitud &&
@@ -472,6 +476,17 @@ function WorkerTextAudioPanel({
         </p>
       )}
 
+      <WhatsAppPreparationPanel
+        key={getWhatsAppAvailability(worker).phone}
+        worker={worker}
+        workerIndex={workerIndex}
+        onUpdateWorker={onUpdateWorker}
+      />
+
+      {needsWhatsAppCheck && !whatsappConfirmed ? (
+        <p className="muted-text">Antes de generar audio, abre WhatsApp y confirma que puedes escribir a este número.</p>
+      ) : null}
+
       <div className="audio-section-inline">
         <h4>Audio</h4>
       <div className="audio-control-panel">
@@ -551,11 +566,6 @@ function WorkerTextAudioPanel({
       )}
       </div>
 
-      <WhatsAppPreparationPanel
-        worker={worker}
-        workerIndex={workerIndex}
-        onUpdateWorker={onUpdateWorker}
-      />
     </div>
   );
 }
@@ -571,6 +581,36 @@ function WhatsAppPreparationPanel({ worker, workerIndex, onUpdateWorker }) {
   const requestControllerRef = useRef(null);
   const availability = getWhatsAppAvailability(worker);
   const isPreparing = preparation.status === "preparing";
+  const [chatOpened, setChatOpened] = useState(false);
+  const confirmed = isWhatsAppConfirmed(worker);
+
+  function handleOpenChat() {
+    const url = buildWhatsAppUrl({ phone: availability.phone, message: buildWhatsAppMessage(worker) });
+    if (!url) return;
+    const chat = window.open("about:blank", "_blank");
+    if (!chat) {
+      setPreparation((current) => ({ ...current, feedback: "Permite ventanas emergentes para abrir WhatsApp." }));
+      return;
+    }
+    chat.opener = null;
+    chat.location.replace(url);
+    setChatOpened(true);
+    setPreparation((current) => ({ ...current, feedback: "Comprueba en WhatsApp si puedes escribir a este número y registra el resultado aquí." }));
+  }
+
+  function handleConfirmChat(available) {
+    if (!chatOpened) return;
+    onUpdateWorker?.(workerIndex, (currentWorker) => ({
+      ...currentWorker,
+      app_fields: {
+        ...(currentWorker.app_fields || {}),
+        whatsapp_confirmed_phone: available ? availability.phone : "",
+      },
+    }));
+    setPreparation((current) => ({ ...current, feedback: available
+      ? "Número confirmado por el operador. Ya puedes generar el audio después de revisar el texto."
+      : "Marcado sin WhatsApp. La generación de audio queda bloqueada para evitar consumir créditos." }));
+  }
 
   useEffect(() => () => requestControllerRef.current?.abort(), []);
 
@@ -598,7 +638,7 @@ function WhatsAppPreparationPanel({ worker, workerIndex, onUpdateWorker }) {
   }
 
   async function handlePrepareWhatsApp() {
-    if (!availability.canPrepare || requestControllerRef.current) {
+    if (!confirmed || !availability.canPrepare || requestControllerRef.current) {
       setPreparation((current) => ({
         ...current,
         feedback: availability.missing.join(" "),
@@ -608,52 +648,22 @@ function WhatsAppPreparationPanel({ worker, workerIndex, onUpdateWorker }) {
 
     const controller = new AbortController();
     requestControllerRef.current = controller;
-    const whatsappUrl = buildWhatsAppUrl({
-      phone: availability.phone,
-      message: buildWhatsAppMessage(worker),
-    });
-    const whatsappWindow = window.open("about:blank", "_blank");
-    if (!whatsappWindow) {
-      requestControllerRef.current = null;
-      setPreparation((current) => ({
-        ...current,
-        feedback: "El navegador bloqueó la ventana de WhatsApp. Permite ventanas emergentes e inténtalo nuevamente.",
-      }));
-      return;
-    }
-
-    let whatsappOpened = false;
     setPreparation((current) => ({ ...current, status: "preparing", feedback: "Preparando archivos locales…" }));
     try {
-      const existingAudioId = worker?.app_fields?.whatsapp_audio_file_id;
-      const audioPromise = existingAudioId
-        ? Promise.resolve({
-            id: existingAudioId,
-            name: worker?.app_fields?.whatsapp_audio_filename || buildWhatsAppAudioFilename(worker),
-          })
-        : persistCurrentAudio(controller.signal);
-      const [audioFile] = await Promise.all([
-        audioPromise,
-        validateManagedFile(availability.pdfFileId, { signal: controller.signal }),
-      ]);
+      await validateManagedFile(availability.pdfFileId, { signal: controller.signal });
 
       if (controller.signal.aborted) throw new Error("La preparación fue cancelada.");
-
-      whatsappWindow.opener = null;
-      whatsappWindow.location.replace(whatsappUrl);
-      whatsappOpened = true;
 
       await revealManagedFile(availability.pdfFileId, { signal: controller.signal });
       if (controller.signal.aborted) return;
       setPreparation({
         status: "prepared",
-        feedback: "WhatsApp abierto y PDF mostrado en el Explorador. Envía primero el mensaje y luego adjunta el PDF.",
+        feedback: "PDF mostrado en el Explorador. En el chat que comprobaste, envía primero el mensaje y luego adjunta el PDF.",
         pdfShown: true,
         audioShown: false,
-        audioFile,
+        audioFile: null,
       });
     } catch (error) {
-      if (!whatsappOpened) whatsappWindow.close();
       if (controller.signal.aborted) return;
       setPreparation((current) => ({
         ...current,
@@ -666,12 +676,14 @@ function WhatsAppPreparationPanel({ worker, workerIndex, onUpdateWorker }) {
   }
 
   async function handleSelectAudio() {
-    if (requestControllerRef.current) return;
+    if (!confirmed || !availability.hasAudio || worker?.app_fields?.audio_status === "generando" || requestControllerRef.current) return;
     const controller = new AbortController();
     requestControllerRef.current = controller;
     setPreparation((current) => ({ ...current, status: "preparing", feedback: "Mostrando el audio…" }));
     try {
-      let audioFile = preparation.audioFile;
+      let audioFile = worker?.app_fields?.whatsapp_audio_file_id
+        ? { id: worker.app_fields.whatsapp_audio_file_id, name: worker.app_fields.whatsapp_audio_filename }
+        : null;
       if (!audioFile?.id) audioFile = await persistCurrentAudio(controller.signal);
       try {
         await revealManagedFile(audioFile.id, { signal: controller.signal });
@@ -710,6 +722,18 @@ function WhatsAppPreparationPanel({ worker, workerIndex, onUpdateWorker }) {
         {preparation.status === "prepared" ? <span className="status-pill">Envío preparado</span> : null}
       </div>
 
+      <p className="muted-text">Primero comprueba el chat. Abrir WhatsApp no consume créditos de voz ni confirma que el número tenga cuenta.</p>
+      <button type="button" className="secondary-button" onClick={handleOpenChat} disabled={!availability.hasValidPhone || isPreparing}>
+        Abrir WhatsApp para comprobar número
+      </button>
+      {chatOpened ? (
+        <div className="audio-control-panel">
+          <button type="button" className="secondary-button" onClick={() => handleConfirmChat(true)}>Sí, puedo escribirle</button>
+          <button type="button" className="secondary-button" onClick={() => handleConfirmChat(false)}>No tiene WhatsApp</button>
+        </div>
+      ) : null}
+      <p className="muted-text" aria-live="polite">{confirmed ? "WhatsApp confirmado por el operador para este número." : "Número pendiente de confirmación."}</p>
+
       <dl className="whatsapp-availability">
         <div className={availability.hasValidPhone ? "is-available" : "is-missing"}>
           <dt>Teléfono</dt>
@@ -721,7 +745,7 @@ function WhatsAppPreparationPanel({ worker, workerIndex, onUpdateWorker }) {
         </div>
         <div className={availability.hasAudio ? "is-available" : "is-missing"}>
           <dt>Audio</dt>
-          <dd>{availability.hasAudio ? "✓ Disponible" : "Faltante"}</dd>
+          <dd>{availability.hasAudio ? "✓ Disponible" : "Se genera después de comprobar el chat"}</dd>
         </div>
       </dl>
 
@@ -736,16 +760,16 @@ function WhatsAppPreparationPanel({ worker, workerIndex, onUpdateWorker }) {
           type="button"
           className="primary-button"
           onClick={handlePrepareWhatsApp}
-          disabled={!availability.canPrepare || isPreparing}
+          disabled={!confirmed || !availability.canPrepare || isPreparing}
         >
-          {isPreparing ? "Preparando envío…" : "Preparar envío por WhatsApp"}
+          {isPreparing ? "Preparando PDF…" : "Preparar PDF para adjuntar"}
         </button>
       ) : (
         <div className="whatsapp-prepared-steps">
           <div>
             <strong>1. Mensaje</strong>
-            <span>Chat abierto con el mensaje predeterminado</span>
-            <small>WhatsApp abierto</small>
+            <span>Envía el mensaje predeterminado en el chat comprobado</span>
+            <small>{confirmed ? "Número confirmado por el operador" : "Vuelve a comprobar el número"}</small>
           </div>
           <div>
             <strong>2. PDF</strong>
@@ -754,9 +778,9 @@ function WhatsAppPreparationPanel({ worker, workerIndex, onUpdateWorker }) {
           </div>
           <div>
             <strong>3. Audio</strong>
-            <span title={preparation.audioFile?.name}>{preparation.audioFile?.name}</span>
-            <small>{preparation.audioShown ? "Audio mostrado en Explorer" : "Audio preparado"}</small>
-            <button type="button" className="secondary-button" onClick={handleSelectAudio} disabled={isPreparing}>
+            <span>{worker?.app_fields?.whatsapp_audio_filename || worker?.app_fields?.audio_filename}</span>
+            <small>{!availability.hasAudio ? "Genera el audio cuando hayas comprobado el chat" : preparation.audioShown && preparation.audioFile?.id === worker?.app_fields?.whatsapp_audio_file_id ? "Audio mostrado en Explorer" : "Audio disponible para seleccionar"}</small>
+            <button type="button" className="secondary-button" onClick={handleSelectAudio} disabled={!confirmed || !availability.hasAudio || worker?.app_fields?.audio_status === "generando" || isPreparing}>
               Seleccionar audio en carpeta
             </button>
           </div>
