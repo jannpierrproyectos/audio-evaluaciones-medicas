@@ -3,6 +3,9 @@ import { isTtsSessionActive } from './ttsSession.js'
 
 export const MAX_TTS_BODY_BYTES = 64 * 1024
 export const ttsAccessError = (status, code) => Object.assign(new Error('TTS bloqueado: revisa el acceso institucional, la configuración y los límites del backend.'), { status, code })
+// Explicit migration mode for the existing, unchanged June 2026 Hugging Face Space.
+// No token is sent to the legacy service; the Vercel proxy remains operator-gated.
+export function isLegacyTtsMode() { return process.env.TTS_LEGACY_MODE === '1' }
 export function externalTtsUrl() {
   return String(process.env.TTS_SERVICE_URL || process.env.VITE_TTS_SERVICE_URL || '').trim().replace(/\/+$/g, '')
 }
@@ -13,7 +16,7 @@ export function authorizeTtsConfigurationRequest() {
     if (process.env.VERCEL || process.env.NODE_ENV === 'production') throw ttsAccessError(503, 'TTS_NOT_CONFIGURED')
     return // Local synthetic metadata only.
   }
-  ttsServiceHeaders() // Fail closed for missing token or an unsafe service URL.
+  ttsServiceHeaders() // Fail closed for missing auth configuration or an unsafe URL.
 }
 
 export function authorizeTtsRequest(request) {
@@ -21,7 +24,7 @@ export function authorizeTtsRequest(request) {
     if (process.env.VERCEL || process.env.NODE_ENV === 'production') throw ttsAccessError(503, 'TTS_NOT_CONFIGURED')
     return // Local synthetic WAV only; never a provider call.
   }
-  if (String(process.env.TTS_SERVICE_ACCESS_TOKEN || '').length < 32) throw ttsAccessError(503, 'TTS_ACCESS_NOT_CONFIGURED')
+  ttsServiceHeaders() // Service token or explicit, allowlisted legacy Space.
   if (isTtsSessionActive(request)) return
   if (String(process.env.INSTITUTIONAL_PROXY_TOKEN || '').length >= 32) return requireInstitutionalAccess(request)
   throw ttsAccessError(401, 'TTS_OPERATOR_SESSION_REQUIRED')
@@ -35,8 +38,18 @@ export function requireInstitutionalAccess(request) {
 }
 export function ttsServiceHeaders() {
   const token = process.env.TTS_SERVICE_ACCESS_TOKEN || ''
+  let url
+  try { url = new URL(externalTtsUrl()) } catch { throw ttsAccessError(503, 'TTS_UNSAFE_URL') }
+  if (isLegacyTtsMode()) {
+    // Narrow exception: ONLY the user's existing Space can run without a service token.
+    if (url.protocol !== 'https:' || url.hostname !== 'jannpi-audioevaluaciones-tts.hf.space' ||
+      url.username || url.password || url.port || !['', '/'].includes(url.pathname) ||
+      url.search || url.hash) throw ttsAccessError(503, 'TTS_LEGACY_URL_UNSAFE')
+    if (String(process.env.TTS_OPERATOR_PASSPHRASE || '').length < 32)
+      throw ttsAccessError(503, 'TTS_OPERATOR_ACCESS_NOT_CONFIGURED')
+    return {}
+  }
   if (token.length < 32) throw ttsAccessError(503, 'TTS_ACCESS_NOT_CONFIGURED')
-  const url = new URL(externalTtsUrl())
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))) throw ttsAccessError(503, 'TTS_UNSAFE_URL')
   return { Authorization: `Bearer ${token}` }
 }
