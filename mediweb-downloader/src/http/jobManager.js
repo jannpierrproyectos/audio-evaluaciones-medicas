@@ -53,9 +53,9 @@ export class JobManager {
     return this.activeJobId !== null;
   }
 
-  create(options) {
+  create(options, hooks = {}) {
     if (this.hasActiveJob) throw new HttpError(409, "JOB_ALREADY_RUNNING", "Ya existe un trabajo en ejecución.");
-    const id = randomUUID();
+    const id = hooks.id || randomUUID();
     const controller = new AbortController();
     const job = {
       id,
@@ -78,6 +78,8 @@ export class JobManager {
       controller,
       result: null,
       completion: null,
+      hooks,
+      checkpoints: Promise.resolve(),
     };
     this.jobs.set(id, job);
     this.activeJobId = id;
@@ -110,6 +112,7 @@ export class JobManager {
       errors: job.errors,
       startedAt: job.startedAt,
       finishedAt: job.finishedAt,
+      errorCode: job.errorCode || null,
     };
   }
 
@@ -151,7 +154,7 @@ export class JobManager {
     if (job.status === "running" || job.status === "idle") {
       throw new HttpError(409, "JOB_NOT_FINISHED", "El trabajo todavia esta procesando.");
     }
-    if (job.status !== "completed") {
+    if (!["completed", "failed", "cancelled", "uncertain"].includes(job.status)) {
       throw new HttpError(409, "JOB_NOT_COMPLETED", "El trabajo no termino correctamente.");
     }
     return {
@@ -188,7 +191,7 @@ export class JobManager {
     if (job.status === "running" || job.status === "idle") {
       throw new HttpError(409, "JOB_NOT_FINISHED", "El trabajo todavía está procesando.");
     }
-    if (job.status !== "completed") {
+    if (!["completed", "failed", "cancelled", "uncertain"].includes(job.status)) {
       throw new HttpError(409, "JOB_NOT_COMPLETED", "El trabajo no terminó correctamente.");
     }
     const file = job.result?.paths?.consolidated;
@@ -206,20 +209,29 @@ export class JobManager {
 
   async #execute(job) {
     try {
+      if (job.hooks?.checkpoint) { this.engine.paths = null; this.engine.manifest = null; }
+      await job.hooks?.beforeRun?.();
       const result = await this.engine.run(job.options, {
         isCancelled: () => job.controller.signal.aborted,
         onProgress: (event) => this.#update(job, event),
+        beforeOutput: job.hooks?.beforeOutput,
+        validateExtraction: job.hooks?.validateExtraction,
       });
       job.result = result;
+      job.errorCode = result.errorCode || null;
       job.status = job.controller.signal.aborted || result.status === "cancelled" ? "cancelled" : result.status;
       job.finalReason = result.manifest?.pagination?.motivoFinalizacion ?? null;
       this.#updateFromManifest(job, result.manifest);
     } catch (error) {
+      if (job.hooks?.checkpoint && this.engine.paths && this.engine.manifest) job.result = structuredClone({ paths: this.engine.paths, manifest: this.engine.manifest });
       job.status = job.controller.signal.aborted ? "cancelled" : "failed";
       job.finalReason = job.status === "cancelled" ? "cancelado" : "error_ejecucion";
+      job.errorCode = /^[A-Z_]+$/.test(error.code || "") ? error.code : "PROCESS_FAILED";
       this.logger?.error?.("El procesamiento terminó con error.", error);
     } finally {
       job.finishedAt = new Date().toISOString();
+      this.#checkpoint(job);
+      try { await job.checkpoints; } catch { job.status = "uncertain"; }
       if (this.activeJobId === job.id) this.activeJobId = null;
       this.events?.emit(`job:${job.status}`, { id: job.id, status: job.status });
     }
@@ -237,6 +249,17 @@ export class JobManager {
       job.processed = totals.totalProcesado ?? job.processed;
     }
     this.#updateFromManifest(job, event.manifest);
+    this.#checkpoint(job);
+  }
+
+  #checkpoint(job) {
+    if (!job.hooks?.checkpoint) return;
+    const checkpoint = { ...this.publicJob(job), result: structuredClone(job.result || (this.engine.paths && this.engine.manifest ? { paths: this.engine.paths, manifest: this.engine.manifest } : null)) };
+    job.checkpoints = job.checkpoints.then(() => job.hooks.checkpoint(checkpoint)).catch(error => {
+      job.controller.abort(); this.engine.cancel?.(); job.status = "uncertain"; throw error;
+    });
+    // Handler prevents an unhandled rejection while the engine is winding down.
+    job.checkpoints.catch(() => {});
   }
 
   #updateFromManifest(job, manifest) {

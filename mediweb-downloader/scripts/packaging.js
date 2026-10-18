@@ -1,9 +1,9 @@
 import { access, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
-const FORBIDDEN_DIRECTORIES = new Set([".auth", ".venv", "venv", "downloads", "logs", "tmp", "tts_cache", "test", "tests", "coverage", ".git"]);
+const FORBIDDEN_DIRECTORIES = new Set([".auth", "evaluations-v1", "mediweb-profile", ".venv", "venv", "downloads", "logs", "tmp", "tts_cache", "test", "tests", "test-support", "coverage", ".git"]);
 const FORBIDDEN_FILES = new Set([".env", ".env.local", "manifest.json", "resultados.csv"]);
-const FORBIDDEN_EXTENSIONS = new Set([".csv", ".log", ".mp3", ".pdf", ".wav"]);
+const FORBIDDEN_EXTENSIONS = new Set([".csv", ".log", ".mp3", ".pdf", ".wav", ".enc", ".dpapi", ".pfx", ".p12"]);
 
 export async function validateStaging(stagingRoot) {
   const required = [
@@ -14,7 +14,10 @@ export async function validateStaging(stagingRoot) {
     "app/src/trayService.js",
     "app/src/service.js",
     "app/src/managedFiles.js",
+    "app/src/temporaryAttachments.js",
+    "app/src/encryptedOutput.js",
     "app/src/phoneExtractor.js",
+    ...["evaluationStore", "windowsProtection", "authorizationPolicy", "recipientReview", "personNames", "whatsappContent", "narrativeGreeting", "deliveryService", "processingFlow", "searchProfile"].map(name => `app/src/${name}.js`),
     "app/node_modules/playwright-core/package.json",
     "app/node_modules/pdfjs-dist/package.json",
     "config/default-config.json",

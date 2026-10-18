@@ -1,5 +1,6 @@
 import path from "node:path";
 import os from "node:os";
+import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rmdir } from "node:fs/promises";
 
 export const CONNECTOR_DATA_DIRECTORY = "AudioEvaluacionesConnector";
@@ -52,7 +53,7 @@ export function timestamp(date = new Date()) {
 
 export async function createOutputPaths(moduleRoot, customBase, mode, runtimePaths = null) {
   const base = customBase ?? runtimePaths?.downloadsDir ?? path.join(moduleRoot, "downloads");
-  const runTimestamp = timestamp();
+  const runTimestamp = `${timestamp()}_${randomUUID().slice(0, 8)}`;
   const root = path.join(base, runTimestamp);
   const paths = {
     root,

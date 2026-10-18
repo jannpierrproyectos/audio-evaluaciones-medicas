@@ -2,6 +2,7 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
+import { windowsVersion } from "./release-version.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -13,7 +14,7 @@ export async function buildWindowsHost() {
   const csc = await findCompiler();
   if (!csc) throw new Error("No se encontró csc.exe de .NET Framework 4.x, requerido para compilar el host nativo Windows.");
   await mkdir(outputDir, { recursive: true });
-  const fileVersion = packageJson.version.split(".").length === 3 ? `${packageJson.version}.0` : packageJson.version;
+  const fileVersion = windowsVersion(packageJson.version);
   await writeFile(assemblyInfo, [
     "using System.Reflection;",
     '[assembly: AssemblyTitle("AudioEvaluaciones Connector")]',

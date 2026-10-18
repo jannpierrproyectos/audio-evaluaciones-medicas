@@ -1,3 +1,5 @@
+import { externalTtsUrl, ttsServiceHeaders, validateTtsText } from './ttsAccess.js'
+
 const DEFAULT_TTS_ROUTE = '/synthesize'
 const DEFAULT_MIME_TYPE = 'audio/wav'
 
@@ -6,9 +8,15 @@ function normalizeServiceUrl(baseUrl) {
 }
 
 function getTtsServiceUrl() {
-  return normalizeServiceUrl(
-    process.env.TTS_SERVICE_URL || process.env.VITE_TTS_SERVICE_URL,
-  )
+  return normalizeServiceUrl(externalTtsUrl())
+}
+
+export async function getTtsConfiguration() {
+  const serviceUrl = getTtsServiceUrl()
+  if (!serviceUrl) return { provider: 'mock', model: 'sine-v1', voice_ref: 'synthetic', settings: {}, language: 'es', format: 'wav', contract: 1 }
+  const response = await fetch(`${serviceUrl}/configuration`, { headers: ttsServiceHeaders(), redirect: 'error', signal: AbortSignal.timeout(10000) })
+  if (!response.ok) throw new Error('El servicio TTS debe publicar su configuración para conservar MP3.')
+  return response.json()
 }
 
 function getFileExtensionFromMimeType(mimeType) {
@@ -135,7 +143,10 @@ async function requestExternalTts({ text, filenameHint }) {
     headers: {
       'Content-Type': 'application/json',
       Accept: 'audio/mpeg, audio/wav, audio/x-wav, application/json',
+      ...ttsServiceHeaders(),
     },
+    redirect: 'error',
+    signal: AbortSignal.timeout(70000),
     body: JSON.stringify({
       text,
       language: 'es',
@@ -159,6 +170,7 @@ async function requestExternalTts({ text, filenameHint }) {
 
   return {
     audioBuffer: Buffer.from(await response.arrayBuffer()),
+    configuration: response.headers.get('x-tts-configuration') || '',
     filename,
     mimeType,
     source: 'external',
@@ -167,6 +179,7 @@ async function requestExternalTts({ text, filenameHint }) {
 }
 
 export async function synthesizeSpeech({ text, filenameHint }) {
+  validateTtsText(text)
   if (!String(text || '').trim()) {
     throw new Error('No se puede generar audio sin texto_final.')
   }

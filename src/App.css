@@ -1956,3 +1956,28 @@ h1 {
     min-height: 300px;
   }
 }
+.wa-summary { display: flex; gap: .5rem; flex-wrap: wrap; padding: .5rem 0; }
+.wa-review { padding: 1rem; border: 1px solid var(--border-color, #dce3e7); border-radius: 14px; background: #fff; }
+.wa-review-layout { display: grid; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); gap: 1rem; margin-top: 1rem; }
+.wa-review-list { max-height: 65vh; overflow-y: auto; }
+.wa-review-list .worker-row { width: 100%; grid-template-columns: minmax(0, 1fr); }
+.wa-review-list small { display: block; margin-top: .25rem; }
+.wa-review-card label { display: block; margin: .65rem 0; }
+.wa-review-card input[type="datetime-local"], .wa-review-card input[type="tel"] { display: block; max-width: 100%; padding: .45rem; }
+.wa-review-card .technical-detail { margin: .75rem 0; }
+@media (max-width: 760px) { .wa-review-layout { grid-template-columns: 1fr; } .wa-review-list { max-height: 200px; } }
+ .bulk-audio-panel { margin-block: 1rem; padding: 1rem; border: 1px solid #cbd5e1; border-radius: 12px; background: #f8fafc; }
+ .bulk-audio-panel p { margin-block: .65rem; }
+ .bulk-audio-panel progress { width: 100%; }
+ .bulk-audio-panel .button-row { display: flex; flex-wrap: wrap; gap: .5rem; margin-block: .75rem; }
+ .bulk-audio-items { max-height: 18rem; overflow: auto; padding-left: 1.25rem; }
+ .bulk-audio-items li { margin-block: .5rem; }
+ .delivery-layout { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(300px, 3fr); gap: 1rem; margin-block: 1rem; }
+ .delivery-list { display: flex; flex-direction: column; gap: .5rem; max-height: 75vh; overflow: auto; }
+ .delivery-list button { display: grid; text-align: left; gap: .35rem; padding: .8rem; }
+ .delivery-list [aria-selected="true"] { outline: 2px solid #2563eb; background: #eff6ff; }
+ .delivery-inbox label { display: block; margin-block: .7rem; }
+ .delivery-inbox textarea { width: 100%; box-sizing: border-box; }
+ .delivery-inbox .button-row { display: flex; flex-wrap: wrap; gap: .5rem; margin-block: .7rem; }
+ .delivery-inbox fieldset { margin-block: 1rem; }
+ @media (max-width: 760px) { .delivery-layout { grid-template-columns: 1fr; } .delivery-list { max-height: 16rem; } }

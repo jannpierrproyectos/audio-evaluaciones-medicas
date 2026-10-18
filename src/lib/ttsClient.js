@@ -56,6 +56,8 @@ async function readErrorMessage(response) {
 export async function synthesizeAudioFromText({ text, filenameHint }) {
   const ttsText = prepareTextForTts(text)
   const response = await fetch('/api/tts/synthesize', {
+    // Aborting the transport never proves that synthesis was not charged.
+    signal: AbortSignal.timeout(180000),
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -82,6 +84,11 @@ export async function synthesizeAudioFromText({ text, filenameHint }) {
     createFilename(filenameHint, mimeType)
 
   return {
+    audioBlob,
+    configuration: (() => {
+      try { return JSON.parse(decodeURIComponent(response.headers.get('x-tts-configuration') || '')) }
+      catch { return null }
+    })(),
     audioUrl: window.URL.createObjectURL(audioBlob),
     audioFilename,
     mimeType,

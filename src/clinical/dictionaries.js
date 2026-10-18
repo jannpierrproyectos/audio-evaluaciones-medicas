@@ -1,16 +1,4 @@
-export const EMPTY_CLINICAL_PLACEHOLDERS = new Set([
-  "",
-  "-",
-  "--",
-  "---",
-  "N/A",
-  "NA",
-  "NO APLICA",
-  "NO REGISTRA",
-  "SIN DATO",
-  "NULL",
-  "UNDEFINED",
-]);
+export { EMPTY_CLINICAL_PLACEHOLDERS } from "../../mediweb-downloader/src/personNames.js";
 
 export const CLINICAL_ACRONYMS = [
   "IMC",

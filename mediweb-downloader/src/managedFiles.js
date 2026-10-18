@@ -1,7 +1,8 @@
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, open, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
 import { sanitizeFilePart } from "./fileNames.js";
 
 export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
@@ -19,6 +20,11 @@ export class ManagedFileError extends Error {
 export function createManagedFileService({
   downloadsDir,
   revealFile = revealInWindowsExplorer,
+  beforeSaveAudioDirectory = null,
+  protectAudioFile = null,
+  ensureProtectedFile = null,
+  temporaryAttachments = null,
+  readProtectedOutput = null,
 } = {}) {
   if (!downloadsDir) throw new Error("downloadsDir es obligatorio para administrar archivos locales.");
   const root = path.resolve(downloadsDir);
@@ -46,6 +52,11 @@ export function createManagedFileService({
   }
 
   async function resolveFileId(fileId, expectedExtension) {
+    if (temporaryAttachments?.isReference(fileId)) {
+      if (expectedExtension && expectedExtension !== ".mp3") throw new ManagedFileError(415, "FILE_TYPE_NOT_ALLOWED", "Tipo de adjunto incompatible.");
+      const file = await temporaryAttachments.readAudio(fileId);
+      return { id: file.id, name: file.name, extension: file.extension, sha256: file.sha256 };
+    }
     const raw = String(fileId ?? "").trim();
     if (!raw || raw.includes("\0") || isAbsoluteOrUnc(raw)) {
       throw new ManagedFileError(400, "INVALID_FILE_ID", "El identificador de archivo no es válido.");
@@ -56,7 +67,16 @@ export function createManagedFileService({
   }
 
   async function reveal(fileId) {
+    if (temporaryAttachments) {
+      const file = await inspectFile(fileId);
+      const lease = await temporaryAttachments.reveal(file, revealFile);
+      return { id: file.id, name: "Adjunto temporal", extension: file.extension, ...lease };
+    }
     const file = await resolveFileId(fileId);
+    if (ensureProtectedFile) {
+      try { const absolute = path.resolve(root, file.id.replace(/\//g, path.sep)); await access(absolute, constants.R_OK); await ensureProtectedFile(absolute); }
+      catch { throw new ManagedFileError(503, "FILE_PROTECTION_UNAVAILABLE", "No se puede mostrar el archivo sin comprobar su protección EFS y permisos."); }
+    }
     try {
       await revealFile(path.resolve(root, file.id.replace(/\//g, path.sep)));
     } catch {
@@ -76,10 +96,16 @@ export function createManagedFileService({
       throw new ManagedFileError(415, "INVALID_AUDIO", "El contenido recibido no corresponde a un MP3.");
     }
 
+    if (temporaryAttachments) return temporaryAttachments.storeAudio(buffer);
+
     const audioDir = path.join(root, "audio-whatsapp");
     await mkdir(audioDir, { recursive: true });
     const [realRoot, realAudioDir] = await Promise.all([realpath(root), realpath(audioDir)]);
     assertWithinRoot(realRoot, realAudioDir);
+    if (beforeSaveAudioDirectory) {
+      try { await beforeSaveAudioDirectory(realAudioDir); }
+      catch { throw new ManagedFileError(503, "AUDIO_EXPORT_PROTECTION_UNAVAILABLE", "Windows no permite proteger la copia de exportacion. El MP3 permanece en el almacenamiento cifrado."); }
+    }
     const baseName = sanitizeAudioFilename(requestedFileName);
     const digest = createHash("sha256").update(buffer).digest("hex");
     const extension = path.extname(baseName);
@@ -90,9 +116,11 @@ export function createManagedFileService({
       const candidate = path.join(realAudioDir, candidateName);
       try {
         await writeFile(candidate, buffer, { flag: "wx" });
+        if (protectAudioFile) await protectAudioFile(candidate);
         return { ...(await identifyAbsoluteFile(candidate, ".mp3")), reused: false, sha256: digest };
       } catch (error) {
         if (error.code !== "EEXIST") throw error;
+        if (protectAudioFile) await protectAudioFile(candidate);
         const existing = await readFile(candidate);
         if (createHash("sha256").update(existing).digest("hex") === digest) {
           return { ...(await identifyAbsoluteFile(candidate, ".mp3")), reused: true, sha256: digest };
@@ -103,7 +131,35 @@ export function createManagedFileService({
     throw new ManagedFileError(409, "AUDIO_NAME_CONFLICT", "No se pudo asignar un nombre seguro al audio.");
   }
 
-  return { identifyAbsoluteFile, resolveFileId, reveal, saveMp3 };
+  async function inspectFile(fileId, expectedExtension) {
+    if (temporaryAttachments?.isReference(fileId)) {
+      if (expectedExtension && expectedExtension !== ".mp3") throw new ManagedFileError(415, "FILE_TYPE_NOT_ALLOWED", "Tipo de adjunto incompatible.");
+      return temporaryAttachments.readAudio(fileId);
+    }
+    const file = await resolveFileId(fileId, expectedExtension);
+    const absolute = path.resolve(root, file.id.replace(/\//g, path.sep));
+    if (!ensureProtectedFile) throw new ManagedFileError(503, "FILE_PROTECTION_UNAVAILABLE", "No se puede comprobar la protección del archivo.");
+    try { await access(absolute, constants.R_OK); await ensureProtectedFile(absolute); }
+    catch { throw new ManagedFileError(503, "FILE_PROTECTION_UNAVAILABLE", "No se pudo proteger o leer el archivo. Revisa los permisos privados de Windows."); }
+    const handle = await open(absolute, "r");
+    try {
+      const before = await handle.stat();
+      if (before.size > 64 * 1024 * 1024) throw new ManagedFileError(413, "FILE_TOO_LARGE", "El archivo excede el tamaño permitido.");
+      const bytes = readProtectedOutput ? await readProtectedOutput(absolute) : await handle.readFile(), after = await handle.stat();
+      const latest = await resolveFileId(fileId, expectedExtension), current = await stat(absolute);
+      if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || latest.id !== file.id || current.ino !== before.ino || current.mtimeMs !== before.mtimeMs || current.size !== before.size) throw new ManagedFileError(409, "FILE_CHANGED", "El archivo cambió durante la lectura.");
+      if (file.extension === ".pdf" && bytes.subarray(0, 5).toString() !== "%PDF-") throw new ManagedFileError(415, "INVALID_PDF", "El archivo no es un PDF válido.");
+      return { ...file, bytes, sha256: createHash("sha256").update(bytes).digest("hex") };
+    } finally { await handle.close(); }
+  }
+  async function revealPinned(fileId, expectedHash, extension) {
+    const file = await inspectFile(fileId, extension);
+    if (file.sha256 !== expectedHash) throw new ManagedFileError(409, "FILE_CHANGED", "El contenido del archivo ya no coincide con la entrega preparada.");
+    if (temporaryAttachments) return temporaryAttachments.reveal(file, revealFile);
+    return reveal(file.id);
+  }
+  const releaseTemporary = ids => temporaryAttachments?.release(ids);
+  return { identifyAbsoluteFile, resolveFileId, reveal, saveMp3, inspectFile, revealPinned, releaseTemporary };
 }
 
 export function sanitizeAudioFilename(value) {

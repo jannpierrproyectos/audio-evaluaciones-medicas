@@ -109,7 +109,7 @@ export function extractDocumentNumberFromPages(pages = []) {
   return [...collectDocumentNumbers(pages)].find(Boolean) ?? "";
 }
 
-export async function extractOperationalDataFromPdf(buffer) {
+export async function extractOperationalDataFromPdf(buffer, { identityDetails = false } = {}) {
   if (typeof globalThis.DOMMatrix === "undefined") {
     globalThis.DOMMatrix = class DOMMatrix {
       constructor(init = [1, 0, 0, 1, 0, 0]) {
@@ -134,8 +134,14 @@ export async function extractOperationalDataFromPdf(buffer) {
     pages.push({ page: pageNumber, height: view.height, items, text: items.map((item) => item.text).join(" ") });
   }
 
-  return {
-    telefono: extractPhoneFromPages(pages),
-    numeroDocumento: extractDocumentNumberFromPages(pages),
+  const text = pages.map(page => page.text).join(" ").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const result = {
+    telefono: extractPhoneFromPages(pages), numeroDocumento: extractDocumentNumberFromPages(pages),
+    fechaEvaluacion: text.match(/FECHA DE EVALUACION\s*:?\s*([\d/-]+)/i)?.[1] || "",
+    nFicha: text.match(/N.?\s*FICHA\s*:\s*(\d+)/i)?.[1] || "",
+    documentNumbers: [...collectDocumentNumbers(pages)],
+    evaluationDates: [...text.matchAll(/FECHA DE EVALUACION\s*:?\s*([\d/-]+)/gi)].map(match => match[1]),
   };
+  await document.destroy();
+  return identityDetails ? result : { telefono: result.telefono, numeroDocumento: result.numeroDocumento };
 }

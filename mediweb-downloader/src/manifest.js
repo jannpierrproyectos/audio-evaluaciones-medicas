@@ -1,5 +1,6 @@
 import path from "node:path";
-import { writeFile, rename } from "node:fs/promises";
+import { open, rename, unlink } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { createCsv } from "./csv.js";
 import { APTITUD_CATEGORIES, classifyAptitud } from "./aptitud.js";
 
@@ -132,13 +133,18 @@ export function applyPaginationTotals(manifest, totals) {
   manifest.pagination.paginasVisitadas = totals.totalPaginasVisitadas;
 }
 
-export async function saveControl(manifest, paths) {
-  const manifestTemporary = `${paths.manifest}.tmp`;
-  const csvTemporary = `${paths.csv}.tmp`;
-  await writeFile(manifestTemporary, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-  await rename(manifestTemporary, paths.manifest);
-  await writeFile(csvTemporary, createCsv(manifest.atenciones), "utf8");
-  await rename(csvTemporary, paths.csv);
+export async function saveControl(manifest, paths, write = writeAtomicOutput) {
+  await write(paths.manifest, `${JSON.stringify(manifest, null, 2)}\n`);
+  await write(paths.csv, createCsv(manifest.atenciones));
+}
+
+export async function writeAtomicOutput(file, bytes) {
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try {
+    const handle = await open(temporary, "wx", 0o600);
+    try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
+    await rename(temporary, file);
+  } catch (error) { await unlink(temporary).catch(() => {}); throw error; }
 }
 
 export function summarizeManifest(manifest) {

@@ -2,6 +2,10 @@ import { HttpError } from "./jobManager.js";
 import { createRoutes, json } from "./routes.js";
 
 import { DEFAULT_CONFIG } from "../config.js";
+import { stateRoute } from "./stateRoutes.js";
+import { ProcessingFlow } from "../processingFlow.js";
+import { readJson } from "./routes.js";
+import { DeliveryService } from "../deliveryService.js";
 
 export const DEFAULT_ALLOWED_ORIGINS = [...DEFAULT_CONFIG.allowedOrigins];
 const ALLOWED_PREFLIGHT_METHODS = new Set(["GET", "POST"]);
@@ -28,9 +32,11 @@ export function normalizeOrigin(value) {
   }
 }
 
-export function createApp({ engine, jobManager, managedFiles = null, updateService = null, version, allowedOrigins = parseAllowedOrigins(process.env.MEDIWEB_ALLOWED_ORIGINS) }) {
+export function createApp({ engine, jobManager, managedFiles = null, updateService = null, getEvaluationStore = null, processingService = null, version, allowedOrigins = parseAllowedOrigins(process.env.MEDIWEB_ALLOWED_ORIGINS) }) {
   const route = createRoutes({ engine, jobManager, managedFiles, updateService, version });
   const normalizedAllowedOrigins = new Set([...allowedOrigins].map(normalizeOrigin));
+  const processing = processingService || (getEvaluationStore ? new ProcessingFlow({ engine, jobManager, getStore: getEvaluationStore }) : null);
+  const deliveries = getEvaluationStore && managedFiles ? new DeliveryService({ getStore: getEvaluationStore, managedFiles }) : null;
   return async function app(request, response) {
     try {
       const origin = request.headers.origin;
@@ -62,6 +68,51 @@ export function createApp({ engine, jobManager, managedFiles = null, updateServi
         return;
       }
       const url = new URL(request.url, "http://127.0.0.1");
+      if (url.pathname === "/deliveries") {
+        if (!origin) throw new HttpError(403, "ORIGIN_REQUIRED", "Origin obligatorio.");
+        if (!deliveries || request.method !== "POST") throw new HttpError(400, "DELIVERY_UNAVAILABLE", "Actualiza el Connector para preparar entregas protegidas.");
+        const body = await readJson(request);
+        if (!body || typeof body !== "object" || Array.isArray(body)) throw new HttpError(400, "INVALID_REQUEST", "Solicitud no válida.");
+        const allowed = { list: [], detail: ["evaluationId"], prepare: ["evaluationId", "expectedBinding", "configuration"],
+          begin: ["id", "kind", "configuration"], settle: ["id", "intent", "success", "configuration"], reveal: ["id", "kind", "configuration"],
+          confirm: ["id", "part", "confirmed", "configuration"], complete: ["id", "confirmed", "configuration"], cancel: ["evaluationId"],
+          reopen: ["id", "reason", "confirmed"], reconcile: ["id", "outcomes", "reason", "confirmed", "configuration"] };
+        if (!Array.isArray(allowed[body.action]) || Object.keys(body).some(key => key !== "action" && !allowed[body.action].includes(key))) throw new HttpError(400, "INVALID_REQUEST", "Acción o campos no permitidos.");
+        try {
+          return json(response, 200, body.action === "detail" ? await deliveries.detail(body.evaluationId) : await deliveries[body.action](body));
+        } catch (error) { throw new HttpError(error.status || 503, /^[A-Z_]+$/.test(error.code || "") ? error.code : "DELIVERY_UNAVAILABLE", error.code?.startsWith("DELIVERY_") || error.name === "ManagedFileError" ? error.message : "No se pudo completar la entrega. Comprueba el almacenamiento y los archivos protegidos."); }
+      }
+      if (url.pathname === "/processing") {
+        if (!origin) throw new HttpError(403, "ORIGIN_REQUIRED", "Origin obligatorio.");
+        if (!processing || request.method !== "POST") throw new HttpError(400, "INVALID_REQUEST", "Solicitud no válida.");
+        const body = await readJson(request);
+        const allowed = { status: [], confirm: [], start: ["profileId", "manualConfirmed", "manualToken"], profile: ["name", "confirmed", "manualToken"], complete: ["id", "batchId"], cancel: ["id"] };
+        if (!Array.isArray(allowed[body.action]) || Object.keys(body).some(key => key !== "action" && !allowed[body.action].includes(key))) throw new HttpError(400, "INVALID_REQUEST", "Solicitud no válida.");
+        try {
+          let result;
+          if (body.action === "status") result = await processing.status();
+          if (body.action === "confirm") result = await processing.confirmSearch();
+          if (body.action === "start") {
+            if (body.manualConfirmed !== undefined && typeof body.manualConfirmed !== "boolean") throw new HttpError(400, "INVALID_REQUEST", "Confirmación no válida.");
+            result = await processing.start(body);
+          }
+          if (body.action === "profile") {
+            if (body.confirmed !== true) throw new HttpError(400, "CONFIRMATION_REQUIRED", "Confirma la búsqueda antes de guardarla.");
+            result = await processing.saveProfile(body.name, body.manualToken);
+          }
+          if (body.action === "cancel") result = await jobManager.cancel(body.id);
+          if (body.action === "complete") result = await processing.complete(body.id, body.batchId);
+          return json(response, 200, result);
+        } catch (error) {
+          if (error instanceof HttpError) throw error;
+          throw new HttpError(error.status || 503, /^[A-Z_]+$/.test(error.code || "") ? error.code : "PROCESS_UNAVAILABLE", "Revisa la sesión, la búsqueda o el almacenamiento del Connector. Los resultados guardados se conservan.");
+        }
+      }
+      if (url.pathname === "/state") {
+        if (!getEvaluationStore) throw new HttpError(503, "STORE_UNAVAILABLE", "Actualiza el Connector para conservar lotes.");
+        await stateRoute(request, response, getEvaluationStore);
+        return;
+      }
       await route(request, response, url);
     } catch (error) {
       if (response.headersSent) {

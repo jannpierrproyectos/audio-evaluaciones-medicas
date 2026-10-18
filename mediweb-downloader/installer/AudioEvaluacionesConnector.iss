@@ -1,11 +1,15 @@
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
+#ifndef AppNumericVersion
+  #define AppNumericVersion "0.0.0.0"
+#endif
 
 [Setup]
 AppId={{C841E03A-2A3B-4D7D-B369-D69183443365}
 AppName=AudioEvaluaciones Connector
 AppVersion={#AppVersion}
+VersionInfoVersion={#AppNumericVersion}
 AppPublisher=AudioEvaluaciones
 DefaultDirName={autopf}\AudioEvaluaciones Connector
 DefaultGroupName=AudioEvaluaciones Connector
@@ -45,8 +49,8 @@ Filename: "{app}\AudioEvaluacionesConnector.exe"; Parameters: "--startup-disable
 [UninstallRun]
 Filename: "{app}\AudioEvaluacionesConnector.exe"; Parameters: "--shutdown"; Flags: runhidden waituntilterminated skipifdoesntexist; RunOnceId: "StopAudioEvaluacionesConnector"
 
-[UninstallDelete]
-Type: filesandordirs; Name: "{localappdata}\AudioEvaluacionesConnector"
+; User data, DPAPI keys, sessions and delivery history survive uninstall.
+; Removal requires the institution's separate retention/backup procedure.
 
 [Code]
 const

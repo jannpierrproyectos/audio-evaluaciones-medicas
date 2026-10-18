@@ -34,11 +34,6 @@ def synthesize_to_bytes(text: str, voice_id: str | None = None) -> bytes:
     )
 
     if response.status_code >= 400:
-        detail = response.text
-        try:
-            detail = response.json().get("detail", detail)
-        except ValueError:
-            pass
-        raise RuntimeError(f"ElevenLabs respondio con error {response.status_code}: {detail}")
+        raise RuntimeError(f"ElevenLabs respondio con error HTTP {response.status_code}; resultado no conciliado")
 
     return response.content

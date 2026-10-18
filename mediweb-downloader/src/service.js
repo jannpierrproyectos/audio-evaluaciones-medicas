@@ -10,6 +10,11 @@ import { getRuntimePaths } from "./paths.js";
 import { EventEmitter } from "node:events";
 import { UpdateService } from "./updateService.js";
 import { createManagedFileService } from "./managedFiles.js";
+import os from "node:os";
+import { EvaluationStore } from "./evaluationStore.js";
+import { restrictFile } from "./windowsProtection.js";
+import { TemporaryAttachments } from "./temporaryAttachments.js";
+import { createEncryptedOutput } from "./encryptedOutput.js";
 
 export const moduleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -31,7 +36,6 @@ export async function startConnectorService({
   } : logger;
   const engine = new DownloaderRunner({ moduleRoot, runtimePaths, logger: engineLogger, events });
   const jobManager = new JobManager({ engine, events, logger });
-  const managedFiles = createManagedFileService({ downloadsDir: runtimePaths.downloadsDir });
   const updateService = new UpdateService({
     installedVersion: packageJson.version,
     manifestUrl: resolvedConfig.releaseManifestUrl,
@@ -42,7 +46,23 @@ export async function startConnectorService({
     events,
     logger,
   });
-  const server = createServer(createApp({ engine, jobManager, managedFiles, updateService, version: packageJson.version, allowedOrigins }));
+  // User data never lives beside the installed executable or in the source tree.
+  const stateDirectory = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "AudioEvaluacionesConnector", "evaluations-v1");
+  let storePromise;
+  const getEvaluationStore = () => {
+    storePromise ||= new EvaluationStore({ directory: stateDirectory }).initialize().catch(error => { storePromise = null; throw error; });
+    return storePromise;
+  };
+  const temporaryAttachments = new TemporaryAttachments({
+    directory: path.join(path.dirname(stateDirectory), "temporary-attachments-v1"), getStore: getEvaluationStore,
+  });
+  // Sweep leftovers even when the operator does not open the delivery inbox.
+  // A failure remains local to export: importing/reviewing still works.
+  await temporaryAttachments.initialize().catch(() => logger.warn?.("Adjuntos temporales bloqueados: revisa los permisos o archivos abiertos y reinicia el Connector."));
+  const output = createEncryptedOutput({ downloadsDir: runtimePaths.downloadsDir, getStore: getEvaluationStore });
+  engine.protectOutput = output.protectOutput; engine.writeOutput = output.write; engine.readOutput = output.read;
+  const managedFiles = createManagedFileService({ downloadsDir: runtimePaths.downloadsDir, ensureProtectedFile: restrictFile, temporaryAttachments, readProtectedOutput: output.read });
+  const server = createServer(createApp({ engine, jobManager, managedFiles, updateService, getEvaluationStore, version: packageJson.version, allowedOrigins }));
   let shuttingDown = false;
   let updateTimer = null;
 
@@ -55,6 +75,7 @@ export async function startConnectorService({
     if (jobManager.hasActiveJob) await jobManager.cancel(jobManager.activeJobId);
     await jobManager.waitForIdle();
     await engine.close();
+    await temporaryAttachments.release().catch(() => logger.warn?.("Quedan adjuntos temporales bloqueados; el vigilante volvera a intentar su limpieza."));
     events.emit("connector:stopped");
   };
 
