@@ -1,4 +1,5 @@
-import { externalTtsUrl, ttsServiceHeaders, validateTtsText } from './ttsAccess.js'
+import { createHash } from 'node:crypto'
+import { externalTtsUrl, isLegacyTtsMode, ttsServiceHeaders, validateTtsText } from './ttsAccess.js'
 
 const DEFAULT_TTS_ROUTE = '/synthesize'
 const DEFAULT_MIME_TYPE = 'audio/wav'
@@ -14,7 +15,24 @@ function getTtsServiceUrl() {
 export async function getTtsConfiguration() {
   const serviceUrl = getTtsServiceUrl()
   if (!serviceUrl) return { provider: 'mock', model: 'sine-v1', voice_ref: 'synthetic', settings: {}, language: 'es', format: 'wav', contract: 1 }
-  const response = await fetch(`${serviceUrl}/configuration`, { headers: ttsServiceHeaders(), redirect: 'error', signal: AbortSignal.timeout(10000) })
+  const headers = ttsServiceHeaders()
+  if (isLegacyTtsMode()) {
+    // Original FastAPI provides /health but not /configuration.
+    const response = await fetch(`${serviceUrl}/health`, { headers, redirect: 'error', signal: AbortSignal.timeout(10000) })
+    if (!response.ok) throw new Error('El Space original no respondió correctamente en /health.')
+    const health = await response.json()
+    if (health.ok !== true || health.engine !== 'elevenlabs' || !health.voice_id_configured || !health.model)
+      throw new Error('El Space original no confirmó ElevenLabs, su modelo y su voz.')
+    return {
+      provider: 'elevenlabs', model: health.model,
+      // Old /health does not expose the voice identity/settings; use a stable
+      // service fingerprint and explicitly label the unverifiable legacy contract.
+      voice_ref: createHash('sha256').update('legacy-space:' + serviceUrl).digest('hex'),
+      settings: { legacy_service: true, voice_settings_verified: false },
+      language: 'es', format: 'mp3', contract: 1,
+    }
+  }
+  const response = await fetch(`${serviceUrl}/configuration`, { headers, redirect: 'error', signal: AbortSignal.timeout(10000) })
   if (!response.ok) throw new Error('El servicio TTS debe publicar su configuración para conservar MP3.')
   return response.json()
 }
@@ -138,6 +156,9 @@ async function requestExternalTts({ text, filenameHint }) {
     return createMockTtsPayload(filenameHint)
   }
 
+  // Check the legacy Space BEFORE a paid request. Its old API has no MP3
+  // configuration header; this metadata must match the preflight fingerprint.
+  const legacyConfiguration = isLegacyTtsMode() ? await getTtsConfiguration() : null
   const response = await fetch(`${serviceUrl}${DEFAULT_TTS_ROUTE}`, {
     method: 'POST',
     headers: {
@@ -170,7 +191,8 @@ async function requestExternalTts({ text, filenameHint }) {
 
   return {
     audioBuffer: Buffer.from(await response.arrayBuffer()),
-    configuration: response.headers.get('x-tts-configuration') || '',
+    configuration: response.headers.get('x-tts-configuration') ||
+      (legacyConfiguration ? encodeURIComponent(JSON.stringify(legacyConfiguration)) : ''),
     filename,
     mimeType,
     source: 'external',
