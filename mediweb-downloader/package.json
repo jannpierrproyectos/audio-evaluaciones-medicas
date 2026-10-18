@@ -17,7 +17,8 @@
     "sign:windows:host": "node scripts/sign-windows.js host",
     "sign:windows:setup": "node scripts/sign-windows.js setup",
     "release:prepare": "node scripts/prepare-release.js",
-    "build:windows": "npm run build:windows:icon && npm run build:windows:staging && npm run sign:windows:host && npm run smoke:windows:staging && npm run build:windows:installer && npm run sign:windows:setup"
+    "build:windows": "npm run build:windows:icon && npm run build:windows:staging && npm run smoke:windows:staging && npm run build:windows:installer",
+    "build:windows:signed": "npm run build:windows:icon && npm run build:windows:staging && npm run sign:windows:host && npm run smoke:windows:staging && npm run build:windows:installer && npm run sign:windows:setup"
   },
   "dependencies": {
     "pdf-lib": "^1.17.1",
