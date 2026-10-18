@@ -56,10 +56,10 @@ jobs:
             package-lock.json
             mediweb-downloader/package-lock.json
       - run: npm ci
-      - run: npm test
-      - run: npm run build
       - run: npm ci
         working-directory: mediweb-downloader
+      - run: npm test
+      - run: npm run build
       - run: npm test
         working-directory: mediweb-downloader
       - name: Instalar Inno Setup
