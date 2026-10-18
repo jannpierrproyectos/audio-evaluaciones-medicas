@@ -1,5 +1,5 @@
 import { synthesizeSpeech, getTtsConfiguration } from './ttsService.js'
-import { authorizeTtsRequest, MAX_TTS_BODY_BYTES, ttsAccessError } from './ttsAccess.js'
+import { authorizeTtsRequest, authorizeTtsConfigurationRequest, MAX_TTS_BODY_BYTES, ttsAccessError } from './ttsAccess.js'
 
 function writeJsonResponse(response, statusCode, payload) {
   response.statusCode = statusCode
@@ -49,7 +49,7 @@ export function viteTtsApiPlugin() {
     configureServer(server) {
       server.middlewares.use('/api/tts/configuration', async (request, response) => {
         if (request.method !== 'GET') return writeJsonResponse(response, 405, { error: 'Usa GET.' })
-        try { authorizeTtsRequest(request); writeJsonResponse(response, 200, await getTtsConfiguration()) }
+        try { authorizeTtsConfigurationRequest(); writeJsonResponse(response, 200, await getTtsConfiguration()) }
         catch (error) { writeJsonResponse(response, error.status || 503, { error: 'Configuración o acceso institucional TTS no disponible.' }) }
       })
       server.middlewares.use('/api/tts/synthesize', async (request, response) => {
