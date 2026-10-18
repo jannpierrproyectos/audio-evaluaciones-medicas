@@ -58,6 +58,9 @@ jobs:
       - run: npm ci
       - run: npm ci
         working-directory: mediweb-downloader
+      - name: Instalar Chromium de Playwright para pruebas del Connector
+        run: npx playwright install chromium
+        working-directory: mediweb-downloader
       - run: npm test
       - run: npm run build
       - run: npm test
