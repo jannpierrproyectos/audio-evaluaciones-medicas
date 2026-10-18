@@ -63,6 +63,7 @@ try {
     if (failFirstImport) { failFirstImport = false; return route.fulfill({ contentType: "application/pdf", body: "fixture-invalid-pdf" }); }
     return route.continue();
   });
+  await context.route("**/api/tts/session", route => route.fulfill({ json: { configured: true, authenticated: true } }));
   await context.route("**/api/tts/configuration", route => route.fulfill({ json: configuration }));
   await context.route("**/api/tts/synthesize", route => { ttsCalls++; return route.fulfill({ contentType: "audio/mpeg", headers: { "X-TTS-Configuration": encodeURIComponent(JSON.stringify(configuration)) }, body: Buffer.from("ID3phase04-synthetic") }); });
   await context.route("https://wa.me/**", route => route.fulfill({ contentType: "text/html", body: "Comprobación ficticia" }));
