@@ -30,7 +30,8 @@ test('Distribución: un Origin permitido no autoriza TTS; faltan claves => cierr
   assert.equal((await GET(f.request('configuración', false))).status, 200);
   assert.equal((await sheets(f.request('trabajadores', false))).status, 401);
   delete process.env.INSTITUTIONAL_PROXY_TOKEN;
-  assert.equal((await POST(f.request('Texto ficticio'))).status, 503);
+  // Con una pasarela configurada pero sin sesión ni token de operador, se deniega con 401.
+  assert.equal((await POST(f.request('Texto ficticio'))).status, 401);
   assert.equal(f.calls, 0);
 }));
 test('Distribución: acceso válido solo reenvía credencial de servicio al backend HTTPS', async () => fixture(async f => {
