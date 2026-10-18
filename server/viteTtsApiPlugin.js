@@ -1,5 +1,6 @@
 import { synthesizeSpeech, getTtsConfiguration } from './ttsService.js'
 import { authorizeTtsRequest, authorizeTtsConfigurationRequest, MAX_TTS_BODY_BYTES, ttsAccessError } from './ttsAccess.js'
+import { createTtsSession, clearTtsSession, ttsSessionState } from './ttsSession.js'
 
 function writeJsonResponse(response, statusCode, payload) {
   response.statusCode = statusCode
@@ -47,6 +48,21 @@ export function viteTtsApiPlugin() {
   return {
     name: 'vite-tts-api',
     configureServer(server) {
+      server.middlewares.use('/api/tts/session', async (request, response) => {
+        response.setHeader('Cache-Control', 'no-store')
+        if (request.method === 'GET') return writeJsonResponse(response, 200, ttsSessionState(request))
+        if (request.method === 'DELETE') {
+          response.setHeader('Set-Cookie', clearTtsSession(request))
+          return writeJsonResponse(response, 200, { authenticated: false })
+        }
+        if (request.method !== 'POST') return writeJsonResponse(response, 405, { error: 'Método no permitido.' })
+        try {
+          if (String(request.headers['content-type'] || '').split(';')[0].trim().toLowerCase() !== 'application/json') throw ttsAccessError(415, 'TTS_JSON_REQUIRED')
+          const body = await readJsonBody(request)
+          response.setHeader('Set-Cookie', createTtsSession(request, body.passphrase))
+          return writeJsonResponse(response, 200, { authenticated: true })
+        } catch { return writeJsonResponse(response, 401, { error: 'No se pudo iniciar sesión TTS.' }) }
+      })
       server.middlewares.use('/api/tts/configuration', async (request, response) => {
         if (request.method !== 'GET') return writeJsonResponse(response, 405, { error: 'Usa GET.' })
         try { authorizeTtsConfigurationRequest(); writeJsonResponse(response, 200, await getTtsConfiguration()) }
