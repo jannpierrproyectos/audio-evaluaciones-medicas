@@ -22,6 +22,7 @@ function withEnv(settings, action) {
 }
 
 const base = {
+  TTS_LEGACY_MODE: '', // Explicitly isolate these token-mode tests from Preview env.
   TTS_SERVICE_URL: 'https://tts.example.invalid',
   VITE_TTS_SERVICE_URL: '',
   TTS_SERVICE_ACCESS_TOKEN: 'fictitious-service-token-0123456789',
