@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
+import { isTtsSessionActive } from './ttsSession.js'
 
 export const MAX_TTS_BODY_BYTES = 64 * 1024
 export const ttsAccessError = (status, code) => Object.assign(new Error('TTS bloqueado: revisa el acceso institucional, la configuración y los límites del backend.'), { status, code })
@@ -21,7 +22,9 @@ export function authorizeTtsRequest(request) {
     return // Local synthetic WAV only; never a provider call.
   }
   if (String(process.env.TTS_SERVICE_ACCESS_TOKEN || '').length < 32) throw ttsAccessError(503, 'TTS_ACCESS_NOT_CONFIGURED')
-  requireInstitutionalAccess(request)
+  if (isTtsSessionActive(request)) return
+  if (String(process.env.INSTITUTIONAL_PROXY_TOKEN || '').length >= 32) return requireInstitutionalAccess(request)
+  throw ttsAccessError(401, 'TTS_OPERATOR_SESSION_REQUIRED')
 }
 export function requireInstitutionalAccess(request) {
   const expected = process.env.INSTITUTIONAL_PROXY_TOKEN || ''
