@@ -1,9 +1,11 @@
 import { readWorkersFromGoogleSheets } from '../../server/sheetsService.js'
+import { requireInstitutionalAccess } from '../../server/ttsAccess.js'
 
 export const runtime = 'nodejs'
 
-export async function GET() {
+export async function GET(request) {
   try {
+    requireInstitutionalAccess(request)
     const payload = await readWorkersFromGoogleSheets()
 
     return Response.json(payload, {
@@ -12,17 +14,15 @@ export async function GET() {
       },
     })
   } catch (error) {
-    console.error('Error leyendo trabajadores desde Google Sheets', error)
+    console.error('SHEETS_REQUEST_FAILED')
 
     return Response.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : 'No se pudieron cargar los trabajadores desde Google Sheets.',
+        error: 'No se pudieron cargar los trabajadores. Revisa la configuración del servicio Sheets en backend.',
       },
       {
-        status: 500,
+        status: error.status || 500,
+        headers: { 'Cache-Control': 'no-store' },
       },
     )
   }

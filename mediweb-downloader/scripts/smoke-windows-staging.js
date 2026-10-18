@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, readFile, readdir } from "node:fs/promises";
+import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,7 +14,7 @@ const isolatedUser = path.join(os.tmpdir(), `audioevaluaciones-smoke-${process.p
 const port = await availablePort();
 await mkdir(isolatedUser, { recursive: true });
 
-const child = spawn(runtime, [launcher], {
+function launch() { return spawn(runtime, [launcher], {
   cwd: path.join(stagingRoot, "app"),
   env: {
     ...process.env,
@@ -23,7 +24,8 @@ const child = spawn(runtime, [launcher], {
   },
   stdio: ["pipe", "pipe", "pipe"],
   windowsHide: true,
-});
+}); }
+let child = launch();
 let stdout = "";
 let stderr = "";
 child.stdout.on("data", (chunk) => { stdout += chunk; });
@@ -33,12 +35,32 @@ try {
   const health = await waitForHealth(port, 12_000);
   if (health.version === undefined || health.service !== "mediweb-downloader") throw new Error("Contrato /health inesperado.");
   console.log(`Smoke staging correcto con runtime\\node.exe en puerto ${port}; versión ${health.version}.`);
+  const request = async body => {
+    const response = await fetch(`http://127.0.0.1:${port}/state`, { method: "POST", headers: { Origin: "http://localhost:5173", "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    assert.equal(response.status, 200); return response.json();
+  };
+  const saved = await request({ action: "import", importKey: "a".repeat(64), snapshot: { workers: [{ identificacion: { dni: "00000001" }, app_fields: { texto_final: "MARCADOR_STAGING_FICTICIO" } }] } });
+  await stop(); child = launch();
+  await waitForHealth(port, 12000);
+  const restored = await request({ action: "load", id: saved.id });
+  assert.equal(restored.snapshot.workers[0].app_fields.texto_final, "MARCADOR_STAGING_FICTICIO");
+  const vault = path.join(isolatedUser, "LocalAppData", "AudioEvaluacionesConnector", "evaluations-v1");
+  for (const name of await readdir(vault)) assert.equal((await readFile(path.join(vault, name))).includes(Buffer.from("MARCADOR_STAGING_FICTICIO")), false);
+  console.log("Reinicio real del proceso staging recupera lote con AES-GCM/DPAPI; sin marcador en claro.");
 } catch (error) {
   throw new Error(`${error.message}\nstdout:\n${stdout}\nstderr:\n${stderr}`);
 } finally {
-  child.stdin.write("shutdown\n");
-  await Promise.race([new Promise((resolve) => child.once("exit", resolve)), new Promise((resolve) => setTimeout(resolve, 3000))]);
+  await stop();
+  assert.ok(path.resolve(isolatedUser).startsWith(path.resolve(os.tmpdir()) + path.sep));
   await rm(isolatedUser, { recursive: true, force: true });
+}
+
+async function stop() {
+  if (child.exitCode !== null) return;
+  const exited = new Promise(resolve => child.once("exit", resolve));
+  child.stdin.write("shutdown\n");
+  const timer = setTimeout(() => child.kill(), 5000);
+  try { await exited; } finally { clearTimeout(timer); }
 }
 
 async function availablePort() {

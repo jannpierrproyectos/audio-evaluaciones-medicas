@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node --test test/tts-session.test.js test/tts-readonly-config.test.js test/tts-legacy-compat.test.js && vite build",
     "clinical:audit": "node scripts/clinical-audit.js",
     "narrative:audit": "node scripts/narrative-audit.js",
     "lint": "eslint .",

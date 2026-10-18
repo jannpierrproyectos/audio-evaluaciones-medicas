@@ -71,6 +71,14 @@ export async function openMediweb({ signal } = {}) {
   return requestJson("/mediweb/open", { method: "POST", signal });
 }
 
+export function processingAction(action, payload = {}, { signal } = {}) {
+  return requestJson("/processing", { method: "POST", body: { action, ...payload }, signal, timeoutMs: 60000 });
+}
+
+export function deliveryAction(action, payload = {}, { signal } = {}) {
+  return requestJson("/deliveries", { method: "POST", body: { action, ...payload }, signal, timeoutMs: 120000 });
+}
+
 export async function detectMediwebEvaluations({ signal } = {}) {
   return requestJson("/mediweb/detect", { method: "POST", signal });
 }
@@ -141,9 +149,13 @@ export async function revealManagedFile(fileId, { signal } = {}) {
     method: "POST",
     body: { fileId },
     signal,
-    timeoutMs: 10000,
+    timeoutMs: 60000,
   });
   return result.file;
+}
+
+export function releaseManagedAttachments(fileIds) {
+  return requestJson("/files/release", { method: "POST", body: { fileIds }, timeoutMs: 30000 });
 }
 
 export async function validateManagedFile(fileId, { signal } = {}) {

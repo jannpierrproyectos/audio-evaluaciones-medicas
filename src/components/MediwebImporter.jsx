@@ -12,6 +12,7 @@ import {
 import { classifyConnectorCompatibility, getConnectorReleaseManifest } from "../lib/connectorRelease.js";
 import { startConnectorUpdateFlow, supportsLocalUpdater } from "../lib/connectorCapabilities.js";
 import { importMediwebPdfIntoExistingFlow } from "../lib/importMediwebPdf.js";
+import IntegratedProcessing from "./IntegratedProcessing.jsx";
 import {
   EMPTY_MEDIWEB_ADVANCED_OPTIONS,
   createNewImportSnapshot,
@@ -42,8 +43,8 @@ const MODES = [
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
-function logMediwebDiagnostic(label, error) {
-  if (import.meta.env?.DEV) console.error(`[MEDIWEB] ${label}`, error);
+function logMediwebDiagnostic(label) {
+  if (import.meta.env?.DEV) console.error(`[MEDIWEB] ${label}`);
 }
 
 function parseOptionalPositiveInteger(value, label) {
@@ -99,7 +100,7 @@ function JobMetrics({ job }) {
   );
 }
 
-export default function MediwebImporter({ onPdfSelected, onBatchStarted }) {
+export default function MediwebImporter({ onPdfSelected, onBatchStarted, onRestoreBatch, analysis }) {
   const [connectorStatus, setConnectorStatus] = useState("checking");
   const [connectorVersion, setConnectorVersion] = useState("");
   const [releaseManifest, setReleaseManifest] = useState(null);
@@ -441,6 +442,7 @@ export default function MediwebImporter({ onPdfSelected, onBatchStarted }) {
       </div>
 
       <div className="mediweb-live-region" aria-live="polite" aria-atomic="true">{feedback}</div>
+      <IntegratedProcessing onPdfSelected={onPdfSelected} onBatchStarted={onBatchStarted} onRestoreBatch={onRestoreBatch} analysis={analysis} connected={connectorStatus === "connected" && !connectorIncompatible} onOpen={handleOpen} />
 
       {phase === "checking" ? <div className="mediweb-empty-state"><p>Comprobando el conector MediWeb…</p></div> : null}
 
@@ -483,6 +485,7 @@ export default function MediwebImporter({ onPdfSelected, onBatchStarted }) {
         </div>
       ) : null}
 
+      <details className="mediweb-advanced"><summary>Descarga por pasos y opciones anteriores</summary>
       {phase === "ready" ? (
         <div className="mediweb-primary-step">
           <button type="button" className="primary-button" onClick={handleOpen} disabled={pendingAction === "open"}>{pendingAction === "open" ? "Abriendo…" : "Abrir MediWeb"}</button>
@@ -575,6 +578,7 @@ export default function MediwebImporter({ onPdfSelected, onBatchStarted }) {
           {showImportedDetails ? <JobMetrics job={jobProgress} /> : null}
         </section>
       ) : null}
+      </details>
     </section>
   );
 }

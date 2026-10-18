@@ -1,4 +1,6 @@
 import { chromium } from "playwright-core";
+import { mkdir } from "node:fs/promises";
+import { restrictDirectory } from "./windowsProtection.js";
 
 export const MEDIWEB_URL = "https://resultados.innomedic.pe";
 
@@ -13,6 +15,8 @@ export class BrowserUnavailableError extends Error {
 }
 
 export async function launchBrowser(runtimePaths, { browserType = chromium } = {}) {
+  await mkdir(runtimePaths.authDir, { recursive: true });
+  await restrictDirectory(runtimePaths.authDir);
   const context = runtimePaths.packaged
     ? await launchPackagedPersistentContext(browserType, runtimePaths.authDir)
     : await browserType.launchPersistentContext(runtimePaths.authDir, browserOptions());

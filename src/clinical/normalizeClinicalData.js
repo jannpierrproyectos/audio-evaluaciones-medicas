@@ -1,7 +1,8 @@
+import { hasCasedLetters, isClinicalPlaceholder, normalizePersonName } from "../../mediweb-downloader/src/personNames.js";
+export { isClinicalPlaceholder, normalizePersonName } from "../../mediweb-downloader/src/personNames.js";
 import {
   CLINICAL_ACCENT_REPLACEMENTS,
   CLINICAL_ACRONYMS,
-  EMPTY_CLINICAL_PLACEHOLDERS,
 } from "./dictionaries.js";
 
 const CLINICAL_BLOCKS = [
@@ -10,26 +11,6 @@ const CLINICAL_BLOCKS = [
   "evaluaciones_cualitativas",
   "aptitud_y_recomendaciones",
 ];
-
-function comparable(value) {
-  return String(value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toUpperCase();
-}
-
-export function isClinicalPlaceholder(value) {
-  return typeof value === "string" && EMPTY_CLINICAL_PLACEHOLDERS.has(comparable(value));
-}
-
-function hasCasedLetters(value) {
-  const letters = String(value)
-    .replace(/\b(?:mg\s*\/\s*dL|mmHg)\b/giu, "")
-    .match(/\p{L}/gu) || [];
-  return letters.length > 1 && letters.every((letter) => letter === letter.toUpperCase());
-}
 
 function sentenceCaseAllCaps(value) {
   if (!hasCasedLetters(value)) return value;
@@ -78,16 +59,6 @@ export function normalizeClinicalText(value) {
     .replace(/\bmmhg\b/giu, "mmHg");
 
   return normalized || null;
-}
-
-export function normalizePersonName(value) {
-  if (value === null || value === undefined || isClinicalPlaceholder(value)) return null;
-  const cleaned = String(value).normalize("NFKC").replace(/\s+/g, " ").trim();
-  if (!cleaned) return null;
-  if (!hasCasedLetters(cleaned)) return cleaned;
-  return cleaned
-    .toLocaleLowerCase("es-PE")
-    .replace(/(^|[\s'-])(\p{L})/gu, (_, prefix, letter) => `${prefix}${letter.toLocaleUpperCase("es-PE")}`);
 }
 
 function normalizeBlock(block = {}, blockName, trace) {

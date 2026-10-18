@@ -11,5 +11,6 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), viteSheetsApiPlugin(), viteTtsApiPlugin()],
+    server: { watch: { ignored: ['**/mediweb-downloader/build-windows/**', '**/mediweb-downloader/dist-windows/**'] } },
   }
 })

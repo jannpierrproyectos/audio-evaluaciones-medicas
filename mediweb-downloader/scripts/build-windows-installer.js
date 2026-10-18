@@ -2,6 +2,7 @@ import { access, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { windowsVersion } from "./release-version.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(await readFile(path.join(projectRoot, "package.json"), "utf8"));
@@ -15,10 +16,10 @@ if (!iscc) {
   console.log("Inno Setup 6 no está instalado o ISCC.exe no fue encontrado.");
   console.log("Instálalo con: winget install JRSoftware.InnoSetup");
   console.log("Después ejecuta: npm run build:windows:installer");
-  process.exit(0);
+  process.exit(1);
 }
 
-const result = spawnSync(iscc, [`/DAppVersion=${packageJson.version}`, script], { cwd: projectRoot, stdio: "inherit" });
+const result = spawnSync(iscc, [`/DAppVersion=${packageJson.version}`, `/DAppNumericVersion=${windowsVersion(packageJson.version)}`, script], { cwd: projectRoot, stdio: "inherit" });
 if (result.status !== 0) process.exit(result.status ?? 1);
 await access(output);
 console.log(`Instalador generado: ${output}`);

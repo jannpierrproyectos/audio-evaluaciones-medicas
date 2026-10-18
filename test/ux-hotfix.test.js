@@ -183,7 +183,7 @@ test("la interfaz expone estado generando y confirmación con acciones seguras",
   assert.match(componentSource, />\s*Regenerar audio\s*</);
 });
 
-test("MediWeb auto-confirma trabajadores sin eliminar validacion ni flags", () => {
+test("MediWeb importa sin aprobar trabajadores sin eliminar validacion ni flags", () => {
   const warning = { severity: "REVIEW", message: "Revisar dato" };
   const analysis = prepareAnalysisForReview({
     workers: [{
@@ -195,13 +195,13 @@ test("MediWeb auto-confirma trabajadores sin eliminar validacion ni flags", () =
   }, MEDIWEB_SOURCE_MODE, "2026-08-20T12:00:00.000Z");
 
   assert.equal(analysis.source_mode, MEDIWEB_SOURCE_MODE);
-  assert.equal(analysis.workers[0].derived_states.reviewed_by_user, true);
-  assert.equal(analysis.workers[0].app_fields.needs_review, false);
+  assert.equal(analysis.workers[0].derived_states.reviewed_by_user, false);
+  assert.equal(analysis.workers[0].app_fields.needs_review, true);
   assert.deepEqual(analysis.workers[0].validation.warnings, [warning]);
   assert.deepEqual(analysis.workers[0].review_flags, [{ type: "synthetic_flag" }]);
 });
 
-test("el PDF manual usa la misma auto-confirmacion de interfaz y conserva errores", () => {
+test("el PDF manual queda sin aprobar y conserva errores", () => {
   const error = { severity: "ERROR", message: "Dato bloqueante" };
   const analysis = prepareAnalysisForReview({
     workers: [{
@@ -211,7 +211,7 @@ test("el PDF manual usa la misma auto-confirmacion de interfaz y conserva errore
   }, PDF_SOURCE_MODE);
 
   assert.equal(analysis.source_mode, PDF_SOURCE_MODE);
-  assert.equal(analysis.workers[0].derived_states.reviewed_by_user, true);
+  assert.equal(analysis.workers[0].derived_states.reviewed_by_user, false);
   assert.equal(analysis.workers[0].validation.has_errors, true);
   assert.deepEqual(analysis.workers[0].validation.errors, [error]);
 
@@ -226,7 +226,7 @@ test("el PDF manual usa la misma auto-confirmacion de interfaz y conserva errore
 
 test("MediWeb precarga el texto generado y preserva una edicion guardada", () => {
   assert.equal(resolveEditableNarrative({
-    savedText: "",
+    savedText: undefined,
     generatedText: "Narrativa ya generada",
   }), "Narrativa ya generada");
   assert.equal(resolveEditableNarrative({
@@ -237,7 +237,7 @@ test("MediWeb precarga el texto generado y preserva una edicion guardada", () =>
 
 test("PDF precarga la narrativa y da prioridad a la edicion manual", () => {
   assert.equal(resolveEditableNarrative({
-    savedText: "",
+    savedText: undefined,
     generatedText: "Narrativa ya generada",
   }), "Narrativa ya generada");
   assert.equal(resolveEditableNarrative({
@@ -269,5 +269,5 @@ test("MediWeb y PDF comparten Texto y audio y relegan auditoria a detalles", asy
   assert.match(technicalSource, /<summary>Elementos a revisar<\/summary>/);
   assert.match(technicalSource, /<summary>Ver borrador original<\/summary>/);
   assert.match(componentSource, /trace=\{clinicalResult\.trace\}/);
-  assert.match(componentSource, /!worker\?\.validation\?\.has_errors/);
+  assert.match(componentSource, /getAudioAuthorization\(worker, finalText\)/);
 });

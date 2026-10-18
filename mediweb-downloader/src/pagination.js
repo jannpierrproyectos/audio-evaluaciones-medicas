@@ -119,17 +119,8 @@ export async function waitForPageSignatureChange(page, previousSignature, {
   return { changed: false };
 }
 
-async function controlDiagnostic(control) {
-  return control.evaluate((element) => ({
-    tag: element.tagName,
-    text: (element instanceof HTMLInputElement ? element.value : element.textContent || "")
-      .normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toUpperCase(),
-  })).catch(() => ({ tag: "DESCONOCIDO", text: "" }));
-}
-
 function safePaginationError(error) {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.replace(/https?:\/\/\S+/gi, "[URL omitida]").replace(/[\r\n]+/g, " ").slice(0, 240);
+  return error?.name === "TimeoutError" ? "tiempo de espera agotado" : "no se pudo interactuar con el control";
 }
 
 async function detectEmptyLastPage(page, previousSignature) {
@@ -162,12 +153,9 @@ export async function goToNextResultsPage(page, previousSignature, options = {})
   const control = await findNextPageControl(page);
   if (!control) return { status: "last_page", attempt: 0 };
 
-  const diagnostic = await controlDiagnostic(control);
   const visible = await control.isVisible().catch(() => false);
   const enabled = await isNextPageEnabled(control);
   console.log("[PAGINACIÓN] Control Siguiente encontrado");
-  console.log(`[PAGINACIÓN] Tag: ${diagnostic.tag}`);
-  console.log(`[PAGINACIÓN] Texto: ${diagnostic.text}`);
   console.log(`[PAGINACIÓN] Visible: ${visible ? "sí" : "no"}`);
   console.log(`[PAGINACIÓN] Habilitado: ${enabled ? "sí" : "no"}`);
   if (!visible || !enabled) return { status: "last_page", attempt: 0 };

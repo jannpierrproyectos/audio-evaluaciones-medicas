@@ -5,7 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'tts-service/.venv/**']),
+  globalIgnores(['dist', 'tts-service/.venv/**', 'mediweb-downloader/build-windows/', 'mediweb-downloader/dist-windows/']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { PDFDocument } from "pdf-lib";
 import { launchBrowser, closeQuietly } from "./browser.js";
 import { extractVisibleReports } from "./mediwebTable.js";
@@ -13,6 +13,7 @@ import { uniqueReportPath } from "./fileNames.js";
 import { extractOperationalDataFromPdf } from "./phoneExtractor.js";
 import { createOutputPaths, removeTmpIfEmpty } from "./paths.js";
 import { getRuntimePaths } from "./paths.js";
+import { protectExportDirectory } from "./windowsProtection.js";
 import {
   applyPaginationTotals,
   createExcludedEntry,
@@ -22,6 +23,7 @@ import {
   saveControl,
   selectAttentions,
   summarizeManifest,
+  writeAtomicOutput,
 } from "./manifest.js";
 
 const defaultModuleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -45,6 +47,9 @@ export class DownloaderRunner {
     this.paths = null;
     this.cancelled = false;
     this.sessionRecoveryPending = false;
+    this.sessionExpired = false;
+    this.writeOutput = writeAtomicOutput;
+    this.protectOutput = null;
   }
 
   get browserOpen() {
@@ -119,14 +124,22 @@ export class DownloaderRunner {
   async run(options, hooks = {}) {
     if (!this.browserOpen) throw new ResultsNotReadyError();
     this.sessionRecoveryPending = false;
+    this.sessionExpired = false;
     const isCancelled = () => this.cancelled || Boolean(hooks.isCancelled?.());
     const onProgress = hooks.onProgress ?? (() => {});
     const inspection = hooks.firstExtraction
       ? { ready: true, extraction: hooks.firstExtraction }
       : await this.inspectResults();
     if (!inspection.ready || inspection.extraction.atenciones.length === 0) throw new ResultsNotReadyError();
+    await hooks.validateExtraction?.(inspection.extraction);
 
     this.paths = hooks.paths ?? await createOutputPaths(this.moduleRoot, options.output ?? null, options.mode, this.runtimePaths);
+    if (hooks.beforeOutput) await hooks.beforeOutput(this.paths);
+    else if (this.protectOutput) await this.protectOutput(this.paths);
+    else if (this.runtimePaths.packaged) {
+      try { for (const directory of [this.paths.root, this.paths.control, this.paths.tmp, this.paths.full, this.paths.audio].filter(Boolean)) await protectExportDirectory(directory); }
+      catch { throw Object.assign(new Error("No se pueden proteger los archivos de salida. Revisa EFS y los permisos de Windows."), { code: "OUTPUT_PROTECTION_UNAVAILABLE" }); }
+    }
     this.manifest = createManifest({
       mode: options.mode,
       limit: options.limit,
@@ -135,7 +148,7 @@ export class DownloaderRunner {
       singlePage: options.singlePage,
       maxPages: options.maxPages,
     });
-    await saveControl(this.manifest, this.paths);
+    await saveControl(this.manifest, this.paths, this.writeOutput);
     const consolidated = options.mode === "first" || options.mode === "both" ? await PDFDocument.create() : null;
     let workflow;
 
@@ -148,6 +161,7 @@ export class DownloaderRunner {
         singlePage: options.singlePage,
         isInterrupted: isCancelled,
         onPageClassified: async (pageData, totals) => {
+          await hooks.validateExtraction?.({ atenciones: [...pageData.eligible, ...pageData.excluded] });
           this.logger.log(`\n================================\nPágina de MediWeb ${pageData.paginaMediWeb}\n================================`);
           this.logger.log(`\nDetectadas en página: ${pageData.detected}\nElegibles nuevas: ${pageData.eligible.length}\nSeleccionadas para esta página: ${pageData.selected.length}\nDuplicadas: ${pageData.duplicateCount}\nExcluidas: ${pageData.excluded.length}\n`);
           this.manifest.atenciones.push(...pageData.excluded.map(createExcludedEntry));
@@ -160,11 +174,11 @@ export class DownloaderRunner {
             duplicadas: pageData.duplicateCount,
           });
           applyPaginationTotals(this.manifest, totals);
-          await saveControl(this.manifest, this.paths);
+          await saveControl(this.manifest, this.paths, this.writeOutput);
           onProgress({ type: "page_started", currentPage: pageData.paginaMediWeb, totals, manifest: this.manifest });
         },
         processAttention: async (report, { fileOrder, paginaMediWeb }) => {
-          this.logger.log(`[${fileOrder}] Procesando ${report.codigo ? `código ${report.codigo}` : `atención ${fileOrder}`}`);
+          this.logger.log(`[${fileOrder}] Procesando atención ${fileOrder}`);
           onProgress({ type: "report_started", currentPage: paginaMediWeb, totals: null, manifest: this.manifest });
           return this.#processReport({
             report,
@@ -182,9 +196,9 @@ export class DownloaderRunner {
           applyPaginationTotals(this.manifest, totals);
           summarizeManifest(this.manifest);
           if (consolidated && consolidated.getPageCount() > 0) {
-            await writeFile(this.paths.consolidated, await consolidated.save());
+            await this.writeOutput(this.paths.consolidated, await consolidated.save());
           }
-          await saveControl(this.manifest, this.paths);
+          await saveControl(this.manifest, this.paths, this.writeOutput);
           onProgress({ type: result.estado === "correcto" ? "report_completed" : "report_failed", currentPage: pageData.paginaMediWeb, totals, manifest: this.manifest });
           if (!isCancelled() && (options.delay ?? 900) > 0) {
             await new Promise((resolve) => setTimeout(resolve, options.delay ?? 900));
@@ -194,13 +208,13 @@ export class DownloaderRunner {
           applyPaginationTotals(this.manifest, totals);
           this.manifest.pagination.ultimaPaginaCompletada = pageData.paginaMediWeb;
           this.logger.log(`Página ${pageData.paginaMediWeb} completada.`);
-          await saveControl(this.manifest, this.paths);
+          await saveControl(this.manifest, this.paths, this.writeOutput);
           onProgress({ type: "page_completed", currentPage: pageData.paginaMediWeb, totals, manifest: this.manifest });
         },
         onWarning: async (warning) => {
           this.logger.warn(`\n${warning}`);
           this.manifest.warnings.push(warning);
-          await saveControl(this.manifest, this.paths);
+          await saveControl(this.manifest, this.paths, this.writeOutput);
         },
         advance: async ({ previousSignature, pageNumber, recoveryTraversal }) => {
           if (this.sessionRecoveryPending) {
@@ -226,11 +240,11 @@ export class DownloaderRunner {
       : workflow.motivoFinalizacion === "error_paginacion" ? "failed" : "completed";
     await this.#finalize(status, workflow.motivoFinalizacion, workflow.totals);
     onProgress({ type: status, currentPage: this.manifest.pagination.ultimaPaginaCompletada, totals: workflow.totals, manifest: this.manifest });
-    return { status, manifest: this.manifest, paths: this.paths };
+    return { status, manifest: this.manifest, paths: this.paths, errorCode: this.sessionExpired ? "SESSION_EXPIRED" : null };
   }
 
   async #recoverAndExtract(onSessionExpired) {
-    if (!onSessionExpired) throw new Error("La sesión de MediWeb expiró. Inicia sesión manualmente y vuelve a ejecutar el trabajo.");
+    if (!onSessionExpired) throw Object.assign(new Error("La sesión de MediWeb expiró. Inicia sesión manualmente y recupera los resultados guardados."), { code: "SESSION_EXPIRED" });
     await onSessionExpired();
     if (this.cancelled) return null;
     const inspection = await this.inspectResults();
@@ -244,7 +258,7 @@ export class DownloaderRunner {
     this.manifest.fechaFin = new Date().toISOString();
     this.manifest.estadoEjecucion = status === "cancelled" ? "cancelado" : status === "completed" ? "completado" : "error";
     summarizeManifest(this.manifest);
-    await saveControl(this.manifest, this.paths);
+    await saveControl(this.manifest, this.paths, this.writeOutput);
     await removeTmpIfEmpty(this.paths.tmp);
   }
 
@@ -305,8 +319,9 @@ export class DownloaderRunner {
           throw new ProcessingError(error instanceof Error ? error.message : String(error), "error_pdf");
         }
         if (mode === "full" || mode === "both") {
-          const output = await uniqueReportPath(this.paths.full, report, fileOrder);
-          await writeFile(output.absolute, buffer);
+          const opaqueName = `${randomUUID()}.pdf`;
+          const output = this.readOutput ? { absolute: path.join(this.paths.full, opaqueName), relative: opaqueName } : await uniqueReportPath(this.paths.full, report, fileOrder);
+          await this.writeOutput(output.absolute, buffer);
           entry.archivoCompleto = relativeOutputPath(this.paths.root, output.absolute);
           entry.archivoPdfCompleto = output.relative;
           try {
@@ -328,13 +343,14 @@ export class DownloaderRunner {
         return entry;
       } catch (error) {
         await closeQuietly(reportPage);
+        if (lastCategory === "sesion_expirada" && !onSessionExpired) { this.sessionExpired = true; this.cancelled = true; break; }
         if (error instanceof ProcessingError) lastCategory = error.category;
         else if (/pdf/i.test(error.message)) lastCategory = "error_pdf";
         else if (/timeout|navigation|net::/i.test(error.message)) lastCategory = "error_carga";
         entry.mensajeError = safeErrorMessage(error);
       }
     }
-    entry.estado = isCancelled() ? "cancelado" : lastCategory;
+    entry.estado = lastCategory === "sesion_expirada" ? lastCategory : isCancelled() ? "cancelado" : lastCategory;
     return entry;
   }
 }

@@ -1,4 +1,5 @@
 import { readWorkersFromGoogleSheets } from './sheetsService.js'
+import { requireInstitutionalAccess } from './ttsAccess.js'
 
 function writeJsonResponse(response, statusCode, payload) {
   response.statusCode = statusCode
@@ -20,15 +21,13 @@ export function viteSheetsApiPlugin() {
         }
 
         try {
+          requireInstitutionalAccess(request)
           const payload = await readWorkersFromGoogleSheets()
           writeJsonResponse(response, 200, payload)
         } catch (error) {
-          console.error('Error leyendo trabajadores en Vite dev', error)
-          writeJsonResponse(response, 500, {
-            error:
-              error instanceof Error
-                ? error.message
-                : 'No se pudieron cargar los trabajadores desde Google Sheets.',
+          console.error('SHEETS_REQUEST_FAILED')
+          writeJsonResponse(response, error.status || 500, {
+            error: 'No se pudieron cargar los trabajadores. Revisa la configuración del servicio Sheets en backend.',
           })
         }
       })

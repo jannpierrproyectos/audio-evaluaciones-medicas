@@ -31,7 +31,7 @@ La versión instalada usa estas rutas mutables, siempre fuera de `Program Files`
 %USERPROFILE%\Documents\AudioEvaluaciones\Descargas\YYYY-MM-DD_HH-mm-ss
 ```
 
-El perfil `auth` es exclusivo del Connector y conserva la sesión/cookies del navegador, pero el Connector no guarda la contraseña. Al desinstalar se elimina LocalAppData, incluido `auth`; los reportes en Documentos se conservan.
+El perfil `auth` es exclusivo del Connector y conserva la sesión/cookies del navegador bajo las protecciones de Windows; la aplicación no solicita ni extrae contraseñas. La nueva fuente del instalador conserva LocalAppData, claves DPAPI e historial al desinstalar. Los instaladores anteriores pueden borrarlos: no desinstalar para actualizar sin respaldo y autorización. Consulta la [guía vigente de instalación y reversión](../docs/GUIA_OPERACION_INSTALACION.md) y el [estado de aceptación final](../docs/FASE_06_RESULTADOS.md); los ejemplos históricos de este README no acreditan aceptación de las funciones nuevas.
 
 ### Uso diario del icono de bandeja
 

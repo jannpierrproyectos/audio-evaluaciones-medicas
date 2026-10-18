@@ -22,31 +22,39 @@ export function attachMediwebWorkerMetadata(analysis, metadata = {}) {
       byDocument.set(document, matches);
     }
     const page = Number(entry.paginaConsolidado);
-    if (Number.isInteger(page) && page > 0) byPage.set(page, index);
+    if (Number.isInteger(page) && page > 0) byPage.set(page, [...(byPage.get(page) || []), index]);
   });
 
   const workers = (analysis?.workers ?? []).map((worker, workerIndex) => {
     const document = normalizeDocument(worker?.identificacion?.numero_documento || worker?.identificacion?.dni);
     const page = Number(analysis?.groups?.[workerIndex]?.start_page);
-    const documentMatches = (byDocument.get(document) ?? []).filter((index) => !used.has(index));
+    const documentMatches = byDocument.get(document) ?? [];
     let entryIndex = documentMatches.length === 1 ? documentMatches[0] : undefined;
+    let conflict = false;
+    const pages = Number.isInteger(page) ? byPage.get(page) || [] : [];
+    if (entryIndex !== undefined && ((pages.length && (pages.length !== 1 || pages[0] !== entryIndex)) || (page > 0 && Number(entries[entryIndex].paginaConsolidado) > 0 && Number(entries[entryIndex].paginaConsolidado) !== page))) { entryIndex = undefined; conflict = true; }
     if (entryIndex === undefined && Number.isInteger(page)) {
-      const pageMatch = byPage.get(page);
-      if (pageMatch !== undefined && !used.has(pageMatch)) entryIndex = pageMatch;
+      const pageMatch = pages.length === 1 ? pages[0] : undefined;
+      if (!conflict && pageMatch !== undefined && !used.has(pageMatch) && (!document || !normalizeDocument(entries[pageMatch].numeroDocumento) || normalizeDocument(entries[pageMatch].numeroDocumento) === document)) entryIndex = pageMatch;
     }
+    if (entryIndex !== undefined && used.has(entryIndex)) entryIndex = undefined;
     if (entryIndex !== undefined) used.add(entryIndex);
     const entry = entryIndex === undefined ? null : entries[entryIndex];
+    const identityMatched = Boolean(document && entry && normalizeDocument(entry.numeroDocumento) === document);
+    const operational = { ...worker.datos_operativos };
+    delete operational.archivo_pdf_completo_id;
 
     return {
       ...worker,
       datos_operativos: {
-        ...(worker.datos_operativos || {}),
+        ...operational,
         telefono: entry?.telefono || "",
         archivo_pdf_completo: entry?.archivoPdfCompleto || "",
-        ...(entry?.archivoPdfCompletoId
+        ...(entry?.archivoPdfCompletoId && identityMatched
           ? { archivo_pdf_completo_id: entry.archivoPdfCompletoId }
           : {}),
       },
+      ...(!entry || !identityMatched ? { app_fields: { ...worker.app_fields, mediweb_link_error: !entry ? "No se pudo vincular inequívocamente documento y página del PDF completo." : "Vinculación por página sin identidad documental suficiente; requiere revisión." } } : {}),
     };
   });
 

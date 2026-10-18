@@ -1,4 +1,12 @@
 import { createBatchMetadata } from "./batchState.js";
+import { processWorkerClinicalNarrative } from "../clinical/index.js";
+import { applyNarrativeGreeting } from "./narrativeGreeting.js";
+
+export function prepareInitialNarratives(analysis, greeting) {
+  return { ...analysis, workers: analysis.workers.map(worker => ({ ...worker, app_fields: { ...worker.app_fields,
+    texto_final: applyNarrativeGreeting(processWorkerClinicalNarrative({ ...worker, derived_states: { ...worker.derived_states, reviewed_by_user: true } }).displayText, greeting),
+  } })) };
+}
 
 export const PDF_SOURCE_MODE = "pdf";
 export const MEDIWEB_SOURCE_MODE = "mediweb";
@@ -6,7 +14,6 @@ export const MEDIWEB_SOURCE_MODE = "mediweb";
 export function prepareAnalysisForReview(
   analysis,
   sourceMode,
-  reviewedAt = new Date().toISOString(),
 ) {
   if (!analysis) return analysis;
 
@@ -19,14 +26,18 @@ export function prepareAnalysisForReview(
     source_mode: normalizedSourceMode,
     workers: (analysis.workers || []).map((worker) => ({
       ...worker,
+      source_mode: normalizedSourceMode,
+      clinical_approval: { status: "pendiente" },
       derived_states: {
         ...(worker.derived_states || {}),
-        reviewed_by_user: true,
-        reviewed_at: worker.derived_states?.reviewed_at || reviewedAt,
+        reviewed_by_user: false,
+        reviewed_at: "",
+        needs_review: true,
+        extraction_status: "extraido",
       },
       app_fields: {
         ...(worker.app_fields || {}),
-        needs_review: false,
+        needs_review: true,
       },
     })),
   };
@@ -38,7 +49,7 @@ export function prepareAnalysisForReview(
 }
 
 export function resolveEditableNarrative({ savedText, generatedText }) {
-  return savedText || generatedText || "";
+  return savedText ?? generatedText ?? "";
 }
 
 export function getWorkerPhone(worker) {

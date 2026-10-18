@@ -1,9 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { whatsappVerification, phoneState } from "../lib/evaluationPersistence.js";
+import WhatsAppReviewQueue from "./WhatsAppReviewQueue.jsx";
+import { matchesReviewFilter, phoneSummary, openWhatsAppCheck } from "../lib/whatsappReview.js";
+import { approveClinicalText, getAudioAuthorization, requestApprovedAudio, recipientVersion, isAudioResponseCurrent } from "../lib/clinicalApproval.js";
+import { useEffect, useRef, useState } from "react";
 import PdfWorkerReviewForm from "./PdfWorkerReviewForm.jsx";
 import { processWorkerClinicalNarrative } from "../clinical/index.js";
 import { synthesizeAudioFromText } from "../lib/ttsClient.js";
 import {
   revealManagedFile,
+  releaseManagedAttachments,
   saveWhatsAppAudio,
   validateManagedFile,
 } from "../services/mediwebService.js";
@@ -23,14 +28,16 @@ import {
 } from "../lib/workerReviewUx.js";
 import {
   buildWhatsAppAudioFilename,
-  buildWhatsAppMessage,
-  buildWhatsAppUrl,
   getWhatsAppAvailability,
   isWhatsAppConfirmed,
 } from "../lib/whatsappMessage.js";
 
 const FILTERS = [
   { id: "all", label: "Todos" },
+  { id: "wa-confirmados", label: "WhatsApp confirmado" },
+  { id: "wa-pendientes", label: "WhatsApp pendiente" },
+  { id: "wa-sin-whatsapp", label: "Sin WhatsApp" },
+  { id: "wa-bloqueados", label: "Destinatario bloqueado" },
   { id: "reviewed", label: "Revisados" },
   { id: "needs-review", label: "Requieren revision" },
   { id: "errors", label: "Con errores" },
@@ -215,6 +222,7 @@ function WorkerFilters({ query, onQueryChange, activeFilter, onFilterChange }) {
 }
 
 function workerMatchesFilter(worker, filter) {
+  if (filter.startsWith("wa-")) return matchesReviewFilter(worker, filter.slice(3));
   const aptitud = normalizeComparable(worker?.aptitud_y_recomendaciones?.aptitud_final);
 
   if (filter === "reviewed") return Boolean(worker?.derived_states?.reviewed_by_user);
@@ -236,7 +244,9 @@ function WorkerList({
   query,
   activeFilter,
 }) {
-  const filteredWorkers = useMemo(() => {
+  // Recompute on the existing authorization clock as well as edits/search.
+  // Memoizing only by worker-array identity leaves expiry-based filters stale.
+  const filteredWorkers = (() => {
     const normalizedQuery = normalizeSearch(query);
 
     return workers
@@ -255,7 +265,7 @@ function WorkerList({
 
         return haystack.includes(normalizedQuery);
       });
-  }, [activeFilter, query, workers]);
+  })();
 
   if (!filteredWorkers.length) {
     return (
@@ -324,28 +334,21 @@ function WorkerTextAudioPanel({
   worker,
   workerIndex,
   onUpdateWorker,
+  onGenerateAudio,
   audioRequestGuard,
 }) {
   const [isRegenerationConfirmationOpen, setIsRegenerationConfirmationOpen] = useState(false);
   const editableNarrative = resolveEditableNarrative({
-    savedText: worker?.app_fields?.texto_final,
+    savedText: worker?.app_fields?.last_edited_at || worker?.app_fields?.texto_final
+      ? worker?.app_fields?.texto_final : undefined,
     generatedText: draft.text,
   });
   const finalText = draft.applyGreeting(editableNarrative);
   const audioStatus = String(worker?.app_fields?.audio_status || "pendiente").toLowerCase();
-  const aptitud = normalizeComparable(worker?.aptitud_y_recomendaciones?.aptitud_final);
-  const needsWhatsAppCheck = Boolean(worker?.datos_operativos);
+  const needsWhatsAppCheck = worker.source_mode === "mediweb" || Boolean(worker.datos_operativos);
   const whatsappConfirmed = isWhatsAppConfirmed(worker);
-  const canGenerateAudio = Boolean(
-    finalText.trim() &&
-      (!needsWhatsAppCheck || whatsappConfirmed) &&
-      worker?.derived_states?.reviewed_by_user &&
-      (!worker?.app_fields?.needs_review || worker?.derived_states?.reviewed_by_user) &&
-      aptitud &&
-      aptitud !== "PENDIENTE" &&
-      !worker?.validation?.has_errors &&
-      audioStatus !== "generando",
-  );
+  const authorization = getAudioAuthorization(worker, finalText);
+  const canGenerateAudio = authorization.canGenerateAudio;
   const hasGeneratedAudio = hasExistingAudio(worker?.app_fields);
   const workerRequestKey = worker?.identificacion?.dni || `worker-${workerIndex}`;
 
@@ -358,9 +361,8 @@ function WorkerTextAudioPanel({
         app_fields: {
           ...(currentWorker.app_fields || {}),
           texto_final: value,
-          audio_status: currentHasAudio
-            ? currentWorker.app_fields.audio_status
-            : "pendiente",
+          audio_status: currentWorker.app_fields?.audio_status === "generando"
+            ? "generando" : currentHasAudio ? currentWorker.app_fields.audio_status : "pendiente",
           audio_error: "",
           audio_stale: currentHasAudio,
           last_edited_at: new Date().toISOString(),
@@ -371,6 +373,15 @@ function WorkerTextAudioPanel({
 
   async function handleGenerateAudio({ regenerationConfirmed = false } = {}) {
     if (!canGenerateAudio) return;
+    if (onGenerateAudio) {
+      try { await onGenerateAudio(workerIndex, finalText); }
+      catch (error) {
+        onUpdateWorker?.(workerIndex, current => ({ ...current, app_fields: {
+          ...current.app_fields, audio_error: error.message || "No se pudo generar o recuperar el audio.",
+        } }));
+      }
+      return;
+    }
 
     if (
       getAudioGenerationIntent(worker?.app_fields, { regenerationConfirmed }) ===
@@ -395,7 +406,9 @@ function WorkerTextAudioPanel({
     }));
 
     try {
-      const result = await synthesizeAudioFromText({
+      const result = await requestApprovedAudio({
+        worker,
+        synthesize: synthesizeAudioFromText,
         text: finalText,
         filenameHint: createPdfAudioFilenameHint(worker),
       });
@@ -424,7 +437,7 @@ function WorkerTextAudioPanel({
             audio_mime_type: result.mimeType,
             texto_tts: result.ttsText,
             audio_error: "",
-            audio_stale: false,
+            audio_stale: !isAudioResponseCurrent(worker, currentWorker, finalText),
             whatsapp_audio_file_id: "",
             whatsapp_audio_filename: "",
             whatsapp_audio_sha256: "",
@@ -470,6 +483,38 @@ function WorkerTextAudioPanel({
         aria-label="Texto final editable PDF"
       />
 
+      <p aria-live="polite">Aprobación clínica: {authorization.approval}. Validación: {authorization.validation}.</p>
+      {worker.app_fields?.phone_analysis?.conflicting && !authorization.recipientChecks.duplicateResolved ? <p className="inline-feedback is-error">Teléfono compartido entre identidades distintas. Confirma la identidad en «Verificar WhatsApp pendientes» antes de generar audio.</p> : null}
+      <button type="button" className="secondary-button"
+        disabled={!finalText.trim() || authorization.validation === "bloqueada" || audioStatus === "generando"}
+        onClick={() => onUpdateWorker?.(workerIndex, current => approveClinicalText(current, finalText))}>
+        Aprobar texto clínico
+      </button>
+      {needsWhatsAppCheck && worker.evaluation_id ? <label>
+        Autorización de entrega vigente hasta (fecha y hora confirmadas por el operador)
+        <input type="datetime-local" value={worker.app_fields?.recipient_expiry_draft || ""}
+          onChange={event => {
+            const value = event.target.value;
+            onUpdateWorker?.(workerIndex, current => ({ ...current, app_fields: { ...current.app_fields,
+              recipient_expiry_draft: value, recipient_authorization: null,
+            } }));
+          }} />
+      </label> : null}
+      {needsWhatsAppCheck ? <label>
+        <input type="checkbox" checked={authorization.recipient === "confirmada"}
+          disabled={!whatsappConfirmed || Boolean(worker.evaluation_id && !(Date.parse(worker.app_fields?.recipient_expiry_draft) > Date.now()))}
+          onChange={event => {
+            const checked = event.target.checked;
+            onUpdateWorker?.(workerIndex, current => ({ ...current, app_fields: {
+              ...current.app_fields, recipient_authorization: checked ? {
+                status: "confirmada", authorization_id: globalThis.crypto.randomUUID(), version: recipientVersion(current), confirmed_at: new Date().toISOString(),
+                ...(current.evaluation_id ? { expires_at: new Date(current.app_fields.recipient_expiry_draft).toISOString() } : {}),
+              } : null,
+            } }));
+          }} />
+        Confirmo la identidad del destinatario, su autorización vigente para este canal y la correspondencia del PDF con esta evaluación.
+      </label> : null}
+
       {worker?.app_fields?.audio_stale && (
         <p className="muted-text">
           El texto fue editado despues del ultimo audio. Genera un nuevo audio para actualizarlo.
@@ -477,7 +522,7 @@ function WorkerTextAudioPanel({
       )}
 
       <WhatsAppPreparationPanel
-        key={getWhatsAppAvailability(worker).phone}
+        key={`${worker.evaluation_id || workerIndex}:${recipientVersion(worker)}`}
         worker={worker}
         workerIndex={workerIndex}
         onUpdateWorker={onUpdateWorker}
@@ -546,6 +591,7 @@ function WorkerTextAudioPanel({
       {worker?.app_fields?.audio_error && (
         <p className="audio-error-message">{worker.app_fields.audio_error}</p>
       )}
+      {worker?.app_fields?.mediweb_link_error && <p role="alert">{worker.app_fields.mediweb_link_error}</p>}
 
       {hasGeneratedAudio && (
         <div className="audio-player-shell">
@@ -584,29 +630,28 @@ function WhatsAppPreparationPanel({ worker, workerIndex, onUpdateWorker }) {
   const [chatOpened, setChatOpened] = useState(false);
   const confirmed = isWhatsAppConfirmed(worker);
 
-  function handleOpenChat() {
-    const url = buildWhatsAppUrl({ phone: availability.phone, message: buildWhatsAppMessage(worker) });
-    if (!url) return;
-    const chat = window.open("about:blank", "_blank");
-    if (!chat) {
-      setPreparation((current) => ({ ...current, feedback: "Permite ventanas emergentes para abrir WhatsApp." }));
-      return;
-    }
-    chat.opener = null;
-    chat.location.replace(url);
+  async function handleOpenChat() {
+    setChatOpened(false);
+    try { await openWhatsAppCheck(worker); }
+    catch (error) { setPreparation(current => ({ ...current, feedback: error.message })); return; }
     setChatOpened(true);
     setPreparation((current) => ({ ...current, feedback: "Comprueba en WhatsApp si puedes escribir a este número y registra el resultado aquí." }));
   }
 
   function handleConfirmChat(available) {
     if (!chatOpened) return;
-    onUpdateWorker?.(workerIndex, (currentWorker) => ({
+    onUpdateWorker?.(workerIndex, (currentWorker) => {
+      const verification = whatsappVerification(currentWorker, available);
+      return {
       ...currentWorker,
       app_fields: {
         ...(currentWorker.app_fields || {}),
         whatsapp_confirmed_phone: available ? availability.phone : "",
+        whatsapp_verification: verification,
+        whatsapp_history: [...(currentWorker.app_fields?.whatsapp_history || []), verification],
+        ...(!available ? { recipient_authorization: null } : {}),
       },
-    }));
+    }; });
     setPreparation((current) => ({ ...current, feedback: available
       ? "Número confirmado por el operador. Ya puedes generar el audio después de revisar el texto."
       : "Marcado sin WhatsApp. La generación de audio queda bloqueada para evitar consumir créditos." }));
@@ -712,6 +757,15 @@ function WhatsAppPreparationPanel({ worker, workerIndex, onUpdateWorker }) {
     }
   }
 
+  async function handleFinishPreparation() {
+    if (requestControllerRef.current) return;
+    setPreparation(current => ({ ...current, status: "preparing", feedback: "Retirando copias temporales…" }));
+    try {
+      await releaseManagedAttachments([availability.pdfFileId, preparation.audioFile?.id || worker?.app_fields?.whatsapp_audio_file_id].filter(Boolean));
+      setPreparation({ status: "idle", feedback: "Copias temporales retiradas. Los documentos de origen y audios cifrados se conservan.", pdfShown: false, audioShown: false, audioFile: null });
+    } catch (error) { setPreparation(current => ({ ...current, status: "prepared", feedback: error.message || "Cierra los adjuntos abiertos e intenta finalizar de nuevo." })); }
+  }
+
   return (
     <section className="whatsapp-panel" aria-labelledby={`whatsapp-title-${workerIndex}`}>
       <div className="whatsapp-panel__header">
@@ -723,6 +777,7 @@ function WhatsAppPreparationPanel({ worker, workerIndex, onUpdateWorker }) {
       </div>
 
       <p className="muted-text">Primero comprueba el chat. Abrir WhatsApp no consume créditos de voz ni confirma que el número tenga cuenta.</p>
+      <small>Los adjuntos mostrados son copias legibles privadas de tu usuario. Caducan en un máximo de 15 minutos; usa «Finalizar preparación» para retirarlas antes. No las muevas a otra carpeta.</small>
       <button type="button" className="secondary-button" onClick={handleOpenChat} disabled={!availability.hasValidPhone || isPreparing}>
         Abrir WhatsApp para comprobar número
       </button>
@@ -732,6 +787,7 @@ function WhatsAppPreparationPanel({ worker, workerIndex, onUpdateWorker }) {
           <button type="button" className="secondary-button" onClick={() => handleConfirmChat(false)}>No tiene WhatsApp</button>
         </div>
       ) : null}
+      <p className="muted-text">Comprobación: {phoneState(worker)} · {worker.app_fields?.whatsapp_verification?.checked_at || "Pendiente"}</p>
       <p className="muted-text" aria-live="polite">{confirmed ? "WhatsApp confirmado por el operador para este número." : "Número pendiente de confirmación."}</p>
 
       <dl className="whatsapp-availability">
@@ -787,7 +843,8 @@ function WhatsAppPreparationPanel({ worker, workerIndex, onUpdateWorker }) {
           <button
             type="button"
             className="secondary-button is-quiet"
-            onClick={() => setPreparation({ status: "idle", feedback: "", pdfShown: false, audioShown: false, audioFile: null })}
+            onClick={handleFinishPreparation}
+            disabled={isPreparing}
           >
             Finalizar preparación
           </button>
@@ -971,6 +1028,7 @@ function WorkerDetailPanel({
   reviewFlags,
   onChangeWorker,
   onUpdateWorker,
+  onGenerateAudio,
   audioRequestGuard,
   trace,
 }) {
@@ -1025,6 +1083,7 @@ function WorkerDetailPanel({
             worker={worker}
             workerIndex={workerIndex}
             onUpdateWorker={onUpdateWorker}
+            onGenerateAudio={onGenerateAudio}
             audioRequestGuard={audioRequestGuard}
           />
         )}
@@ -1052,12 +1111,20 @@ function PdfWorkersPreview({
   onSelectWorker,
   onChangeWorker,
   onUpdateWorker,
+  onGenerateAudio,
+  onVerifyContact,
+  onUpdateQueue,
+  onRefreshRecipients,
   greeting,
   onGreetingChange,
 }) {
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
   const [audioRequestGuard] = useState(() => createAudioRequestGuard());
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [quickFeedback, setQuickFeedback] = useState("");
+  const [quickOpening, setQuickOpening] = useState(false);
+  const quickOpeningRef = useRef(false);
 
   if (!analysis) {
     return (
@@ -1073,15 +1140,31 @@ function PdfWorkersPreview({
   const clinicalResult = selectedWorker
     ? processWorkerClinicalNarrative(selectedWorker)
     : null;
+  // Preview the candidate text; stored review and TTS authorization remain pending.
+  const candidateText = selectedWorker && !selectedWorker.derived_states?.reviewed_by_user
+    ? processWorkerClinicalNarrative({ ...selectedWorker, derived_states: {
+        ...selectedWorker.derived_states, reviewed_by_user: true,
+      } }).displayText
+    : clinicalResult?.displayText;
   const narrativeFindings = clinicalResult?.findings || null;
   const narrativeDraft = clinicalResult
     ? {
         can_generate: clinicalResult.canGenerate,
         blocking_reasons: clinicalResult.blockingReasons,
-        text: applyNarrativeGreeting(clinicalResult.displayText, greeting),
+        text: applyNarrativeGreeting(candidateText, greeting),
         applyGreeting: (text) => applyNarrativeGreeting(text, greeting),
       }
     : null;
+
+  const contactSummary = <div className="wa-summary" aria-label="Resumen de teléfonos">
+    {Object.entries(phoneSummary(workers)).map(([label, count]) => <span className="meta-chip" key={label}>{label.replaceAll("_", " ")}: <strong>{count}</strong></span>)}
+  </div>;
+  if (quickOpen) return <div className="pdf-workspace">
+    {contactSummary}
+    <WhatsAppReviewQueue analysis={analysis} onVerifyContact={onVerifyContact} onUpdateQueue={onUpdateQueue}
+      onUpdateWorker={onUpdateWorker} onRefreshRecipients={onRefreshRecipients} onSelectWorker={onSelectWorker}
+      onClose={() => setQuickOpen(false)} />
+  </div>;
 
   return (
     <div className="pdf-workspace">
@@ -1091,6 +1174,25 @@ function PdfWorkersPreview({
         greeting={greeting}
         onGreetingChange={onGreetingChange}
       />
+      {contactSummary}
+      <div className="detail-actions">
+        <button type="button" className="primary-button" disabled={quickOpening || !analysis.batch_id} onClick={async () => {
+          if (quickOpeningRef.current) return;
+          quickOpeningRef.current = true; setQuickOpening(true); setQuickFeedback("");
+          try {
+            const snapshot = await onRefreshRecipients();
+            const currentWorkers = snapshot?.workers || workers;
+            const queue = snapshot?.whatsapp_queue || analysis.whatsapp_queue || {};
+            const saved = currentWorkers.find(worker => worker.evaluation_id === queue.selected_evaluation_id && matchesReviewFilter(worker, "pendientes"));
+            const first = saved || currentWorkers.find(worker => matchesReviewFilter(worker, "pendientes") && !(queue.visited || []).includes(worker.evaluation_id)) || currentWorkers.find(worker => matchesReviewFilter(worker, "pendientes"));
+            await onUpdateQueue({ ...queue, filter: "pendientes", selected_evaluation_id: first?.evaluation_id || null,
+              visited: saved || first && !(queue.visited || []).includes(first.evaluation_id) ? queue.visited || [] : [] });
+            setQuickOpen(true);
+          } catch (error) { setQuickFeedback(error.message || "No se pudo abrir la cola segura."); }
+          finally { quickOpeningRef.current = false; setQuickOpening(false); }
+        }}>Verificar WhatsApp pendientes</button>
+        {quickFeedback ? <p role="status">{quickFeedback}</p> : null}
+      </div>
 
       <div className="pdf-operational-layout">
         <section className="pdf-worker-panel">
@@ -1128,6 +1230,7 @@ function PdfWorkersPreview({
             reviewFlags={clinicalResult.reviewFlags}
             onChangeWorker={onChangeWorker}
             onUpdateWorker={onUpdateWorker}
+            onGenerateAudio={onGenerateAudio}
             audioRequestGuard={audioRequestGuard}
             trace={clinicalResult.trace}
           />

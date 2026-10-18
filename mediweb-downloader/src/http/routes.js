@@ -72,6 +72,13 @@ export function createRoutes({ engine, jobManager, managedFiles, updateService, 
       const file = await managedAction(() => managedFiles.saveMp3(buffer, requestedFileName));
       return json(response, 201, { ok: true, file });
     }
+    if (request.method === "POST" && url.pathname === "/files/release") {
+      requireBrowserOrigin(request); requireManagedFiles(managedFiles);
+      const body = await readJson(request);
+      if (!body || Object.keys(body).some(key => key !== "fileIds") || !Array.isArray(body.fileIds) || body.fileIds.length < 1 || body.fileIds.length > 2 || body.fileIds.some(id => typeof id !== "string" || id.length > 1024)) throw new HttpError(400, "INVALID_REQUEST", "Identificadores de adjuntos no válidos.");
+      await managedAction(() => managedFiles.releaseTemporary(body.fileIds));
+      return json(response, 200, { ok: true });
+    }
     if (request.method === "POST" && url.pathname === "/files/reveal") {
       requireBrowserOrigin(request);
       requireManagedFiles(managedFiles);
@@ -116,12 +123,14 @@ export function createRoutes({ engine, jobManager, managedFiles, updateService, 
       }
       if (request.method === "GET" && action === "first-pages") {
         const file = await jobManager.firstPagesPath(id);
+        const decrypted = engine.readOutput ? await engine.readOutput(file) : null;
         response.writeHead(200, {
           "Content-Type": "application/pdf",
           "Content-Disposition": 'inline; filename="primeras-hojas.pdf"',
           "Cache-Control": "no-store",
         });
-        createReadStream(file).pipe(response);
+        if (decrypted) response.end(decrypted);
+        else createReadStream(file).pipe(response);
         return;
       }
     }
@@ -138,7 +147,7 @@ async function updateAction(response, operation, status = 200) {
   }
 }
 
-async function readJson(request) {
+export async function readJson(request) {
   const type = request.headers["content-type"] ?? "";
   if (!type.toLowerCase().startsWith("application/json")) {
     throw new HttpError(400, "INVALID_CONTENT_TYPE", "Content-Type debe ser application/json.");
@@ -206,6 +215,7 @@ async function managedAction(operation) {
     return await operation();
   } catch (error) {
     if (error instanceof ManagedFileError) throw new HttpError(error.status, error.code, error.message);
+    if (/^ATTACHMENT_[A-Z_]+$/.test(error.code || "")) throw new HttpError(503, error.code, "No se pudo comprobar la protección o limpieza del adjunto temporal. Cierra los archivos abiertos y reinicia el Connector.");
     throw error;
   }
 }

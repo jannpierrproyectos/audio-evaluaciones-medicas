@@ -161,7 +161,7 @@ test("la UI conserva el orden mensaje, PDF, audio y no afirma una entrega", asyn
   const pdfStep = source.indexOf("2. PDF");
   const audioStep = source.indexOf("3. Audio");
   assert.ok(messageStep > 0 && messageStep < pdfStep && pdfStep < audioStep);
-  assert.match(source, /window\.open\("about:blank", "_blank"\)/);
+  assert.match(source, /openWhatsAppCheck\(worker\)/);
   assert.match(source, /Finalizar preparación/);
   assert.doesNotMatch(source, /PDF enviado|Audio enviado|Confirmar entrega/);
 });
