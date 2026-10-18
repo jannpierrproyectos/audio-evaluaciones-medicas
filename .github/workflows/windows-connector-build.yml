@@ -2,18 +2,49 @@ name: Windows Connector build
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "mediweb-downloader/**"
+      - ".github/workflows/windows-connector-build.yml"
   pull_request:
     paths:
       - "mediweb-downloader/**"
       - "src/**"
       - "public/connector-release.json"
       - "package*.json"
+      - ".github/workflows/windows-connector-build.yml"
 
 permissions:
   contents: read
 
+concurrency:
+  group: connector-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      publish_needed: ${{ steps.version.outputs.publish_needed }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Comparar la versión del Connector con el manifiesto
+        id: version
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          const version = JSON.parse(readFileSync('mediweb-downloader/package.json', 'utf8')).version;
+          const published = JSON.parse(readFileSync('public/connector-release.json', 'utf8')).latestVersion;
+          const needed = version !== published;
+          appendFileSync(process.env.GITHUB_OUTPUT, `publish_needed=${needed}\n`);
+          console.log(`Connector local: ${version}; publicado: ${published}; publicación pendiente: ${needed}`);
+          NODE
+
   test-and-package:
+    needs: preflight
+    if: github.event_name == 'pull_request' || needs.preflight.outputs.publish_needed == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -31,10 +62,13 @@ jobs:
         working-directory: mediweb-downloader
       - run: npm test
         working-directory: mediweb-downloader
-      - run: choco install innosetup --no-progress -y
-      - run: npm run build:windows
+      - name: Instalar Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Compilar y probar instalador de Windows
+        run: npm run build:windows
         working-directory: mediweb-downloader
-      - run: npm run release:prepare
+      - name: Generar manifiesto y hash SHA-256
+        run: npm run release:prepare
         working-directory: mediweb-downloader
       - uses: actions/upload-artifact@v6
         with:
@@ -45,3 +79,73 @@ jobs:
             mediweb-downloader/dist-windows/connector-release.json
             mediweb-downloader/dist-windows/RELEASE_NOTES-*.md
           if-no-files-found: error
+
+  publish-release:
+    needs: [preflight, test-and-package]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.preflight.outputs.publish_needed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v6
+        with:
+          name: AudioEvaluacionesConnector-${{ github.sha }}
+          path: release-artifacts
+      - name: Comprobar el instalador, versión y SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-artifacts
+          sha256sum --check SHA256SUMS.txt
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const manifest = JSON.parse(readFileSync('connector-release.json', 'utf8'));
+          const version = JSON.parse(readFileSync('../mediweb-downloader/package.json', 'utf8')).version;
+          const sums = readFileSync('SHA256SUMS.txt', 'utf8').trim();
+          if (manifest.latestVersion !== version ||
+              manifest.windows.fileName !== `AudioEvaluacionesConnector-${version}-Setup.exe` ||
+              sums !== `${manifest.windows.sha256}  ${manifest.windows.fileName}` ||
+              manifest.windows.downloadUrl !== `https://github.com/jannpierrproyectos/audio-evaluaciones-medicas/releases/download/v${version}/${manifest.windows.fileName}`) {
+            throw new Error('Manifiesto, instalador y SHA-256 no coinciden');
+          }
+          NODE
+      - name: Publicar en GitHub Releases y verificar la descarga
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./mediweb-downloader/package.json').version")"
+          tag="v${version}"
+          filename="AudioEvaluacionesConnector-${version}-Setup.exe"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "La versión ya existe; se comprobará que el instalador sea idéntico."
+          else
+            flags=()
+            if [[ "$version" == *-* ]]; then flags+=(--prerelease); fi
+            gh release create "$tag"               "release-artifacts/$filename"               "release-artifacts/SHA256SUMS.txt"               --target "$GITHUB_SHA"               --title "AudioEvaluaciones Connector $version"               --notes-file "release-artifacts/RELEASE_NOTES-$version.md"               "${flags[@]}"
+          fi
+          mkdir -p verified-release
+          gh release download "$tag" --pattern "$filename" --dir verified-release
+          cmp "release-artifacts/$filename" "verified-release/$filename"
+          echo "Instalador publicado y descarga verificada."
+      - name: Actualizar el manifiesto público tras publicar el instalador
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp release-artifacts/connector-release.json public/connector-release.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/connector-release.json
+          if git diff --cached --quiet; then
+            echo "El manifiesto ya está actualizado."
+            exit 0
+          fi
+          git commit -m "chore(connector): publish release manifest"
+          git push origin HEAD:main
