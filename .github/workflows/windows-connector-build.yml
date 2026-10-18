@@ -61,6 +61,15 @@ jobs:
       - name: Instalar Chromium de Playwright para pruebas del Connector
         run: npx playwright install chromium
         working-directory: mediweb-downloader
+      - name: Preparar carpeta temporal NTFS local para pruebas de datos protegidos
+        shell: pwsh
+        run: |
+          $testTemp = "$env:SystemDrive\\AudioEvaluacionesCiTemp"
+          New-Item -ItemType Directory -Path $testTemp -Force | Out-Null
+          if ((Get-Item -LiteralPath $testTemp).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'La carpeta de pruebas está redirigida.' }
+          "TEMP=$testTemp" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TMP=$testTemp" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TMPDIR=$testTemp" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - run: npm test
       - run: npm run build
       - run: npm test
