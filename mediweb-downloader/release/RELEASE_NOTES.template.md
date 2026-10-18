@@ -8,6 +8,7 @@ Novedades:
 - Asociación del PDF completo con cada trabajador mediante un identificador relativo controlado.
 
 Seguridad:
+- Esta versión de prueba se distribuye SIN firma digital Authenticode. Windows puede mostrar «Editor desconocido» o una advertencia de SmartScreen. Verifica que la descarga provenga del Release oficial y confirma la instalación manualmente.
 - Los archivos se limitan a la carpeta de descargas administrada por AudioEvaluaciones.
 - Protección frente a path traversal, rutas absolutas o UNC, y escapes mediante symlinks/junctions.
 - Allowlist estricta de `.pdf` y `.mp3`, límite de 25 MB para audio y validación `Origin`/CORS.
