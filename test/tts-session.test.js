@@ -8,6 +8,7 @@ function withEnv(settings, fn) {
   finally { for (const [key, val] of Object.entries(original)) val === undefined ? delete process.env[key] : process.env[key] = val }
 }
 const opts = {
+  TTS_LEGACY_MODE: '', // Explicitly isolate these token-mode tests from Preview env.
   TTS_OPERATOR_PASSPHRASE: 'fictitious-operator-very-long-secret-passphrase',
   TTS_SERVICE_ACCESS_TOKEN: 'fictitious-service-long-connection-token',
   TTS_SERVICE_URL: 'https://example.invalid', INSTITUTIONAL_PROXY_TOKEN: '',
