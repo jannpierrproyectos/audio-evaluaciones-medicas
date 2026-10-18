@@ -1,18 +1,26 @@
-# TTS: despliegue seguro de AudioEvaluaciones 0.6.0-rc.2
+# AudioEvaluaciones RC2 — activación de TTS real sin cortar producción
 
-## Alcance de esta corrección
+## Implementado en esta rama
 
-La consulta `GET /api/tts/configuration` ahora es de solo lectura y no requiere el token institucional del operador. El backend sigue exigiendo su propio `TTS_SERVICE_ACCESS_TOKEN` antes de solicitar esa configuración a FastAPI. El endpoint `POST /api/tts/synthesize` **mantiene** sus dos controles: autorización institucional en Vercel y autenticación backend a TTS. No se envían credenciales privadas en React ni se permite síntesis anónima.
+- GET /api/tts/configuration: consulta de solo lectura con credencial de servicio únicamente en backend.
+- POST /api/tts/synthesize: requiere servicio TTS protegido y sesión de operador o proxy institucional autenticado.
+- POST /api/tts/session: inicio de sesión con contraseña del operador. La web recibe una cookie firmada HttpOnly, SameSite=Strict, Secure por HTTPS; no expone tokens de backend en React.
+- La aplicación comprueba la sesión **antes** de reservar una solicitud de audio que podría ser cobrada.
+- Tests sin llamadas reales al proveedor: `test/tts-session.test.js`, `test/tts-readonly-config.test.js`. El comando `npm run build` ejecuta ambos antes de Vite.
 
-## Integración pendiente, no publicar en producción aún
+## Pendientes obligatorios
 
-1. Confirmar que el servicio FastAPI externo implementa `GET /configuration`, `POST /synthesize` y un token `TTS_SERVICE_ACCESS_TOKEN` compatible. La versión antigua puede no exponer `/configuration`. Un 404 en la página antigua no significa fallo de ElevenLabs.
-2. Configurar **el mismo token backend→backend** en FastAPI y en Vercel, exclusivamente como variable de entorno privada. No escribirlo en GitHub, React ni `VITE_*`.
-3. Incorporar autenticación real del operador (sesión institucional o proxy autenticado) antes de POST. El secreto `INSTITUTIONAL_PROXY_TOKEN` no puede enviarse desde una web pública; no introducirlo en código cliente ni variables `VITE_*`. La autorización clínica y del destinatario siguen siendo obligatorias.
-4. Configurar `TTS_SERVICE_URL` del lado del servidor. La variable heredada `VITE_TTS_SERVICE_URL` se conserva temporalmente por compatibilidad con el hosting anterior, pero se recomienda `TTS_SERVICE_URL` para servicio privado.
-5. Validar primero el despliegue Preview protegido. Preview privado no implica que el dominio de producción esté protegido. No publicar hasta implementar la autenticación de POST y comprobar el acceso remoto.
-6. Una vez configurado, `GET /api/tts/configuration` devuelve `provider`, `model`, `voice_ref`, `format: mp3`, `contract: 1`. Este GET no sintetiza audio. No realizar pruebas pagadas hasta comprobar los controles.
+1. **No modificar todavía el Space de Hugging Face que consume la web antigua.** Actualizarlo con el requisito de token rompería su integración anterior. Crear primero un Space de prueba (o un despliegue aislado) con el código `tts-service/` de esta rama, su configuración privada de ElevenLabs y un nuevo token secreto `TTS_SERVICE_ACCESS_TOKEN` de al menos 32 caracteres.
+2. En Vercel (entorno Preview), definir `TTS_SERVICE_URL` apuntando al nuevo Space de prueba por HTTPS; `TTS_SERVICE_ACCESS_TOKEN` igual al token del Space; y una contraseña **distinta** `TTS_OPERATOR_PASSPHRASE` de al menos 32 caracteres. No usar variables `VITE_*` para contraseñas ni tokens. Las contraseñas existentes de ElevenLabs permanecen en Hugging Face.
+3. Desplegar de nuevo la rama `fix/tts-readonly-config-rc2` en Preview para recoger esas variables. Comprobar `GET /api/tts/configuration` (provider=elevenlabs, format=mp3) y `GET /api/tts/session` (configured=true, authenticated=false). Esos GET no consumen créditos.
+4. Iniciar sesión mediante el panel «Acceso al audio». Verificar un MP3 real solo con evaluación, destinatario y autorizaciones correspondientes. Esa solicitud sí puede consumir créditos de ElevenLabs.
+5. Una vez aprobada la validación Preview, migrar a producción de forma coordinada y retirar la integración antigua si deja de usarse. **No desplegar a producción antes de completar la prueba real.**
 
-## Regresión
+La sesión de acceso compartido es una puerta de entrada técnica, no sustituye una identificación nominativa y auditoría institucional del operador. La clínica requiere verificación y aprobación independiente.
 
-`node --test test/tts-readonly-config.test.js`: usa únicamente identidades ficticias. Comprueba que la metadata pueda consultarse sin token del operador en un backend correctamente configurado, pero que la síntesis rechace solicitudes sin autorización. Configuraciones inseguras siguen cerradas.
+## Pruebas locales (Windows CMD)
+
+```cmd
+node --test test/tts-session.test.js test/tts-readonly-config.test.js
+npm.cmd run build
+```
