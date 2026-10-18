@@ -5,6 +5,16 @@ export const ttsAccessError = (status, code) => Object.assign(new Error('TTS blo
 export function externalTtsUrl() {
   return String(process.env.TTS_SERVICE_URL || process.env.VITE_TTS_SERVICE_URL || '').trim().replace(/\/+$/g, '')
 }
+// Read-only provider metadata is not a paid synthesis request. The backend
+// still requires its own service token and a safe URL before accessing TTS.
+export function authorizeTtsConfigurationRequest() {
+  if (!externalTtsUrl()) {
+    if (process.env.VERCEL || process.env.NODE_ENV === 'production') throw ttsAccessError(503, 'TTS_NOT_CONFIGURED')
+    return // Local synthetic metadata only.
+  }
+  ttsServiceHeaders() // Fail closed for missing token or an unsafe service URL.
+}
+
 export function authorizeTtsRequest(request) {
   if (!externalTtsUrl()) {
     if (process.env.VERCEL || process.env.NODE_ENV === 'production') throw ttsAccessError(503, 'TTS_NOT_CONFIGURED')
