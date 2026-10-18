@@ -1,5 +1,7 @@
 import { EvaluationRepository, sha256, canonical, restoreWorker, recoverAudio, getTtsConfiguration, generatePersistentAudio, batchCounts, initialVerification } from "./lib/evaluationPersistence.js";
 import { synthesizeAudioFromText } from "./lib/ttsClient.js";
+import { requireTtsSession } from "./lib/ttsAccessClient.js";
+import TtsSessionPanel from "./components/TtsSessionPanel.jsx";
 import { validateManagedFile } from "./services/mediwebService.js";
 import { reconcileWorkerReview } from "./lib/clinicalApproval.js";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -158,6 +160,7 @@ function App() {
       ? currentAnalysisRef.current.workers.find(item => item.evaluation_id === key) : null;
     const update = change => updatePdfWorkerAtIndex(workerIndex, change, batch.batch_id, key);
     try {
+      await requireTtsSession();
       const configuration = await getTtsConfiguration();
       if (expectedConfiguration && JSON.stringify(canonical(configuration)) !== JSON.stringify(canonical(expectedConfiguration))) throw new Error("Cambió la configuración TTS. Recalcula la estimación.");
       if (worker.source_mode === MEDIWEB_SOURCE_MODE) await validateManagedFile(worker.datos_operativos?.archivo_pdf_completo_id);
@@ -394,6 +397,7 @@ ${error?.message || "Error desconocido"}`
 
               {pdfAnalysis ? (
                 <div id="pdf-workers-results" tabIndex="-1" className="pdf-results-focus-target">
+                  <TtsSessionPanel />
                   <BulkAudioPanel key={`bulk-${pdfAnalysis.batch_id}`} analysis={pdfAnalysis} repository={repository}
                     onSelectWorker={setSelectedPdfWorkerIndex}
                     getSnapshot={() => currentAnalysisRef.current} refreshRecipients={refreshRecipients}
