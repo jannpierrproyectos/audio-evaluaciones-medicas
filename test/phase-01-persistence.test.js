@@ -44,6 +44,25 @@ async function fixture(callback) {
   finally { await rm(directory, { recursive: true, force: true }); }
 }
 
+test("device not linked: pre-provider rejection releases the reservation for a later authorized attempt", async () => fixture(async ({ repository, store }) => {
+  const batch = await repository.import(snapshot(), await sha256("device-link-rejection"));
+  let current = approveClinicalText(batch.snapshot.workers[0], text);
+  batch.snapshot.workers[0] = current;
+  await repository.save(batch.snapshot);
+  const update = async change => {
+    current = reconcileWorkerReview(current, change(current));
+    batch.snapshot.workers[0] = current;
+    await repository.save(batch.snapshot);
+  };
+  await assert.rejects(generatePersistentAudio({ repository, worker: current, text, configuration, current: () => current, update,
+    synthesize: async () => { throw Object.assign(new Error("Device not linked"), { code: "TTS_DEVICE_NOT_LINKED", status: 401 }); },
+  }), { code: "TTS_DEVICE_NOT_LINKED" });
+  assert.equal(current.app_fields.audio_status, "pendiente");
+  const fingerprint = await audioFingerprint(current, text, configuration);
+  assert.equal((await store.operation(current.evaluation_id, fingerprint)).status, "no_enviada");
+  assert.equal((await store.reserve(batch.id, current.evaluation_id, fingerprint)).reused, false);
+}));
+
 test("persistencia cifrada: reinicio, minimización, copia y aprobación exacta", async () => fixture(async ({ store, directory }) => {
   const batch = await store.import(snapshot(), await sha256("pdf-ficticio"));
   const worker = approveClinicalText(batch.snapshot.workers[0], text);

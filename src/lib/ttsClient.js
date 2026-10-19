@@ -73,6 +73,10 @@ export async function synthesizeAudioFromText({ text, filenameHint }) {
   })
 
   if (!response.ok) {
+    if (response.status === 401) {
+      const failure = await response.clone().json().catch(() => ({}))
+      if (failure.code === 'TTS_DEVICE_NOT_LINKED') throw Object.assign(new Error(failure.error), { code: failure.code, status: 401 })
+    }
     throw new Error(await readErrorMessage(response))
   }
 

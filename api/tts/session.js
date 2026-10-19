@@ -1,8 +1,11 @@
-import { clearTtsSession, createTtsSession, ttsSessionState } from '../../server/ttsSession.js'
+import { clearTtsSession, createTtsSession, ttsSessionState, renewTtsSession } from '../../server/ttsSession.js'
 export const runtime = 'nodejs'
 const noStore = { 'Cache-Control': 'no-store' }
 
-export async function GET(request) { return Response.json(ttsSessionState(request), { headers: noStore }) }
+export async function GET(request) {
+  const cookie = renewTtsSession(request)
+  return Response.json(ttsSessionState(request), { headers: { ...noStore, ...(cookie ? { 'Set-Cookie': cookie } : {}) } })
+}
 export async function POST(request) {
   try {
     if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {

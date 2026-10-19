@@ -188,6 +188,9 @@ export async function generatePersistentAudio({ repository, worker, text, config
       whatsapp_audio_file_id: "", whatsapp_audio_filename: "", whatsapp_audio_sha256: "" } }));
     return { reused: false, stale };
   } catch (error) {
+    // This code is returned only by the backend's pre-provider auth check.
+    // A missing device link must not leave an uncharged operation uncertain.
+    if (error.code === 'TTS_DEVICE_NOT_LINKED' && error.status === 401) sent = false;
     if (!sent) await repository.request({ action: "cancel-unsent", operationId: operation.id });
     await update(value => ({ ...value, app_fields: { ...value.app_fields, audio_status: sent ? "incierto" : "pendiente", audio_stale: true, audio_error: sent ? "Solicitud de resultado incierto. Revisa el servicio antes de repetir." : "No se solicito audio. Revisa el acceso del operador." } }));
     throw error;

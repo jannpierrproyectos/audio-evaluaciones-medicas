@@ -49,3 +49,30 @@ export function clearTtsSession(request) { return sessionCookie(request, '', 0) 
 export function ttsSessionState(request) {
   return { configured: Boolean(process.env.TTS_OPERATOR_PASSPHRASE?.length >= 32), authenticated: isTtsSessionActive(request) }
 }
+
+export function renewTtsSession(request) {
+  return isTtsSessionActive(request) ? createTtsSession(request, passphrase()) : null
+}
+
+// A short-lived administrator-issued capability, scoped to the exact website.
+// The operator never receives the server passphrase or the ElevenLabs key.
+function enrollmentSignature(payload) {
+  return createHmac('sha256', secret()).update('device-enrollment/v1:' + payload).digest('hex')
+}
+export function createTtsDeviceLink(origin) {
+  const url = new URL(origin)
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && url.hostname === '127.0.0.1')) throw fail(400, 'TTS_DEVICE_ORIGIN_INVALID')
+  const payload = Buffer.from(JSON.stringify({ origin: url.origin, expires: Math.floor(Date.now() / 1000) + 600, nonce: randomBytes(16).toString('hex') })).toString('base64url')
+  return `${url.origin}/api/tts/device#${payload}.${enrollmentSignature(payload)}`
+}
+export function enrollTtsDevice(request, token) {
+  if (typeof token !== 'string' || token.length > 1024) throw fail(401, 'TTS_DEVICE_LINK_INVALID')
+  const match = /^([A-Za-z0-9_-]+)\.([a-f0-9]{64})$/.exec(token)
+  if (!match || !timingSafeEqual(Buffer.from(match[2]), Buffer.from(enrollmentSignature(match[1])))) throw fail(401, 'TTS_DEVICE_LINK_INVALID')
+  let data
+  try { data = JSON.parse(Buffer.from(match[1], 'base64url').toString('utf8')) } catch { throw fail(401, 'TTS_DEVICE_LINK_INVALID') }
+  const now = Math.floor(Date.now() / 1000)
+  const origin = new URL(request.url).origin
+  if (data.origin !== origin || header(request, 'origin') !== origin || !Number.isSafeInteger(data.expires) || data.expires <= now || data.expires > now + 600) throw fail(401, 'TTS_DEVICE_LINK_INVALID')
+  return createTtsSession(request, passphrase())
+}

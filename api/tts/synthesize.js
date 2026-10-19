@@ -30,10 +30,12 @@ export async function POST(request) {
     })
   } catch (error) {
     console.error('TTS_REQUEST_FAILED')
+    const needsDevice = error.status === 401 && ['TTS_OPERATOR_SESSION_REQUIRED', 'TTS_UNAUTHORIZED'].includes(error.code)
 
     return Response.json(
       {
-        error: 'No se pudo completar TTS. Si la solicitud comenzó, su resultado puede ser incierto; revisa el estado antes de reintentar.',
+        error: needsDevice ? 'Este navegador aún no está vinculado. Abre el enlace privado de vinculación del equipo; después podrás generar audios sin contraseña.' : 'No se pudo completar TTS. Si la solicitud comenzó, su resultado puede ser incierto; revisa el estado antes de reintentar.',
+        ...(needsDevice ? { code: 'TTS_DEVICE_NOT_LINKED' } : {}),
       },
       {
         status: error.status || 500,
