@@ -8,6 +8,8 @@ function withEnv(settings, fn) {
   finally { for (const [key, val] of Object.entries(original)) val === undefined ? delete process.env[key] : process.env[key] = val }
 }
 const opts = {
+  // Keep compatibility fixtures independent of Google credentials in Vercel.
+  GOOGLE_OAUTH_CLIENT_ID: '', GOOGLE_OAUTH_CLIENT_SECRET: '', GOOGLE_OAUTH_REDIRECT_URI: '', GOOGLE_AUTH_SESSION_SECRET: '',
   TTS_LEGACY_MODE: '', // Explicitly isolate these token-mode tests from Preview env.
   TTS_OPERATOR_PASSPHRASE: 'fictitious-operator-very-long-secret-passphrase',
   TTS_SERVICE_ACCESS_TOKEN: 'fictitious-service-long-connection-token',

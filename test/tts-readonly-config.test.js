@@ -22,6 +22,8 @@ function withEnv(settings, action) {
 }
 
 const base = {
+  // Keep compatibility fixtures independent of Google credentials in Vercel.
+  GOOGLE_OAUTH_CLIENT_ID: '', GOOGLE_OAUTH_CLIENT_SECRET: '', GOOGLE_OAUTH_REDIRECT_URI: '', GOOGLE_AUTH_SESSION_SECRET: '',
   TTS_LEGACY_MODE: '', // Explicitly isolate these token-mode tests from Preview env.
   TTS_SERVICE_URL: 'https://tts.example.invalid',
   VITE_TTS_SERVICE_URL: '',

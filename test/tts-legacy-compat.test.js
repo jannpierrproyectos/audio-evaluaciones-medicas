@@ -6,6 +6,8 @@ import { getTtsConfiguration, synthesizeSpeech } from '../server/ttsService.js'
 
 const service = 'https://jannpi-audioevaluaciones-tts.hf.space'
 const settings = {
+  // Keep compatibility fixtures independent of Google credentials in Vercel.
+  GOOGLE_OAUTH_CLIENT_ID: '', GOOGLE_OAUTH_CLIENT_SECRET: '', GOOGLE_OAUTH_REDIRECT_URI: '', GOOGLE_AUTH_SESSION_SECRET: '',
   TTS_LEGACY_MODE: '1',
   TTS_SERVICE_URL: service,
   VITE_TTS_SERVICE_URL: '',
