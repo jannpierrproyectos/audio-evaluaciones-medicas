@@ -24,6 +24,7 @@ import { matchesApprovedAudio } from "../mediweb-downloader/src/authorizationPol
 import { getRecipientChecks } from "./lib/recipientPolicy.js";
 import { loadReviewableBatch, recoveryDiagnostic, reportRecoveryDiagnostic, recoveryError } from "./lib/batchRecovery.js";
 import DeliveryInbox from "./components/DeliveryInbox.jsx";
+import GoogleAccess from "./components/GoogleAccess.jsx";
 
 function App() {
   const [pdfPreview, setPdfPreview] = useState("");
@@ -317,6 +318,7 @@ function App() {
         </div>
       </header>
 
+      <GoogleAccess />
       <nav className="workspace-nav" aria-label="Etapas de trabajo">
         <button type="button" aria-current={workStage === "import" ? "step" : undefined} onClick={() => setWorkStage("import")}>1. Importar</button>
         <button type="button" disabled={!pdfAnalysis} aria-current={workStage === "review" ? "step" : undefined} onClick={() => setWorkStage("review")}>2. Revisar{pdfAnalysis ? ` (${pdfAnalysis.workers.length})` : ""}</button>

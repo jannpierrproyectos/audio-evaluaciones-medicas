@@ -1,7 +1,8 @@
 import { grantLocalTtsAccess } from './localTtsAccess.js'
 import { synthesizeSpeech, getTtsConfiguration } from './ttsService.js'
 import { authorizeTtsRequest, authorizeTtsConfigurationRequest, MAX_TTS_BODY_BYTES, ttsAccessError } from './ttsAccess.js'
-import { createTtsSession, clearTtsSession, ttsSessionState } from './ttsSession.js'
+import { createTtsSession, clearTtsSession, ttsSessionState, renewTtsSession } from './ttsSession.js'
+import { createGoogleAuthHandlers } from './googleAuth.js'
 
 function writeJsonResponse(response, statusCode, payload) {
   response.statusCode = statusCode
@@ -45,13 +46,28 @@ function readJsonBody(request) {
   })
 }
 
-export function viteTtsApiPlugin() {
+export function viteTtsApiPlugin({ googleHandlers } = {}) {
   return {
     name: 'vite-tts-api',
     configureServer(server) {
+      const google = googleHandlers || createGoogleAuthHandlers()
+      server.middlewares.use('/api/auth', async (request, response) => {
+        const url = new URL(request.originalUrl, `http://${request.headers.host}`)
+        const action = url.pathname === '/api/auth/google' ? google.start : url.pathname === '/api/auth/google-callback' ? google.callback : null
+        if (!action || request.method !== 'GET') return writeJsonResponse(response, 404, { error: 'Ruta no disponible.' })
+        const result = await action(new Request(url, { headers: request.headers }))
+        response.statusCode = result.status
+        for (const [name, value] of result.headers) if (name !== 'set-cookie') response.setHeader(name, value)
+        if (result.headers.getSetCookie().length) response.setHeader('Set-Cookie', result.headers.getSetCookie())
+        response.end(await result.text())
+      })
       server.middlewares.use('/api/tts/session', async (request, response) => {
         response.setHeader('Cache-Control', 'no-store')
-        if (request.method === 'GET') return writeJsonResponse(response, 200, ttsSessionState(request))
+        if (request.method === 'GET') {
+          const cookie = renewTtsSession(request)
+          if (cookie) response.setHeader('Set-Cookie', cookie)
+          return writeJsonResponse(response, 200, ttsSessionState(request))
+        }
         if (request.method === 'DELETE') {
           response.setHeader('Set-Cookie', clearTtsSession(request))
           return writeJsonResponse(response, 200, { authenticated: false })
@@ -66,7 +82,12 @@ export function viteTtsApiPlugin() {
       })
       server.middlewares.use('/api/tts/configuration', async (request, response) => {
         if (request.method !== 'GET') return writeJsonResponse(response, 405, { error: 'Usa GET.' })
-        try { authorizeTtsConfigurationRequest(); writeJsonResponse(response, 200, await getTtsConfiguration()) }
+        try {
+          authorizeTtsConfigurationRequest()
+          const cookie = renewTtsSession(request)
+          if (cookie) response.setHeader('Set-Cookie', cookie)
+          writeJsonResponse(response, 200, await getTtsConfiguration())
+        }
         catch (error) { writeJsonResponse(response, error.status || 503, { error: 'Configuración o acceso institucional TTS no disponible.' }) }
       })
       server.middlewares.use('/api/tts/synthesize', async (request, response) => {
@@ -91,7 +112,8 @@ export function viteTtsApiPlugin() {
         } catch (error) {
           console.error('TTS_REQUEST_FAILED')
           writeJsonResponse(response, error.status || 500, {
-            error: 'No se pudo completar TTS. Si la solicitud comenzó, su resultado puede ser incierto; revisa el estado antes de reintentar.',
+            error: error.code === 'TTS_GOOGLE_LOGIN_REQUIRED' ? 'Continúa con tu cuenta de Google para generar audio. No se ha solicitado ninguna síntesis.' : 'No se pudo completar TTS. Si la solicitud comenzó, su resultado puede ser incierto; revisa el estado antes de reintentar.',
+            ...(error.code === 'TTS_GOOGLE_LOGIN_REQUIRED' ? { code: 'TTS_GOOGLE_LOGIN_REQUIRED' } : {}),
           })
         }
       })

@@ -190,7 +190,7 @@ export async function generatePersistentAudio({ repository, worker, text, config
   } catch (error) {
     // This code is returned only by the backend's pre-provider auth check.
     // A missing device link must not leave an uncharged operation uncertain.
-    if (error.code === 'TTS_DEVICE_NOT_LINKED' && error.status === 401) sent = false;
+    if (['TTS_DEVICE_NOT_LINKED', 'TTS_GOOGLE_LOGIN_REQUIRED'].includes(error.code) && error.status === 401) sent = false;
     if (!sent) await repository.request({ action: "cancel-unsent", operationId: operation.id });
     await update(value => ({ ...value, app_fields: { ...value.app_fields, audio_status: sent ? "incierto" : "pendiente", audio_stale: true, audio_error: sent ? "Solicitud de resultado incierto. Revisa el servicio antes de repetir." : "No se solicito audio. Revisa el acceso del operador." } }));
     throw error;

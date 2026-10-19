@@ -1,5 +1,9 @@
 # Audio en la web pública
 
+> Este documento describe la vinculación anterior. Para el acceso elegido con
+> cuenta de Google, seguir [ACCESO_GOOGLE.md](ACCESO_GOOGLE.md). Cuando se activa
+> Google, la contraseña y los enlaces de este documento dejan de autorizar audio.
+
 La comprobación de solo lectura del 18 de octubre de 2026 en
 `https://audio-evaluaciones-medicas.vercel.app` devolvió:
 

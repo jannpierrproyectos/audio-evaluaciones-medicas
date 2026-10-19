@@ -2120,6 +2120,12 @@ button:disabled { cursor: not-allowed; }
 .delivery-inbox .delivery-list button { padding: 12px; }
 .delivery-footnote { font-size: .85rem; color: var(--text-muted); margin-top: 16px; }
 .delivery-layout { align-items: start; }
+.google-access { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 20px; margin-bottom: 16px; border: 1px solid var(--border-color, #d8e4ed); border-radius: 12px; background: white; }
+.google-access p { margin: 4px 0 0; font-size: .9rem; overflow-wrap: anywhere; }
+.google-signin { display: inline-flex; align-items: center; justify-content: center; padding: 12px 20px; border: 1px solid #747775; border-radius: 6px; background: white; color: #1f1f1f; text-decoration: none; font-weight: 600; white-space: nowrap; }
+.google-signin:hover { background: #f2f5f8; }
+.google-signin:focus-visible { outline: 3px solid #185abc; outline-offset: 3px; }
+@media (max-width: 600px) { .google-access { align-items: stretch; flex-direction: column; padding: 14px; } }
 @media (max-width: 760px) {
   .review-toolbar { flex-direction: column; align-items: stretch; }
   .review-toolbar .review-navigation { min-width: 0; }

@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { isTtsSessionActive } from './ttsSession.js'
 import { hasLocalTtsAccess } from './localTtsAccess.js'
+import { googleAuthEnabled } from './googleAuth.js'
 
 export const MAX_TTS_BODY_BYTES = 64 * 1024
 export const ttsAccessError = (status, code) => Object.assign(new Error('TTS bloqueado: revisa el acceso institucional, la configuración y los límites del backend.'), { status, code })
@@ -26,6 +27,10 @@ export function authorizeTtsRequest(request) {
     return // Local synthetic WAV only; never a provider call.
   }
   ttsServiceHeaders() // Service token or explicit, allowlisted legacy Space.
+  if (googleAuthEnabled()) {
+    if (isTtsSessionActive(request)) return
+    throw ttsAccessError(401, 'TTS_GOOGLE_LOGIN_REQUIRED')
+  }
   if (hasLocalTtsAccess(request) || isTtsSessionActive(request)) return
   if (String(process.env.INSTITUTIONAL_PROXY_TOKEN || '').length >= 32) return requireInstitutionalAccess(request)
   throw ttsAccessError(401, 'TTS_OPERATOR_SESSION_REQUIRED')

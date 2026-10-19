@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { googleAuthEnabled, googleAuthConfigured, googleSession, renewGoogleSession, clearGoogleSession } from './googleAuth.js'
 
 const COOKIE_NAME = 'ae_tts_session'
 // Bounded persistent operator session on a trusted workstation; never stored in JS.
@@ -23,6 +24,7 @@ function cookieValue(request) {
   return match?.slice(COOKIE_NAME.length + 1) || ''
 }
 export function isTtsSessionActive(request) {
+  if (googleAuthEnabled()) return Boolean(googleSession(request))
   if (!process.env.TTS_OPERATOR_PASSPHRASE || process.env.TTS_OPERATOR_PASSPHRASE.length < 32) return false
   const match = /^(\d{10})\.([a-f0-9]{32})\.([a-f0-9]{64})$/.exec(cookieValue(request))
   if (!match) return false
@@ -39,18 +41,24 @@ function sessionCookie(request, value, maxAge) {
   return `${COOKIE_NAME}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${isHttps(request) ? '; Secure' : ''}`
 }
 export function createTtsSession(request, candidate) {
+  if (googleAuthEnabled()) throw fail(401, 'TTS_GOOGLE_LOGIN_REQUIRED')
   if (!verified(candidate)) throw fail(401, 'TTS_OPERATOR_INVALID')
   const expires = Math.floor(Date.now() / 1000) + TTL_SECONDS
   const nonce = randomBytes(16).toString('hex')
   const payload = expires + '.' + nonce
   return sessionCookie(request, payload + '.' + signature(payload), TTL_SECONDS)
 }
-export function clearTtsSession(request) { return sessionCookie(request, '', 0) }
+export function clearTtsSession(request) { return googleAuthEnabled() && googleAuthConfigured() ? clearGoogleSession() : sessionCookie(request, '', 0) }
 export function ttsSessionState(request) {
+  if (googleAuthEnabled()) {
+    const identity = googleSession(request)
+    return { provider: 'google', configured: googleAuthConfigured(), authenticated: Boolean(identity), ...(identity ? { email: identity.email } : {}) }
+  }
   return { configured: Boolean(process.env.TTS_OPERATOR_PASSPHRASE?.length >= 32), authenticated: isTtsSessionActive(request) }
 }
 
 export function renewTtsSession(request) {
+  if (googleAuthEnabled()) return renewGoogleSession(request)
   return isTtsSessionActive(request) ? createTtsSession(request, passphrase()) : null
 }
 

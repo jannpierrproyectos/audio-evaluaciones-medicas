@@ -30,12 +30,13 @@ export async function POST(request) {
     })
   } catch (error) {
     console.error('TTS_REQUEST_FAILED')
+    const needsGoogle = error.status === 401 && error.code === 'TTS_GOOGLE_LOGIN_REQUIRED'
     const needsDevice = error.status === 401 && ['TTS_OPERATOR_SESSION_REQUIRED', 'TTS_UNAUTHORIZED'].includes(error.code)
 
     return Response.json(
       {
-        error: needsDevice ? 'Este navegador aún no está vinculado. Abre el enlace privado de vinculación del equipo; después podrás generar audios sin contraseña.' : 'No se pudo completar TTS. Si la solicitud comenzó, su resultado puede ser incierto; revisa el estado antes de reintentar.',
-        ...(needsDevice ? { code: 'TTS_DEVICE_NOT_LINKED' } : {}),
+        error: needsGoogle ? 'Continúa con tu cuenta de Google para generar audio. No se ha solicitado ni cobrado ninguna síntesis.' : needsDevice ? 'Este navegador aún no está vinculado. Abre el enlace privado de vinculación del equipo; después podrás generar audios sin contraseña.' : 'No se pudo completar TTS. Si la solicitud comenzó, su resultado puede ser incierto; revisa el estado antes de reintentar.',
+        ...(needsGoogle ? { code: 'TTS_GOOGLE_LOGIN_REQUIRED' } : needsDevice ? { code: 'TTS_DEVICE_NOT_LINKED' } : {}),
       },
       {
         status: error.status || 500,

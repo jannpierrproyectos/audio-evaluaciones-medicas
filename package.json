@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node --test test/tts-session.test.js test/tts-readonly-config.test.js test/tts-legacy-compat.test.js && vite build",
+    "build": "node --test test/tts-session.test.js test/tts-readonly-config.test.js test/tts-legacy-compat.test.js test/google-auth.test.js && vite build",
     "clinical:audit": "node scripts/clinical-audit.js",
     "narrative:audit": "node scripts/narrative-audit.js",
     "lint": "eslint .",
@@ -13,6 +13,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "google-auth-library": "^11.3.1",
     "pdfjs-dist": "^6.0.227",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

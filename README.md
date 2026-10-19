@@ -22,6 +22,11 @@ El menú de bandeja permite abrir AudioEvaluaciones, abrir MediWeb, localizar lo
 
 ## TTS externo
 
+El acceso con **Continuar con Google**, restringido a la cuenta autorizada del
+operador, se configura con la [guía de Google Cloud y Vercel](docs/ACCESO_GOOGLE.md).
+Las credenciales OAuth se guardan exclusivamente en backend. Al activar Google,
+la generación de audio deja de utilizar contraseñas propias y enlaces de vinculación.
+
 La web no ejecuta el motor TTS directamente. Consume un endpoint interno `/api/tts/synthesize`, que a su vez reenvia la solicitud a un microservicio externo configurado con `TTS_SERVICE_URL`.
 
 El contrato esperado del microservicio esta documentado en [docscode/tts-service-contract.md](docscode/tts-service-contract.md).
