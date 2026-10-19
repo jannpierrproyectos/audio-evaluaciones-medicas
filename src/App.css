@@ -2131,3 +2131,5 @@ button:disabled { cursor: not-allowed; }
   .review-toolbar .review-navigation { min-width: 0; }
   .audio-evaluation-list > div { padding: 10px; }
 }
+
+.pdf-workspace > .button-row, .wa-review > .button-row { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 12px; }

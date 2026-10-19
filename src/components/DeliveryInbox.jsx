@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { deliveryAction } from "../services/mediwebService.js";
-import { deliveryPreflight, deliveryState, matchesDeliveryFilter, nextDelivery, nextPendingDelivery } from "../lib/deliveryUx.js";
+import { canConfirmDeliveryRecipient, deliveryPreflight, deliveryState, matchesDeliveryFilter, nextDelivery, nextPendingDelivery } from "../lib/deliveryUx.js";
 import { getTtsConfiguration } from "../lib/evaluationPersistence.js";
 import { openWhatsAppCheck } from "../lib/whatsappReview.js";
 
 const parts = [["message", "mensaje"], ["pdf", "PDF"], ["mp3", "MP3"]];
-export default function DeliveryInbox({ onClose, onCorrect }) {
+export default function DeliveryInbox({ onClose, onCorrect, onAuthorizeRecipient, initialBatchId }) {
   const [rows, setRows] = useState([]), [selectedId, setSelectedId] = useState(null), [filter, setFilter] = useState("pendientes");
   const [busy, setBusy] = useState(""), [message, setMessage] = useState("");
   const [opened, setOpened] = useState(new Set()), [reason, setReason] = useState(""), [acknowledged, setAcknowledged] = useState(false);
@@ -17,10 +17,10 @@ export default function DeliveryInbox({ onClose, onCorrect }) {
   }, []);
   useEffect(() => {
     mounted.current = true;
-    const timer = setTimeout(() => { refresh().then(rows => setSelectedId(rows.find(row => deliveryState(row) !== "enviados")?.evaluation_id || rows[0]?.evaluation_id || null)).catch(error => setMessage(error.message)); }, 0);
+    const timer = setTimeout(() => { refresh().then(rows => setSelectedId(rows.find(row => row.batch_id === initialBatchId && deliveryState(row) !== "enviados")?.evaluation_id || rows.find(row => deliveryState(row) !== "enviados")?.evaluation_id || rows[0]?.evaluation_id || null)).catch(error => setMessage(error.message)); }, 0);
     const interval = setInterval(() => { if (!lock.current) refresh().catch(error => setMessage(error.message)); }, 15000);
     return () => { mounted.current = false; clearTimeout(timer); clearInterval(interval); };
-  }, [refresh]);
+  }, [refresh, initialBatchId]);
   const filtered = rows.filter(row => matchesDeliveryFilter(row, filter));
   const selected = filtered.find(row => row.evaluation_id === selectedId) || filtered[0];
   const record = selected?.delivery;
@@ -53,9 +53,10 @@ export default function DeliveryInbox({ onClose, onCorrect }) {
     });
   }
   function prepareAndOpen() {
-    if (lock.current || !selected || selected.reasons.length) return;
+    if (lock.current || !selected || (selected.reasons.length && !canConfirmDeliveryRecipient(selected))) return;
     try { openWhatsAppCheck.reserve(); } catch { setMessage("Permite abrir WhatsApp para continuar."); return; }
     execute("preparando envío", async () => {
+      if (!selected.checks.authorized && canConfirmDeliveryRecipient(selected)) await onAuthorizeRecipient(selected);
       const proof = await deliveryPreflight(selected.evaluation_id);
       const prepared = await deliveryAction("prepare", { evaluationId: selected.evaluation_id, ...proof });
       const action = async (kind, perform) => {
@@ -119,8 +120,10 @@ export default function DeliveryInbox({ onClose, onCorrect }) {
         {record?.completed_at && <p>Entrega completada por declaracion del operador: {record.completed_at}</p>}
         {selected.reasons.length > 0 && <ul>{selected.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>}
         {record?.reason && <p role="alert">{record.reason}</p>}
+        {canConfirmDeliveryRecipient(selected) && !selected.checks.duplicateResolved && <p role="alert">Este teléfono figura en evaluaciones de personas distintas. Antes de continuar, comprueba que corresponde al destinatario mostrado y que está autorizado para recibir sus documentos.</p>}
+        {canConfirmDeliveryRecipient(selected) && <p className="muted-text">Al confirmar declaras que comprobaste la identidad, la autorización real para entregar por WhatsApp y que el PDF corresponde a esta evaluación. Se guarda para esta entrega, sin fecha manual. Tener WhatsApp no implica consentimiento.</p>}
         <div className="delivery-main-actions">
-          {!selected.reasons.length && !["completada", "incierta"].includes(record?.state) && <button type="button" className={preparedHere ? "secondary-button" : "primary-button"} disabled={Boolean(busy)} onClick={prepareAndOpen}>{preparedHere ? "Volver a preparar adjuntos" : "Preparar envío por WhatsApp"}</button>}
+          {(!selected.reasons.length || canConfirmDeliveryRecipient(selected)) && !["completada", "incierta"].includes(record?.state) && <button type="button" className={preparedHere ? "secondary-button" : "primary-button"} disabled={Boolean(busy)} onClick={prepareAndOpen}>{canConfirmDeliveryRecipient(selected) ? (selected.checks.duplicateResolved ? "Confirmar destinatario y preparar envio" : "Confirmar identidad del teléfono compartido y preparar envio") : preparedHere ? "Volver a preparar adjuntos" : "Preparar envío por WhatsApp"}</button>}
           {ready && <button type="button" className="primary-button" disabled={!preparedHere || Boolean(busy)} onClick={complete}>Confirmo que envié mensaje, PDF y MP3 · siguiente</button>}
           <button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => onCorrect(selected.batch_id, selected.evaluation_id)}>Revisar o corregir evaluación</button>
         </div>

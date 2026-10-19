@@ -3,10 +3,11 @@ import { BulkAudioRunner, audioBlockers, planBulkAudio } from "../lib/bulkAudio.
 import { getTtsConfiguration } from "../lib/evaluationPersistence.js";
 import { applyNarrativeGreeting } from "../lib/narrativeGreeting.js";
 
-export default function BulkAudioPanel({ analysis, repository, getSnapshot, saveQueue, runAudio, storageFailed, onSelectWorker }) {
+export default function BulkAudioPanel({ analysis, repository, getSnapshot, saveQueue, runAudio, storageFailed, onSelectWorker, onDeliver }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const runner = useRef(null);
+  const starting = useRef(false);
   const queue = analysis.bulk_audio_queue;
   const items = queue?.items || [];
   const count = status => items.filter(item => item.status === status).length;
@@ -16,24 +17,23 @@ export default function BulkAudioPanel({ analysis, repository, getSnapshot, save
   const done = items.filter(item => !["pendiente", "generando"].includes(item.status)).length;
   const eligible = analysis.workers.filter(worker => !audioBlockers(worker, applyNarrativeGreeting(worker.app_fields?.texto_final, analysis.greeting)).length).length;
   const existing = analysis.workers.filter(worker => worker.app_fields?.audio_record && !worker.app_fields.audio_stale && worker.clinical_approval?.status === "aprobada").length;
-  async function prepare() {
-    setBusy(true); setMessage("");
-    try {
-      const configuration = await getTtsConfiguration();
-      const snapshot = getSnapshot();
-      if (snapshot?.batch_id !== analysis.batch_id) throw new Error("El lote cambió.");
-      await saveQueue(await planBulkAudio(snapshot, configuration, repository));
-      runner.current = null;
-    } catch (error) { setMessage(error.message); }
-    finally { setBusy(false); }
-  }
   async function start() {
-    if (!queue || active || runner.current?.running) return;
-
-    const instance = new BulkAudioRunner({ getSnapshot, save: saveQueue, run: runAudio, configuration: queue.configuration });
-    runner.current = instance;
-    try { await instance.start(queue); }
-    catch { setMessage("Cola detenida: comprueba el almacenamiento y recupera el lote. No se repetirán solicitudes automáticamente."); }
+    if (starting.current || active || runner.current?.running || storageFailed) return;
+    starting.current = true; setBusy(true); setMessage("");
+    try {
+      let prepared = queue;
+      if (!prepared || prepared.status !== "pausada") {
+        const configuration = await getTtsConfiguration();
+        const snapshot = getSnapshot();
+        if (snapshot?.batch_id !== analysis.batch_id) throw new Error("El lote cambió.");
+        prepared = await planBulkAudio(snapshot, configuration, repository);
+        await saveQueue(prepared);
+      }
+      const instance = new BulkAudioRunner({ getSnapshot, save: saveQueue, run: runAudio, configuration: prepared.configuration });
+      runner.current = instance;
+      await instance.start(prepared);
+    } catch (error) { setMessage(error.message || "Cola detenida. Comprueba el almacenamiento antes de continuar."); }
+    finally { starting.current = false; setBusy(false); }
   }
   async function control(action) {
     try {
@@ -45,7 +45,8 @@ export default function BulkAudioPanel({ analysis, repository, getSnapshot, save
   return <section className="bulk-audio-panel" aria-label="Generación masiva de audios">
     <div className="stage-heading"><div><p className="section-label">Contenido aprobado</p><h2>Audios del lote</h2></div></div>
     <div className="process-metrics"><div><strong>{existing}</strong><span>MP3 guardados</span></div><div><strong>{eligible}</strong><span>textos aprobados</span></div><div><strong>{analysis.workers.length - eligible}</strong><span>por revisar</span></div></div>
-    <button type="button" className="primary-button" disabled={busy || active || storageFailed || !eligible} onClick={prepare}>Calcular audios pendientes</button>
+    <div className="button-row"><button type="button" className="primary-button" disabled={busy || active || storageFailed || !eligible} onClick={start}>{queue?.status === "pausada" ? "Continuar generación masiva" : "Generar audios masivos"}</button>
+    {onDeliver && <button type="button" className="secondary-button" onClick={onDeliver}>Preparar entregas</button>}</div>
     <p className="muted-text">{eligible ? "Los MP3 vigentes se reutilizan. WhatsApp no bloquea la generacion." : "Revisa y aprueba cada texto antes de generar audio."}</p>
     {!queue && <div className="audio-evaluation-list">{analysis.workers.map((worker, index) => <div key={worker.evaluation_id}>
       <span><strong>{worker.identificacion?.nombres} {worker.identificacion?.apellidos}</strong><small>{worker.app_fields?.audio_record && !worker.app_fields.audio_stale ? "MP3 guardado" : worker.clinical_approval?.status === "aprobada" ? "Texto aprobado" : "Revision clinica pendiente"}</small></span>
@@ -55,7 +56,6 @@ export default function BulkAudioPanel({ analysis, repository, getSnapshot, save
       <p>Cola: {queue.status} · Reutilizables: {items.filter(item => item.reusable && item.status !== "bloqueado").length} · Nuevos: {items.filter(item => !item.reusable && item.status === "pendiente").length}</p>
       <p>{queue.estimate.characters} caracteres preparados para TTS · {queue.estimate.credits === null ? "Créditos: tarifa no disponible para este servicio/modelo" : `${queue.estimate.credits} créditos base estimados (${queue.estimate.rate} por carácter)`}.</p>
       <div className="button-row">
-        <button type="button" className="primary-button" disabled={active || !pending || storageFailed} onClick={start}>{queue.status === "pausada" ? "Continuar generación" : "Generar audios aprobados"}</button>
         <button type="button" disabled={queue.status !== "ejecutando"} onClick={() => control("pause")}>Pausar generación</button>
         <button type="button" disabled={!pending || storageFailed} onClick={() => control("cancel")}>Cancelar pendientes</button>
       </div>

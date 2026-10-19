@@ -1,3 +1,4 @@
+import { confirmDeliveryRecipient } from "./lib/deliveryUx.js";
 import { EvaluationRepository, sha256, canonical, restoreWorker, recoverAudio, getTtsConfiguration, generatePersistentAudio, batchCounts, initialVerification } from "./lib/evaluationPersistence.js";
 import { synthesizeAudioFromText } from "./lib/ttsClient.js";
 import { validateManagedFile } from "./services/mediwebService.js";
@@ -285,7 +286,8 @@ function App() {
     updatePdfWorkerAtIndex(workerIndex, nextWorker).catch(() => {});
   }
 
-  if (deliveryOpen) return <DeliveryInbox onClose={async () => {
+  if (deliveryOpen) return <DeliveryInbox initialBatchId={pdfAnalysis?.batch_id} onAuthorizeRecipient={row => confirmDeliveryRecipient(row, new EvaluationRepository(repository.request), undefined, undefined,
+    row.batch_id === currentAnalysisRef.current?.batch_id ? evidence => verifyContact(row.evaluation_id, "confirmado_por_operador", evidence, row.batch_id) : undefined)} onClose={async () => {
     setDeliveryOpen(false);
     if (currentAnalysisRef.current?.batch_id) await restoreBatch(currentAnalysisRef.current.batch_id).catch(() => {});
   }} onCorrect={async (batchId, evaluationId) => {
@@ -295,7 +297,7 @@ function App() {
     if (analysis) {
       setSelectedPdfWorkerIndex(analysis.workers.findIndex(worker => worker.evaluation_id === evaluationId));
       const worker = analysis.workers.find(worker => worker.evaluation_id === evaluationId);
-      if (worker && !getRecipientChecks(worker).authorized) {
+      if (worker && !getRecipientChecks(worker).whatsapp) {
         await persistAnalysis({ ...analysis, whatsapp_queue: { ...analysis.whatsapp_queue, filter: "bloqueados", selected_evaluation_id: evaluationId } });
         setReviewRecipient(true);
       }
@@ -441,6 +443,8 @@ function App() {
                   <div hidden={workStage !== "review"}>
                   <PdfWorkersPreview
                     key={`${pdfAnalysis.batch_id}:${reviewRecipient}`}
+                    onGoAudio={() => setWorkStage("audio")}
+                    onDeliver={async () => { await repository.flush(); setDeliveryOpen(true); }}
                     initialContactReview={reviewRecipient}
                     analysis={pdfAnalysis}
                     selectedWorkerIndex={selectedPdfWorkerIndex}
@@ -467,6 +471,7 @@ function App() {
                   </div>
                   <section hidden={workStage !== "audio"} className="audio-workspace">
                   <BulkAudioPanel key={`bulk-${pdfAnalysis.batch_id}`} analysis={pdfAnalysis} repository={repository}
+                    onDeliver={async () => { await repository.flush(); setDeliveryOpen(true); }}
                     onSelectWorker={index => { selectWorker(index); setWorkStage("review"); }}
                     getSnapshot={() => currentAnalysisRef.current} refreshRecipients={refreshRecipients}
                     saveQueue={queue => { const current = currentAnalysisRef.current; if (current?.batch_id !== queue.batch_id) return Promise.reject(new Error("El lote cambió.")); return persistAnalysis({ ...current, bulk_audio_queue: queue,

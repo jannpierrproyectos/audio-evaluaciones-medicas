@@ -56,7 +56,7 @@ function ContactCard({ worker, busy, onDecision, onCorrectPhone }) {
   </section>;
 }
 
-export default function WhatsAppReviewQueue({ analysis, onVerifyContact, onUpdateQueue, onUpdateWorker, onRefreshRecipients, onClose, onSelectWorker }) {
+export default function WhatsAppReviewQueue({ analysis, onVerifyContact, onUpdateQueue, onUpdateWorker, onRefreshRecipients, onClose, onSelectWorker, onGoAudio, onDeliver }) {
   const [busy, setBusy] = useState(false);
   const savingRef = useRef(false);
   const activeRef = useRef(true);
@@ -113,7 +113,7 @@ export default function WhatsAppReviewQueue({ analysis, onVerifyContact, onUpdat
             const updated = await onVerifyContact(selected.evaluation_id, decision, evidence);
             if (!activeRef.current) return;
             const visited = [...new Set([...(queue.visited || []), selected.evaluation_id])];
-            await navigate(nextReviewId(updated, selected.evaluation_id, visited, "bloqueados"), { visited, filter: "bloqueados" });
+            await navigate(nextReviewId(updated, selected.evaluation_id, visited, "pendientes"), { visited, filter: "pendientes" });
             setFeedback("Resultado guardado. Las autorizaciones clínicas y de entrega se mantienen independientes.");
           })} /> : <div className="preview-placeholder">No quedan otros contactos en esta vuelta. Los aplazados siguen pendientes.
           <button type="button" className="secondary-button" disabled={busy} onClick={() => run(() => navigate(workers.find(worker => matchesReviewFilter(worker, "pendientes"))?.evaluation_id || null, { visited: [], filter: "pendientes" }))}>Reanudar pendientes</button>
@@ -124,6 +124,7 @@ export default function WhatsAppReviewQueue({ analysis, onVerifyContact, onUpdat
         </div>
       </div>
     </div>
+    <div className="button-row">{onGoAudio && <button type="button" className="secondary-button" disabled={busy} onClick={onGoAudio}>Ir a audios masivos</button>}{onDeliver && <button type="button" className="primary-button" disabled={busy} onClick={onDeliver}>Preparar entregas</button>}</div>
     <p role="status">{busy ? "Guardando…" : feedback}</p>
   </section>;
 }

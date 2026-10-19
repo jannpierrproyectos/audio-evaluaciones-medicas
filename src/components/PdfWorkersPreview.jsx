@@ -826,6 +826,8 @@ function PdfWorkersPreview({
   greeting,
   onGreetingChange,
   onReviewUiChange,
+  onGoAudio,
+  onDeliver,
   initialContactReview = false,
 }) {
   const [query, setQuery] = useState(analysis?.review_ui?.query || "");
@@ -876,11 +878,12 @@ function PdfWorkersPreview({
     {contactSummary}
     <WhatsAppReviewQueue analysis={analysis} onVerifyContact={onVerifyContact} onUpdateQueue={onUpdateQueue}
       onUpdateWorker={onUpdateWorker} onRefreshRecipients={onRefreshRecipients} onSelectWorker={onSelectWorker}
-      onClose={() => setQuickOpen(false)} />
+      onGoAudio={onGoAudio} onDeliver={onDeliver} onClose={() => setQuickOpen(false)} />
   </div>;
 
   return (
     <div className="pdf-workspace">
+      <div className="button-row"><button type="button" className="secondary-button" onClick={onGoAudio}>Ir a audios masivos</button><button type="button" className="secondary-button" onClick={onDeliver}>Preparar entregas</button></div>
       <details className="batch-metadata"><summary>{workers.length} evaluaciones · datos del lote y saludo</summary>
       <PdfSummaryBar
         analysis={analysis}
@@ -898,9 +901,9 @@ function PdfWorkersPreview({
             const snapshot = await onRefreshRecipients();
             const currentWorkers = snapshot?.workers || workers;
             const queue = snapshot?.whatsapp_queue || analysis.whatsapp_queue || {};
-            const saved = currentWorkers.find(worker => worker.evaluation_id === queue.selected_evaluation_id && matchesReviewFilter(worker, "bloqueados"));
-            const first = saved || currentWorkers.find(worker => matchesReviewFilter(worker, "bloqueados") && !(queue.visited || []).includes(worker.evaluation_id)) || currentWorkers.find(worker => matchesReviewFilter(worker, "bloqueados"));
-            await onUpdateQueue({ ...queue, filter: "bloqueados", selected_evaluation_id: first?.evaluation_id || null,
+            const saved = currentWorkers.find(worker => worker.evaluation_id === queue.selected_evaluation_id && matchesReviewFilter(worker, "pendientes"));
+            const first = saved || currentWorkers.find(worker => matchesReviewFilter(worker, "pendientes") && !(queue.visited || []).includes(worker.evaluation_id)) || currentWorkers.find(worker => matchesReviewFilter(worker, "pendientes"));
+            await onUpdateQueue({ ...queue, filter: "pendientes", selected_evaluation_id: first?.evaluation_id || null,
               visited: saved || first && !(queue.visited || []).includes(first.evaluation_id) ? queue.visited || [] : [] });
             setQuickOpen(true);
           } catch (error) { setQuickFeedback(error.message || "No se pudo abrir la cola segura."); }
