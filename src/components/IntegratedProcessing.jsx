@@ -1,48 +1,40 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getMediwebJob, processingAction } from "../services/mediwebService.js";
 import { importMediwebPdfIntoExistingFlow } from "../lib/importMediwebPdf.js";
-import { batchCounts } from "../lib/evaluationPersistence.js";
-import { isWhatsAppConfirmed } from "../lib/whatsappMessage.js";
+import { recoveryDiagnostic, recoveryDescription, recoveryError, reportRecoveryDiagnostic } from "../lib/batchRecovery.js";
 
-const messages = {
-  SESSION_EXPIRED: "La sesión expiró. Inicia sesión y prepara la búsqueda en la ventana de MediWeb.",
-  SEARCH_MANUAL_REQUIRED: "Prepara la búsqueda en MediWeb y confirma los resultados antes de continuar.",
-  SEARCH_INTERFACE_CHANGED: "La búsqueda guardada no coincide con esta interfaz. Usa la búsqueda manual y vuelve a confirmarla.",
-  SEARCH_RESULTS_MISMATCH: "La tabla no coincide con los filtros confirmados. Revisa la búsqueda manualmente.",
-  SEARCH_NOT_CONFIRMED: "No se pudo comprobar la respuesta de la búsqueda. Revisa MediWeb manualmente.",
-  SEARCH_CONFIRMATION_CHANGED: "La tabla o los filtros cambiaron desde tu confirmación. Vuelve a comprobarlos y confirma nuevamente.",
-  PROCESS_UNCERTAIN: "Hay una descarga interrumpida de resultado incierto. Recupera sus resultados; no se repetirá automáticamente.",
-  PROCESS_ALREADY_DOWNLOADED: "Esta búsqueda se solapa con un proceso anterior. Recupera sus resultados o prepara una búsqueda que no repita esas atenciones.",
-  OUTPUT_PROTECTION_UNAVAILABLE: "No se pudo proteger la carpeta de descarga con EFS. No se escribieron nuevos resultados clínicos; revisa Windows con soporte.",
+const problems = {
+  SESSION_EXPIRED: "Abre MediWeb e inicia sesión para continuar.",
+  SEARCH_MANUAL_REQUIRED: "Prepara la búsqueda en MediWeb. No hay resultados suficientes para iniciar.",
+  SEARCH_RESULTS_MISMATCH: "Los resultados no corresponden a los filtros. Corrige la búsqueda en MediWeb y reintenta.",
+  SEARCH_CONFIRMATION_CHANGED: "La búsqueda cambió mientras se comprobaba. Revisa los resultados y reintenta.",
+  SEARCH_INTERFACE_CHANGED: "La búsqueda guardada no coincide con esta pantalla de MediWeb. Prepara otra búsqueda.",
+  PROCESS_UNCERTAIN: "Hay una descarga interrumpida. Recupera sus archivos antes de iniciar otra.",
+  PROCESS_ALREADY_DOWNLOADED: "Estas evaluaciones ya se descargaron. Abre el proceso anterior desde el historial.",
 };
 
-export default function IntegratedProcessing({ onPdfSelected, onBatchStarted, onRestoreBatch, analysis, connected, onOpen }) {
-  const [state, setState] = useState(null);
-  const [runId, setRunId] = useState(null);
-  const [recoveryAttempt, setRecoveryAttempt] = useState(0);
-  const [job, setJob] = useState(null);
-  const [profileId, setProfileId] = useState("");
-  const [name, setName] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
-  const [manualToken, setManualToken] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const guard = useRef(false), imported = useRef(new Set());
+export default function IntegratedProcessing({ onPdfSelected, onBatchStarted, onRestoreBatch, analysis, connected, onOpen, onReview }) {
+  const [state, setState] = useState(null), [runId, setRunId] = useState(null);
+  const [attempt, setAttempt] = useState(0), [job, setJob] = useState(null);
+  const [profileId, setProfileId] = useState(""), [name, setName] = useState("");
+  const [busy, setBusy] = useState(false), [notice, setNotice] = useState("");
+  const [newSearch, setNewSearch] = useState(false);
+  const [recovery, setRecovery] = useState({ status: "idle" });
+  const lock = useRef(false), openings = useRef(new Map());
   const callbacks = useRef({ onPdfSelected, onBatchStarted, onRestoreBatch });
   useEffect(() => { callbacks.current = { onPdfSelected, onBatchStarted, onRestoreBatch }; }, [onPdfSelected, onBatchStarted, onRestoreBatch]);
-  const refresh = useCallback(async () => {
-    const result = await processingAction("status"); setState(result); return result;
-  }, []);
+
   useEffect(() => {
     if (!connected) return;
-    let disposed = false;
+    let active = true;
     processingAction("status").then(result => {
-      if (disposed) return;
+      if (!active) return;
       setState(result);
-      const pending = [...result.runs].reverse().find(run => !run.batch_id);
-      if (pending) setRunId(pending.id);
-    }).catch(() => { if (!disposed) setMessage("Actualiza el Connector para usar el procesamiento completo."); });
-    return () => { disposed = true; };
+      if (result.runs.length) setRunId(result.runs.at(-1).id);
+    }).catch(error => {
+      if (active) setNotice(`No se pudo leer el historial [${recoveryDiagnostic(error, "PROCESS_STATUS").code}].`);
+    });
+    return () => { active = false; };
   }, [connected]);
 
   useEffect(() => {
@@ -51,85 +43,96 @@ export default function IntegratedProcessing({ onPdfSelected, onBatchStarted, on
     const controller = new AbortController();
     async function poll() {
       try {
-        const status = await processingAction("status", {}, { signal: controller.signal });
+        const result = await processingAction("status", {}, { signal: controller.signal });
         if (disposed) return;
-        setState(status);
-        const run = status.runs.find(value => value.id === runId);
-        if (!run) throw new Error("No se localizó el proceso. No lo reinicies sin comprobar el Connector.");
-        const currentJob = run.job || await getMediwebJob(runId, { signal: controller.signal });
+        setState(result);
+        const run = result.runs.find(value => value.id === runId);
+        if (!run) throw recoveryError("STORE_NOT_FOUND");
+        const current = run.job || await getMediwebJob(runId, { signal: controller.signal });
         if (disposed) return;
-        setJob(currentJob);
-        if (run.status === "running") { timer = setTimeout(poll, 1000); return; }
-        if (imported.current.has(runId)) return;
-        imported.current.add(runId);
-        setBusy(true);
-        try {
-          if (run.batch_id) {
-            const restored = await callbacks.current.onRestoreBatch(run.batch_id);
-            if (!restored?.batch_id) throw new Error("No se pudo recuperar el lote guardado. Revisa el almacenamiento; no se repitieron descargas.");
-            if (!disposed) setMessage("Lote recuperado sin repetir descargas ni solicitar voz.");
-          } else if (currentJob.firstPagesAdded > 0) {
-            const { processingResult } = await importMediwebPdfIntoExistingFlow(runId, (file, options) => callbacks.current.onPdfSelected(file, { ...options, processingRunId: runId }), { signal: controller.signal });
-            if (!processingResult?.batch_id) throw new Error("No se completó la extracción. Recupera el proceso para volver a leer sus PDF sin descargarlos.");
-            await processingAction("complete", { id: runId, batchId: processingResult.batch_id });
-            if (!disposed) setMessage(run.status === "completed" ? "Lote procesado y guardado. Revisa destinatarios y aprueba las narrativas antes de generar audio." : `${messages[currentJob.errorCode] || ""} Resultados parciales recuperados. Las incidencias pendientes requieren revisión; no se repitieron descargas.`);
-          } else if (!disposed) setMessage(messages[currentJob.errorCode] || messages[run.status === "uncertain" ? "PROCESS_UNCERTAIN" : "SEARCH_MANUAL_REQUIRED"]);
-        } catch (error) {
-          if (!disposed) setMessage(`${error.message} Usa Recuperar proceso para volver a leer los archivos guardados.`);
+        setJob(current);
+        if (run.status === "running") { timer = setTimeout(poll, 600); return; }
+        if (!openings.current.has(runId)) {
+          openings.current.set(runId, (async () => {
+            if (run.batch_id) return callbacks.current.onRestoreBatch(run.batch_id);
+            if (!current.firstPagesAdded) throw recoveryError("BATCH_EMPTY");
+            const imported = await importMediwebPdfIntoExistingFlow(runId, (file, options) => callbacks.current.onPdfSelected(file, { ...options, processingRunId: runId }));
+            if (!imported.processingResult?.workers?.length) throw recoveryError("BATCH_EMPTY");
+            await processingAction("complete", { id: runId, batchId: imported.processingResult.batch_id });
+            // Verify the saved batch through the same opening path as recovery.
+            return callbacks.current.onRestoreBatch(imported.processingResult.batch_id);
+          })());
         }
-        finally { if (!disposed) setBusy(false); }
+        setRecovery({ status: "opening" });
+        const opened = await openings.current.get(runId);
+        if (!opened?.workers?.length || !opened.batch_id) throw recoveryError("BATCH_EMPTY");
+        if (!disposed) setRecovery({ status: "available", count: opened.workers.length, batch_id: opened.batch_id });
       } catch (error) {
-        if (!disposed) { setMessage(messages[error.code] || error.message); timer = setTimeout(poll, 4000); }
+        if (!disposed) {
+          const diagnostic = error.diagnostic || recoveryDiagnostic(error, "PROCESS_RECOVERY");
+          reportRecoveryDiagnostic(diagnostic);
+          setRecovery({ status: "error", diagnostic });
+        }
       }
     }
-    poll(); return () => { disposed = true; clearTimeout(timer); controller.abort(); };
-  }, [runId, recoveryAttempt]);
+    poll();
+    return () => { disposed = true; clearTimeout(timer); controller.abort(); };
+  }, [runId, attempt]);
 
   async function start() {
-    if (guard.current) return;
-    guard.current = true; setBusy(true); setMessage("");
+    if (lock.current) return;
+    lock.current = true; setBusy(true); setNotice("");
     try {
-      const created = await processingAction("start", { profileId: profileId || null, manualConfirmed: confirmed, manualToken });
+      // The existing Connector verifies filters/table and binds a short-lived
+      // snapshot token. No extra declaration, clinical approval or consent.
+      const proof = profileId ? null : await processingAction("confirm");
+      const created = await processingAction("start", { profileId: profileId || null, manualConfirmed: !profileId, manualToken: proof?.token || null });
       if (!created.reused) callbacks.current.onBatchStarted?.();
-      imported.current.delete(created.id); setRunId(created.id);
-      if (created.id === runId) setRecoveryAttempt(value => value + 1);
-      await refresh();
-    } catch (error) { setMessage(messages[error.code] || error.message); await refresh().catch(() => {}); }
-    finally { setBusy(false); guard.current = false; }
+      openings.current.delete(created.id);
+      setRecovery({ status: "idle" }); setJob(null); setRunId(created.id); setNewSearch(false);
+      setAttempt(value => value + 1);
+    } catch (error) {
+      const code = Object.hasOwn(problems, error.code) ? error.code : recoveryDiagnostic(error, "PROCESS_START").code;
+      setNotice(`${problems[error.code] || "No se pudo iniciar. Revisa la conexión y vuelve a intentarlo."} [${code}]`);
+    } finally { setBusy(false); lock.current = false; }
   }
-  async function saveProfile() {
-    setBusy(true);
-    try { const result = await processingAction("profile", { name, confirmed, manualToken }); await refresh(); setProfileId(result.id); setMessage("Búsqueda confirmada guardada de forma cifrada."); }
-    catch (error) { setMessage(messages[error.code] || "Esta búsqueda necesita preparación manual; no se guardaron selectores desconocidos."); }
-    finally { setBusy(false); }
+  function retry(id = runId) {
+    openings.current.delete(id); setRecovery({ status: "idle" }); setRunId(id); setNewSearch(false); setAttempt(value => value + 1);
   }
-  const counts = batchCounts(analysis);
-  return <section aria-label="Procesamiento completo MediWeb" className="bulk-audio-panel">
-    <h3>Procesamiento completo</h3>
-    <p>Connector: {connected ? "conectado" : "no disponible"} · Sesión: {state?.authentication === "expired" ? "expirada" : state?.authentication === "results_visible" ? "resultados visibles" : "sin determinar"}</p>
-    <label>Búsqueda <select aria-label="Búsqueda guardada" disabled={busy || job?.status === "running"} value={profileId} onChange={event => { setProfileId(event.target.value); setConfirmed(false); }}>
-      <option value="">Preparada manualmente en MediWeb</option>{state?.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-    </select></label>
-    <label><input type="checkbox" disabled={busy || job?.status === "running"} checked={confirmed} onChange={async event => {
-      if (!event.target.checked) { setConfirmed(false); setManualToken(null); return; }
-      setBusy(true); setConfirmed(true); setManualToken(null);
-      try { const result = await processingAction("confirm"); setManualToken(result.token); setConfirmed(true); }
-      catch (error) { setConfirmed(false); setMessage(messages[error.code] || "No se pudo confirmar la tabla. Prepara la búsqueda en MediWeb."); }
-      finally { setBusy(false); }
-    }} /> Confirmo que los filtros y resultados visibles corresponden a la búsqueda esperada</label>
-    <div className="button-row"><button type="button" className="primary-button" disabled={!connected || busy || job?.status === "running"} onClick={start}>Iniciar procesamiento completo</button>
-      <button type="button" disabled={busy || !connected} onClick={onOpen}>Preparar búsqueda en MediWeb</button>
-      {job?.status === "running" && <button type="button" onClick={async () => { try { await processingAction("cancel", { id: runId }); } catch { setMessage("Comprueba el estado del proceso; no se iniciará otro trabajo."); } }}>Cancelar procesamiento</button>}
-    </div>
-    <details><summary>Guardar la búsqueda confirmada</summary><label>Nombre de búsqueda <input value={name} onChange={event => setName(event.target.value)} maxLength={80} /></label><button type="button" disabled={!confirmed || busy || job?.status === "running"} onClick={saveProfile}>Guardar búsqueda confirmada</button><p>Solo se guardan controles reconocidos de fecha, empresa y tipo de examen. El acceso y los cambios de interfaz requieren intervención.</p></details>
-    {job && <p aria-live="polite">Descarga: {job.status} · Página: {job.currentPage || 0} · Detectadas: {job.detected || 0} · Procesadas: {job.processed || 0} · Primeras hojas: {job.firstPagesAdded || 0} · PDF completos: {job.fullReportsGenerated || 0} · Incidencias: {job.errors || 0}</p>}
-    {busy && <p role="status">Preparando o extrayendo evaluaciones…</p>}
-    <p>Evaluaciones del lote: {counts.total} · Pendientes de revisión: {counts.pendientes} · Pendientes de WhatsApp: {analysis?.workers.filter(worker => !isWhatsAppConfirmed(worker)).length || 0} · Audios disponibles: {counts.audios} · Audios pendientes: {Math.max(0, counts.total - counts.audios)}</p>
-    {analysis && <a href="#pdf-workers-results">Ir a revisión, verificación rápida y generación masiva</a>}
-    {message && <p role="status">{message}</p>}
-    {!!state?.runs.length && <details><summary>Recuperar procesos anteriores</summary>{[...state.runs].reverse().map(run => <div key={run.id}><p>{run.status} · {run.job?.processed || 0} procesadas <button type="button" disabled={busy || job?.status === "running"} onClick={() => { imported.current.delete(run.id); if (run.id === runId) setRecoveryAttempt(value => value + 1); else setRunId(run.id); }}>Recuperar proceso</button></p>
-      {run.batch_ids.length > 1 && <p>Las evaluaciones ya existentes conservan su lote, aprobación y audio originales. {run.batch_ids.map((id, index) => <button key={id} type="button" disabled={busy || job?.status === "running"} onClick={() => callbacks.current.onRestoreBatch(id)}>Ver lote relacionado {index + 1}</button>)}</p>}
-    </div>)}</details>}
-    <p>Este flujo no aprueba narrativas ni inicia TTS. Las descargas inciertas se concilian desde sus archivos guardados.</p>
+  const run = state?.runs.find(value => value.id === runId);
+  const running = run?.status === "running";
+  const available = recovery.status === "available" && analysis?.batch_id === recovery.batch_id && analysis.workers.length > 0;
+  const incidents = job?.errors || 0;
+  const resultVisible = runId && !newSearch;
+  return <section className="processing-workspace" aria-label="Procesamiento completo MediWeb">
+    {resultVisible ? <>
+      <div className={`process-result ${recovery.status === "error" ? "is-error" : available ? "is-ready" : "is-working"}`}>
+        <div className="process-result__heading"><span className="process-icon" aria-hidden="true">{available ? "✓" : recovery.status === "error" ? "!" : "•"}</span><div>
+          <p className="section-label">{available ? "Listo para revisión" : running ? "Importación en curso" : recovery.status === "error" ? "Recuperación pendiente" : "Abriendo lote"}</p>
+          <h2>{available ? "Lote procesado y disponible" : running ? "Preparando tus evaluaciones" : recovery.status === "error" ? "Los archivos están descargados, pero el lote no pudo abrirse" : "Comprobando evaluaciones guardadas"}</h2>
+        </div></div>
+        <div className="process-metrics">
+          <div><strong>{available ? analysis.workers.length : running ? job?.processed || 0 : job?.firstPagesAdded || 0}</strong><span>{available ? "evaluaciones disponibles" : running ? "evaluaciones procesadas" : "primeras hojas guardadas"}</span></div>
+          <div><strong>{job?.fullReportsGenerated || 0}</strong><span>PDF completos guardados</span></div>
+          <div><strong>{incidents}</strong><span>incidencias de descarga</span></div>
+        </div>
+        {running && <progress aria-label="Avance de importación" value={job?.processed || 0} max={Math.max(job?.detected || 8, job?.processed || 0, 1)} />}
+        {recovery.status === "error" && <p className="process-error" role="alert">{recoveryDescription(recovery.diagnostic)} [{recovery.diagnostic.code}]. Los archivos se conservan; no se repetirán descargas.</p>}
+        <div className="process-actions">
+          {available ? <button type="button" className="primary-button" onClick={onReview}>Revisar evaluaciones</button> : recovery.status === "error" ? <button type="button" className="primary-button" onClick={() => retry()}>Reintentar recuperación</button> : <span role="status">{running ? "Descargando y conservando documentos..." : "Abriendo las evaluaciones para comprobar su disponibilidad..."}</span>}
+          {!running && <button type="button" className="secondary-button" onClick={() => setNewSearch(true)}>Otra búsqueda</button>}
+          {running && <button type="button" onClick={async () => { await processingAction("cancel", { id: runId }); }}>Detener descarga</button>}
+        </div>
+      </div>
+    </> : <div className="process-search">
+      <div><p className="section-label">Nuevo lote</p><h2>Importar evaluaciones</h2><p>Prepara los resultados en MediWeb. Comprobamos los filtros al iniciar.</p></div>
+      <label>Búsqueda de MediWeb<select aria-label="Búsqueda guardada" disabled={busy} value={profileId} onChange={event => setProfileId(event.target.value)}><option value="">Resultados visibles en MediWeb</option>{state?.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select></label>
+      <div className="process-actions"><button type="button" className="primary-button" disabled={!connected || busy || running} onClick={start}>{busy ? "Comprobando resultados..." : "Procesar evaluaciones"}</button><button type="button" className="secondary-button" disabled={!connected || busy} onClick={onOpen}>Abrir MediWeb</button>{runId && <button type="button" onClick={() => setNewSearch(false)}>Volver al resultado</button>}</div>
+      <details><summary>Guardar esta búsqueda</summary><label>Nombre de búsqueda<input value={name} onChange={event => setName(event.target.value)} maxLength={80} /></label><button type="button" disabled={!name.trim() || busy} onClick={async () => {
+        setBusy(true); try { const proof = await processingAction("confirm"); await processingAction("profile", { name, confirmed: true, manualToken: proof.token }); const next = await processingAction("status"); setState(next); setNotice("Búsqueda guardada."); } catch (error) { setNotice(`No se pudo guardar [${recoveryDiagnostic(error, "SEARCH_PROFILE").code}].`); } finally { setBusy(false); }
+      }}>Guardar búsqueda</button></details>
+    </div>}
+    {notice && <p role="status" className="process-notice">{notice}</p>}
+    {!!state?.runs.length && <details className="process-history"><summary>Historial de procesos ({state.runs.length})</summary><div className="process-history__list">{[...state.runs].reverse().map(value => <div key={value.id}><span>{value.job?.firstPagesAdded || 0} evaluaciones descargadas{value.availability?.diagnostic_code ? ` · ${value.availability.diagnostic_code}` : ""}</span><button type="button" disabled={busy || running} onClick={() => retry(value.id)}>Abrir lote guardado</button></div>)}</div></details>}
   </section>;
 }

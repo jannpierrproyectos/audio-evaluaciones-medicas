@@ -155,13 +155,11 @@ test("prepara WhatsApp sin MP3 y confirma únicamente el teléfono revisado", ()
   assert.equal(isWhatsAppConfirmed(worker), false);
 });
 
-test("la UI conserva el orden mensaje, PDF, audio y no afirma una entrega", async () => {
-  const source = await readFile(new URL("../src/components/PdfWorkersPreview.jsx", import.meta.url), "utf8");
-  const messageStep = source.indexOf("1. Mensaje");
-  const pdfStep = source.indexOf("2. PDF");
-  const audioStep = source.indexOf("3. Audio");
-  assert.ok(messageStep > 0 && messageStep < pdfStep && pdfStep < audioStep);
-  assert.match(source, /openWhatsAppCheck\(worker\)/);
-  assert.match(source, /Finalizar preparación/);
-  assert.doesNotMatch(source, /PDF enviado|Audio enviado|Confirmar entrega/);
+test("delivery UI groups preparation and keeps explicit operator confirmation", async () => {
+  const source = await readFile(new URL("../src/components/DeliveryInbox.jsx", import.meta.url), "utf8");
+  assert.match(source, /function prepareAndOpen/);
+  assert.match(source, /allParts: true/);
+  assert.match(source, /navigator.clipboard.writeText/);
+  const editor = await readFile(new URL("../src/components/PdfWorkersPreview.jsx", import.meta.url), "utf8");
+  assert.doesNotMatch(editor, /WhatsAppPreparationPanel|recipient_expiry_draft/);
 });

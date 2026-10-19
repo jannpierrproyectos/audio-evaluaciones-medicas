@@ -3,7 +3,7 @@ import { authorizeTtsConfigurationRequest } from '../../server/ttsAccess.js'
 
 export const runtime = 'nodejs'
 
-export async function GET(request) {
+export async function GET() {
   try {
     authorizeTtsConfigurationRequest()
     return Response.json(await getTtsConfiguration(), { headers: { 'Cache-Control': 'no-store' } })

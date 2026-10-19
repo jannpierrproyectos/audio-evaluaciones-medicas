@@ -1,5 +1,4 @@
 import { prepareTextForTts } from '../clinical/ttsNormalizer.js'
-import { requireTtsSession } from './ttsAccessClient.js'
 
 function getFileExtensionFromMimeType(mimeType) {
   const normalizedMimeType = String(mimeType || '').toLowerCase()
@@ -55,7 +54,6 @@ async function readErrorMessage(response) {
 }
 
 export async function synthesizeAudioFromText({ text, filenameHint }) {
-  await requireTtsSession()
   const ttsText = prepareTextForTts(text)
   const response = await fetch('/api/tts/synthesize', {
     // Aborting the transport never proves that synthesis was not charged.

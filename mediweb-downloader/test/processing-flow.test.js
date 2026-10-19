@@ -47,6 +47,8 @@ test("Fase04: sesión expirada, interfaz desconocida y filtros no coincidentes n
   await f.page.setContent('<form><input type="password"><button>Ingresar</button></form>');
   await assert.rejects(f.flow.start({ manualConfirmed: true }), error => error.code === "SESSION_EXPIRED"); assert.equal(f.runs, 0);
   await f.page.setContent(f.html.replace('for="empresa"', 'for="desconocido"'));
+  await assert.rejects(f.flow.confirmSearch(), error => error.code === "SEARCH_MANUAL_REQUIRED");
+  assert.equal(f.runs, 0);
   await assert.rejects(f.flow.saveProfile("No reconocida"), error => error.code === "SEARCH_MANUAL_REQUIRED");
   await f.page.setContent(f.html.replace("<td>Ficticia</td>", "<td>Otra</td>"));
   await assert.rejects(f.flow.start({ manualConfirmed: true }), error => error.code === "SEARCH_RESULTS_MISMATCH"); assert.equal(f.runs, 0);

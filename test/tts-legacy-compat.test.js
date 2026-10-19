@@ -86,11 +86,12 @@ test('legacy Space remains protected behind signed operator session', async () =
   })
 })
 
-test('other hosts and missing operator secret cannot opt in to legacy mode', async () => {
+test('legacy host allowlist remains enforced; metadata does not require an operator password', async () => {
   await withEnv({ TTS_SERVICE_URL: 'https://unknown.hf.space' }, async () => {
     assert.throws(() => authorizeTtsConfigurationRequest(), { status: 503, code: 'TTS_LEGACY_URL_UNSAFE' })
   })
   await withEnv({ TTS_OPERATOR_PASSPHRASE: '' }, async () => {
-    assert.throws(() => authorizeTtsConfigurationRequest(), { status: 503, code: 'TTS_OPERATOR_ACCESS_NOT_CONFIGURED' })
+    assert.doesNotThrow(() => authorizeTtsConfigurationRequest())
+    assert.throws(() => authorizeTtsRequest({ headers: {} }), { status: 401 })
   })
 })

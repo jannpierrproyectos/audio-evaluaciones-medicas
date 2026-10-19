@@ -15,6 +15,8 @@ test("Fase05: navegación consecutiva, filtros y avance omiten completados e inc
   assert.equal(nextDelivery(rows, "3", "todos"), "4"); assert.equal(nextDelivery(rows, "3", "todos", -1), "2");
   assert.equal(nextPendingDelivery(rows, "1"), "3"); assert.equal(nextPendingDelivery(rows, "3"), "5");
   assert.equal(nextDelivery([], "1"), null);
+  assert.equal(nextDelivery(rows, "3", "pendientes"), "4");
+  assert.equal(nextDelivery(rows, "4", "pendientes", -1), "3");
 });
 
 test("Fase05: preflight reutiliza autorización clínica central y nunca llama TTS", async () => deliveryFixture(async f => {

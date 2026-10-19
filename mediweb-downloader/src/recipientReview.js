@@ -97,10 +97,10 @@ export function synchronizeRecipients(workers, storedContacts = [], now = Date.n
       const source = storedContacts.find(item => item.evaluation_id === check.reused_from.evaluation_id && item.batch_id === check.reused_from.batch_id);
       const validSource = source && check.reused_from.checked_at === source.app_fields?.whatsapp_verification?.checked_at &&
         personKey(source) === personKey(worker) && validSourceCheck(source, storedContacts, now);
-      if (!validSource) worker.app_fields = { ...worker.app_fields, whatsapp_verification: { ...check, status: "invalidada" }, whatsapp_confirmed_phone: "", recipient_authorization: null, audio_stale: true };
+      if (!validSource) worker.app_fields = { ...worker.app_fields, whatsapp_verification: { ...check, status: "invalidada" }, whatsapp_confirmed_phone: "", recipient_authorization: null };
     }
     check = worker.app_fields.whatsapp_verification;
-    if (check && !recordedCheck(worker, now)) worker.app_fields = { ...worker.app_fields, whatsapp_verification: check.checked_at ? { ...check, status: "invalidada" } : null, whatsapp_confirmed_phone: "", recipient_authorization: null, audio_stale: true };
+    if (check && !recordedCheck(worker, now)) worker.app_fields = { ...worker.app_fields, whatsapp_verification: check.checked_at ? { ...check, status: "invalidada" } : null, whatsapp_confirmed_phone: "", recipient_authorization: null };
     // A local explicit decision (including "later" or "no") always wins over history.
     if (!check?.checked_at && !check?.reused_from && analyses[index].phone && !analyses[index].conflicting && !worker.app_fields.recipient_authorization) {
       const candidates = contacts.filter(source => personKey(source) === personKey(worker) && normalizePhoneForWhatsApp(source.datos_operativos?.telefono) === analyses[index].phone && source.app_fields?.whatsapp_verification?.checked_at)
@@ -115,8 +115,6 @@ export function synchronizeRecipients(workers, storedContacts = [], now = Date.n
           whatsapp_history: [...(worker.app_fields.whatsapp_history || []), recovered] };
       }
     }
-    const recipientRequired = worker.source_mode === "mediweb" || Boolean(worker.datos_operativos);
-    if (recipientRequired && !getRecipientChecks(worker, now).authorized && (worker.app_fields.audio_record || worker.app_fields.audio_url)) worker.app_fields.audio_stale = true;
     return worker;
   });
 }
@@ -138,23 +136,22 @@ export function recordWhatsAppDecision(worker, decision, evidence = {}, now = Da
   const phone = normalizePhoneForWhatsApp(worker.datos_operativos?.telefono);
   if (decision !== "incierto" && !phone) throw new Error("Corrige el teléfono antes de comprobar WhatsApp.");
   const confirmedAt = new Date(now).toISOString();
-  const verification = { schema: 2, status: decision, identity: recipientVersion(worker), phone, evaluation_id: worker.evaluation_id,
+  const verification = decision === "confirmado_por_operador" && isWhatsAppConfirmed(worker, now) ? worker.app_fields.whatsapp_verification : { schema: 2, status: decision, identity: recipientVersion(worker), phone, evaluation_id: worker.evaluation_id,
     checked_at: confirmedAt, origin: "operador_cola", ...(Date.parse(evidence.expires_at) > now ? { expires_at: new Date(evidence.expires_at).toISOString() } : {}) };
   const existing = worker.app_fields?.recipient_authorization;
   // Never erase a revocation by declaring that the account exists.
   let authorization = decision === "confirmado_por_operador" ? existing : null;
   if (decision === "confirmado_por_operador" && evidence.saveAuthorization) {
-    if (!evidence.identity || !evidence.consent || !evidence.pdf || !(Date.parse(evidence.expires_at) > now)) throw new Error("Confirma identidad, autorización, PDF y vencimiento.");
+    if (!evidence.identity || !evidence.consent || !evidence.pdf || !(Date.parse(evidence.expires_at) > now || (evidence.authorizationScope === "evaluation" && evidence.expires_at === null))) throw new Error("Confirma identidad, autorización, PDF y vencimiento.");
     if (worker.app_fields?.phone_analysis?.conflicting && !evidence.duplicate) throw new Error("Confirma la identidad para este teléfono compartido.");
-    authorization = { schema: 2, status: "confirmada", authorization_id: globalThis.crypto.randomUUID(),
-      version: recipientVersion(worker), confirmed_at: confirmedAt, expires_at: new Date(evidence.expires_at).toISOString(),
+    authorization = { schema: 3, evaluation_id: worker.evaluation_id, scope: evidence.authorizationScope === "evaluation" ? "evaluation" : "expiring", status: "confirmada", authorization_id: globalThis.crypto.randomUUID(),
+      version: recipientVersion(worker), confirmed_at: confirmedAt, expires_at: evidence.expires_at === null ? null : new Date(evidence.expires_at).toISOString(),
       identity_confirmed: true, channel_authorized: true, pdf_confirmed: true,
       duplicate_signature: evidence.duplicate ? worker.app_fields?.phone_analysis?.signature || "" : "" };
   }
   return { ...worker, app_fields: { ...worker.app_fields, whatsapp_verification: verification,
     whatsapp_history: [...(worker.app_fields?.whatsapp_history || []), verification],
     whatsapp_confirmed_phone: decision === "confirmado_por_operador" ? phone : "", recipient_authorization: authorization,
-    ...(decision !== "confirmado_por_operador" ? { audio_stale: true } : {}),
   } };
 }
 

@@ -28,14 +28,15 @@ test("clasifica formatos peruanos, ausentes e incompletos; válido no demuestra 
   assert.deepEqual(phoneSummary(result), { validos: 2, invalidos: 4, ausentes: 1, incompletos: 1, pendientes: 6, confirmados: 0, sin_whatsapp: 0, duplicados: 2, conflictos: 2 });
 });
 
-test("duplicados entre identidades bloquean TTS hasta confirmar específicamente el teléfono compartido", async () => {
+test("duplicados entre identidades bloquean la entrega y conservan TTS aprobado", async () => {
   let [first, second] = synchronizeRecipients([worker(), worker("00000002")]);
   assert.throws(() => recordWhatsAppDecision(first, "confirmado_por_operador", evidence, now), /teléfono compartido/);
   first = approveClinicalText(recordWhatsAppDecision(first, "confirmado_por_operador", { ...evidence, duplicate: true }, now), text);
   assert.equal(getAudioAuthorization(first, text).canGenerateAudio, true);
   const changedGroup = synchronizeRecipients([first, second, worker("00000003")]);
-  assert.equal(getAudioAuthorization(changedGroup[0], text).canGenerateAudio, false);
-  await assert.rejects(requestApprovedAudio({ worker: changedGroup[0], text, synthesize: () => assert.fail("No debe consumir TTS") }));
+  assert.equal(getAudioAuthorization(changedGroup[0], text).canGenerateAudio, true);
+  assert.equal(getRecipientChecks(changedGroup[0]).authorized, false);
+  await requestApprovedAudio({ worker: changedGroup[0], text, synthesize: async () => ({}) });
 });
 
 test("misma persona con varias evaluaciones no se confunde con un conflicto de identidad", () => {
@@ -133,19 +134,21 @@ test("restricción cross-origin reemplaza la ventana de comprobación sin conser
   assert.equal(second.location.href, "https://wa.me/51988777666");
 });
 
-test("TTS exige aprobación, cuenta, identidad, consentimiento, fecha y PDF; revocar no se corrige marcando la cuenta", async () => {
+test("TTS exige aprobacion clinica; identidad y consentimiento solo bloquean entrega y no se inventan", async () => {
   const original = approveClinicalText(worker(), text);
   const onlyAccount = recordWhatsAppDecision(original, "confirmado_por_operador", {}, now);
   let calls = 0; const synthesize = async () => { calls++; return {}; };
-  await assert.rejects(requestApprovedAudio({ worker: onlyAccount, text, synthesize }));
+  await requestApprovedAudio({ worker: onlyAccount, text, synthesize });
+  assert.equal(getRecipientChecks(onlyAccount).authorized, false);
   const allowed = recordWhatsAppDecision(original, "confirmado_por_operador", evidence, now);
   assert.equal(getAudioAuthorization(allowed, text).canGenerateAudio, true);
   await requestApprovedAudio({ worker: allowed, text, synthesize });
   for (const authorization of [{ ...allowed.app_fields.recipient_authorization, identity_confirmed: false }, { ...allowed.app_fields.recipient_authorization, pdf_confirmed: false }, { ...allowed.app_fields.recipient_authorization, channel_authorized: false }, { ...allowed.app_fields.recipient_authorization, status: "revocada" }, { ...allowed.app_fields.recipient_authorization, expires_at: "2000-01-01" }]) {
     const denied = recordWhatsAppDecision({ ...allowed, app_fields: { ...allowed.app_fields, recipient_authorization: authorization } }, "confirmado_por_operador", {}, now);
-    await assert.rejects(requestApprovedAudio({ worker: denied, text, synthesize }));
+    assert.equal(getRecipientChecks(denied).authorized, false);
+    await requestApprovedAudio({ worker: denied, text, synthesize });
   }
-  assert.equal(calls, 1);
+  assert.equal(calls, 7);
 });
 
 test("compatibilidad Fase 01 y persistencia cifrada de cola/comprobaciones después de reinicio", async () => {

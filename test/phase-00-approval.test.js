@@ -27,22 +27,20 @@ test("aprobación explícita permite TTS individual y cambios lo bloquean sin ll
   assert.equal(getAudioAuthorization(approved, text + " editado").canGenerateAudio, false);
 });
 
-test("MediWeb exige WhatsApp, identidad, autorización y PDF vinculado", async () => {
-  let current = approveClinicalText({ ...worker(), source_mode: "mediweb", datos_operativos: { telefono: "999888777", archivo_pdf_completo: "prueba.pdf", archivo_pdf_completo_id: "test-id" } }, text);
-  assert.equal(getAudioAuthorization(current, text).canGenerateAudio, false);
-  current.app_fields.whatsapp_confirmed_phone = "51999888777";
-  assert.equal(getAudioAuthorization(current, text).canGenerateAudio, false);
-  current.app_fields.recipient_authorization = { status: "confirmada", version: recipientVersion(current) };
-  assert.equal(getAudioAuthorization(current, text).canGenerateAudio, true);
-  for (const changed of [{ ...current, datos_operativos: { ...current.datos_operativos, telefono: "988777666" } }, { ...current, datos_operativos: {} }, { ...current, app_fields: { ...current.app_fields, recipient_authorization: { status: "revocada" } } }]) {
-    await assert.rejects(requestApprovedAudio({ worker: changed, text, synthesize: () => assert.fail("No llamar TTS") }));
+test("MediWeb audio is independent of recipient evidence", async () => {
+  const current = approveClinicalText({ ...worker(), source_mode: "mediweb", datos_operativos: { telefono: "999888777" } }, text);
+  for (const candidate of [current, { ...current, datos_operativos: {} }, { ...current, app_fields: { ...current.app_fields, recipient_authorization: { status: "revocada" } } }]) {
+    let calls = 0;
+    await requestApprovedAudio({ worker: candidate, text, synthesize: async () => { calls++; } });
+    assert.equal(calls, 1);
   }
-  const changed = reconcileWorkerReview(current, { ...current, datos_operativos: { ...current.datos_operativos, telefono: "988777666" } });
+  const changed = reconcileWorkerReview(current, { ...current, datos_operativos: { telefono: "988777666" } });
   assert.equal(changed.app_fields.recipient_authorization, null);
+  assert.equal(getAudioAuthorization(changed, text).canGenerateAudio, true);
 });
 
 for (const scenario of ["texto", "revocacion", "destinatario", "revocar y confirmar", "cambiar y confirmar"]) {
-  test(`respuesta TTS tardía queda obsoleta tras ${scenario}`, async () => {
+  test(`respuesta TTS tras ${scenario}: solo cambia su vigencia si cambia el contenido clinico`, async () => {
     const { isAudioResponseCurrent } = await import("../src/lib/clinicalApproval.js");
     const { getWhatsAppAvailability } = await import("../src/lib/whatsappMessage.js");
     const requestWorker = approveClinicalText({ ...worker(), source_mode: "mediweb", datos_operativos: {
@@ -75,8 +73,8 @@ for (const scenario of ["texto", "revocacion", "destinatario", "revocar y confir
       audio_status: "listo", audio_stale: !isAudioResponseCurrent(requestWorker, current, text),
     } };
     assert.equal(calls, 1);
-    assert.equal(completed.app_fields.audio_stale, true);
-    assert.equal(getWhatsAppAvailability(completed).hasAudio, false);
+    assert.equal(completed.app_fields.audio_stale, scenario === "texto");
+    assert.equal(getWhatsAppAvailability(completed).hasAudio, scenario !== "texto");
   });
 }
 

@@ -3,7 +3,7 @@ import { BulkAudioRunner, audioBlockers, planBulkAudio } from "../lib/bulkAudio.
 import { getTtsConfiguration } from "../lib/evaluationPersistence.js";
 import { applyNarrativeGreeting } from "../lib/narrativeGreeting.js";
 
-export default function BulkAudioPanel({ analysis, repository, getSnapshot, refreshRecipients, saveQueue, runAudio, storageFailed, onSelectWorker }) {
+export default function BulkAudioPanel({ analysis, repository, getSnapshot, saveQueue, runAudio, storageFailed, onSelectWorker }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const runner = useRef(null);
@@ -15,10 +15,10 @@ export default function BulkAudioPanel({ analysis, repository, getSnapshot, refr
   const pending = count("pendiente");
   const done = items.filter(item => !["pendiente", "generando"].includes(item.status)).length;
   const eligible = analysis.workers.filter(worker => !audioBlockers(worker, applyNarrativeGreeting(worker.app_fields?.texto_final, analysis.greeting)).length).length;
+  const existing = analysis.workers.filter(worker => worker.app_fields?.audio_record && !worker.app_fields.audio_stale && worker.clinical_approval?.status === "aprobada").length;
   async function prepare() {
     setBusy(true); setMessage("");
     try {
-      await refreshRecipients();
       const configuration = await getTtsConfiguration();
       const snapshot = getSnapshot();
       if (snapshot?.batch_id !== analysis.batch_id) throw new Error("El lote cambió.");
@@ -29,7 +29,7 @@ export default function BulkAudioPanel({ analysis, repository, getSnapshot, refr
   }
   async function start() {
     if (!queue || active || runner.current?.running) return;
-    if (!window.confirm(`Generar hasta ${pending} audios pendientes. ${queue.estimate.characters} caracteres nuevos; ${queue.estimate.credits === null ? "créditos no determinados" : `${queue.estimate.credits} créditos base estimados`}. Los multiplicadores de voz pueden aumentar el consumo. Las solicitudes iniciadas pueden consumir créditos aunque fallen. ¿Confirmas iniciar?`)) return;
+
     const instance = new BulkAudioRunner({ getSnapshot, save: saveQueue, run: runAudio, configuration: queue.configuration });
     runner.current = instance;
     try { await instance.start(queue); }
@@ -43,26 +43,32 @@ export default function BulkAudioPanel({ analysis, repository, getSnapshot, refr
     catch { setMessage("No se guardó el control de cola. Mantén esta ventana abierta."); }
   }
   return <section className="bulk-audio-panel" aria-label="Generación masiva de audios">
-    <h3>Audios del lote</h3>
-    <p>Total: {analysis.workers.length} · Autorizados ahora: {eligible} · Bloqueados ahora: {analysis.workers.length - eligible}</p>
-    <button type="button" disabled={busy || active || storageFailed} onClick={prepare}>Generar audios autorizados</button>
-    <p>Primero se prepara la estimación; no se solicita audio hasta confirmar. El PDF manual sin destinatario conserva la generación local autorizada.</p>
+    <div className="stage-heading"><div><p className="section-label">Contenido aprobado</p><h2>Audios del lote</h2></div></div>
+    <div className="process-metrics"><div><strong>{existing}</strong><span>MP3 guardados</span></div><div><strong>{eligible}</strong><span>textos aprobados</span></div><div><strong>{analysis.workers.length - eligible}</strong><span>por revisar</span></div></div>
+    <button type="button" className="primary-button" disabled={busy || active || storageFailed || !eligible} onClick={prepare}>Calcular audios pendientes</button>
+    <p className="muted-text">{eligible ? "Los MP3 vigentes se reutilizan. WhatsApp no bloquea la generacion." : "Revisa y aprueba cada texto antes de generar audio."}</p>
+    {!queue && <div className="audio-evaluation-list">{analysis.workers.map((worker, index) => <div key={worker.evaluation_id}>
+      <span><strong>{worker.identificacion?.nombres} {worker.identificacion?.apellidos}</strong><small>{worker.app_fields?.audio_record && !worker.app_fields.audio_stale ? "MP3 guardado" : worker.clinical_approval?.status === "aprobada" ? "Texto aprobado" : "Revision clinica pendiente"}</small></span>
+      <button type="button" className="secondary-button" onClick={() => onSelectWorker(index)}>{worker.app_fields?.audio_record && !worker.app_fields.audio_stale ? "Ver MP3" : "Revisar texto"}</button>
+    </div>)}</div>}
     {queue && <>
       <p>Cola: {queue.status} · Reutilizables: {items.filter(item => item.reusable && item.status !== "bloqueado").length} · Nuevos: {items.filter(item => !item.reusable && item.status === "pendiente").length}</p>
       <p>{queue.estimate.characters} caracteres preparados para TTS · {queue.estimate.credits === null ? "Créditos: tarifa no disponible para este servicio/modelo" : `${queue.estimate.credits} créditos base estimados (${queue.estimate.rate} por carácter)`}.</p>
+      <div className="button-row">
+        <button type="button" className="primary-button" disabled={active || !pending || storageFailed} onClick={start}>{queue.status === "pausada" ? "Continuar generación" : "Generar audios aprobados"}</button>
+        <button type="button" disabled={queue.status !== "ejecutando"} onClick={() => control("pause")}>Pausar generación</button>
+        <button type="button" disabled={!pending || storageFailed} onClick={() => control("cancel")}>Cancelar pendientes</button>
+      </div>
+      <progress aria-label="Progreso de generación" value={done} max={items.length || 1} />
+      <p aria-live="polite">Pendientes: {pending} · Generando: {inFlight} · Completados: {count("completado")} · Reutilizados: {count("reutilizado")} · Bloqueados: {count("bloqueado")} · Errores: {count("error")} · Inciertos: {count("incierto")} · Cancelados: {count("cancelado")}</p>
+      <details><summary>Detalles de consumo y ejecucion</summary>
       <p><a href={queue.estimate.source} target="_blank" rel="noreferrer">Tarifa base oficial</a> · Verificada el 17/10/2026. No incluye multiplicadores de voz ni representa el cargo exacto de la cuenta.</p>
       <label>Audios simultáneos <select aria-label="Audios simultáneos" disabled={active || busy || storageFailed} value={queue.concurrency} onChange={event => saveQueue({ ...queue, concurrency: Number(event.target.value) }).catch(() => setMessage("No se guardó la concurrencia."))}>
         <option value={1}>1 (recomendado)</option><option value={2}>2</option><option value={3}>3</option>
       </select></label>
-      <div className="button-row">
-        <button type="button" disabled={active || !pending || storageFailed} onClick={start}>{queue.status === "pausada" ? "Continuar generación" : "Iniciar generación (confirmar)"}</button>
-        <button type="button" disabled={queue.status !== "ejecutando"} onClick={() => control("pause")}>Pausar generación</button>
-        <button type="button" disabled={!pending || storageFailed} onClick={() => control("cancel")}>Cancelar pendientes</button>
-      </div>
       <p>Las solicitudes iniciadas terminan y se guardan; pausar o cancelar no revierte su consumo. Al recuperar el lote, continúa solo tras confirmación.</p>
       <p>Consumo observado de la cuenta: no disponible en el contrato actual del servicio TTS. La estimación corresponde al lote preparado inicialmente.</p>
-      <progress aria-label="Progreso de generación" value={done} max={items.length || 1} />
-      <p aria-live="polite">Pendientes: {pending} · Generando: {inFlight} · Completados: {count("completado")} · Reutilizados: {count("reutilizado")} · Bloqueados: {count("bloqueado")} · Errores: {count("error")} · Inciertos: {count("incierto")} · Cancelados: {count("cancelado")}</p>
+      </details>
       <ul className="bulk-audio-items">{items.map(item => {
         const worker = analysis.workers.find(value => value.evaluation_id === item.evaluation_id);
         const reasons = worker ? audioBlockers(worker, applyNarrativeGreeting(worker.app_fields?.texto_final, analysis.greeting)) : ["Evaluación ausente"];

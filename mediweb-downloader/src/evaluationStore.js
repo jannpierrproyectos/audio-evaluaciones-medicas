@@ -187,7 +187,7 @@ export class EvaluationStore {
             // Same clinical encounter, new recipient evidence: preserve clinical
             // content/approval but never silently resurrect the old delivery consent.
             match.datos_operativos = structuredClone(worker.datos_operativos || {});
-            match.app_fields = { ...match.app_fields, recipient_authorization: null, whatsapp_verification: null, whatsapp_confirmed_phone: "", audio_stale: true };
+            match.app_fields = { ...match.app_fields, recipient_authorization: null, whatsapp_verification: null, whatsapp_confirmed_phone: "" };
             previous.revision++; previous.updated_at = this.now().toISOString(); recipientChanged = true;
           }
           duplicateBatches.add(previous.id);

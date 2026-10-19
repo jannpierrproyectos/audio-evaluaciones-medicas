@@ -61,17 +61,17 @@ async function fixture(callback) {
   }); } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
-test("Fase03: lote mixto excluye sin aprobación y destinatario incompleto; generación y reutilización sin créditos reales", async () => fixture(async f => {
+test("Fase03: lote mixto excluye sin aprobacion y admite destinatario incompleto; generación y reutilización sin créditos reales", async () => fixture(async f => {
   await f.update(f.snapshot.workers[2].evaluation_id, worker => ({ ...worker, clinical_approval: { status: "pendiente" } }));
   await f.update(f.snapshot.workers[3].evaluation_id, worker => ({ ...worker, datos_operativos: { telefono: "123" } }));
   const queue = await f.plan();
-  assert.equal(queue.items.filter(item => item.status === "bloqueado").length, 2);
-  await f.runner().start(queue); assert.equal(f.calls, 2);
-  assert.equal(f.snapshot.bulk_audio_queue.items.filter(item => item.status === "completado").length, 2);
-  const next = await f.plan(); assert.equal(next.items.filter(item => item.reusable).length, 2);
+  assert.equal(queue.items.filter(item => item.status === "bloqueado").length, 1);
+  await f.runner().start(queue); assert.equal(f.calls, 3);
+  assert.equal(f.snapshot.bulk_audio_queue.items.filter(item => item.status === "completado").length, 3);
+  const next = await f.plan(); assert.equal(next.items.filter(item => item.reusable).length, 3);
   assert.equal(next.estimate.characters, 0);
-  await f.runner().start(next); assert.equal(f.calls, 2);
-  assert.equal(f.snapshot.bulk_audio_queue.items.filter(item => item.status === "reutilizado").length, 2);
+  await f.runner().start(next); assert.equal(f.calls, 3);
+  assert.equal(f.snapshot.bulk_audio_queue.items.filter(item => item.status === "reutilizado").length, 3);
 }));
 
 test("Fase03: concurrencia limitada y doble inicio no duplica solicitudes", async () => fixture(async f => {
@@ -117,7 +117,7 @@ for (const action of ["pause", "cancel"]) {
   }));
 }
 
-test("Fase03: revocación durante síntesis conserva MP3 cifrado obsoleto, no disponible", async () => fixture(async f => {
+test("Fase03: revocacion durante sintesis conserva MP3 cifrado vigente para uso local", async () => fixture(async f => {
   const id = f.snapshot.workers[0].evaluation_id;
   await f.update(id, worker => recordWhatsAppDecision({ ...worker, datos_operativos: { telefono: "999111111", archivo_pdf_completo: "ficticio.pdf", archivo_pdf_completo_id: "test/ficticio.pdf" } }, "confirmado_por_operador", { identity: true, consent: true, pdf: true, saveAuthorization: true, expires_at: "2099-01-01T00:00:00Z" }));
   // Operational changes do not change clinical content; explicitly approve the resulting record.
@@ -130,8 +130,8 @@ test("Fase03: revocación durante síntesis conserva MP3 cifrado obsoleto, no di
   const started = f.runner().start(queue); await entered.promise;
   await f.update(id, worker => ({ ...worker, app_fields: { ...worker.app_fields, recipient_authorization: null } }));
   gate.resolve(); await started;
-  assert.equal(f.calls, 1); assert.equal(f.snapshot.workers[0].app_fields.audio_stale, true);
-  assert.equal(f.snapshot.bulk_audio_queue.items[0].status, "bloqueado");
+  assert.equal(f.calls, 1); assert.equal(f.snapshot.workers[0].app_fields.audio_stale, false);
+  assert.equal(f.snapshot.bulk_audio_queue.items[0].status, "completado");
 }));
 
 test("Fase03: recuperación nunca reenvía elementos que estaban generando", () => {

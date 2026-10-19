@@ -75,7 +75,7 @@ export function createApp({ engine, jobManager, managedFiles = null, updateServi
         if (!body || typeof body !== "object" || Array.isArray(body)) throw new HttpError(400, "INVALID_REQUEST", "Solicitud no válida.");
         const allowed = { list: [], detail: ["evaluationId"], prepare: ["evaluationId", "expectedBinding", "configuration"],
           begin: ["id", "kind", "configuration"], settle: ["id", "intent", "success", "configuration"], reveal: ["id", "kind", "configuration"],
-          confirm: ["id", "part", "confirmed", "configuration"], complete: ["id", "confirmed", "configuration"], cancel: ["evaluationId"],
+          confirm: ["id", "part", "confirmed", "configuration"], complete: ["id", "confirmed", "allParts", "configuration"], uncertain: ["id", "confirmed", "configuration"], cancel: ["evaluationId"],
           reopen: ["id", "reason", "confirmed"], reconcile: ["id", "outcomes", "reason", "confirmed", "configuration"] };
         if (!Array.isArray(allowed[body.action]) || Object.keys(body).some(key => key !== "action" && !allowed[body.action].includes(key))) throw new HttpError(400, "INVALID_REQUEST", "Acción o campos no permitidos.");
         try {

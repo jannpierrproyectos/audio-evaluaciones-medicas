@@ -8,7 +8,11 @@ export async function deliveryPreflight(evaluationId, request = deliveryAction, 
   const detail = await request("detail", { evaluationId });
   const text = applyNarrativeGreeting(detail.worker.app_fields?.texto_final, detail.greeting);
   if (!getAudioAuthorization(detail.worker, text).canGenerateAudio || !getRecipientChecks(detail.worker).authorized || detail.reasons.length) throw new Error(detail.reasons.join(" ") || "Falta aprobación clínica o destinatario autorizado para esta entrega.");
-  return { expectedBinding: detail.binding, configuration: await getConfiguration() };
+  const configuration = await getConfiguration().catch(error => {
+    if (detail.audio_configuration) return detail.audio_configuration;
+    throw error;
+  });
+  return { expectedBinding: detail.binding, configuration };
 }
 
 export function deliveryState(row) {
@@ -18,10 +22,13 @@ export function deliveryState(row) {
   return "pendientes";
 }
 export function nextDelivery(rows, currentId, filter = "todos", direction = 1) {
-  const candidates = rows.filter(row => filter === "todos" || deliveryState(row) === filter);
+  const candidates = rows.filter(row => matchesDeliveryFilter(row, filter));
   if (!candidates.length) return null;
   const index = candidates.findIndex(row => row.evaluation_id === currentId);
   return candidates[(Math.max(0, index) + direction + candidates.length) % candidates.length].evaluation_id;
+}
+export function matchesDeliveryFilter(row, filter) {
+  return filter === "todos" || (filter === "pendientes" ? deliveryState(row) !== "enviados" : deliveryState(row) === filter);
 }
 export function nextPendingDelivery(rows, currentId) {
   const index = rows.findIndex(row => row.evaluation_id === currentId);

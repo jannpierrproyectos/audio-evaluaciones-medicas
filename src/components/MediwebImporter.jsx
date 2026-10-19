@@ -100,7 +100,7 @@ function JobMetrics({ job }) {
   );
 }
 
-export default function MediwebImporter({ onPdfSelected, onBatchStarted, onRestoreBatch, analysis }) {
+export default function MediwebImporter({ onPdfSelected, onBatchStarted, onRestoreBatch, analysis, onReview }) {
   const [connectorStatus, setConnectorStatus] = useState("checking");
   const [connectorVersion, setConnectorVersion] = useState("");
   const [releaseManifest, setReleaseManifest] = useState(null);
@@ -427,11 +427,11 @@ export default function MediwebImporter({ onPdfSelected, onBatchStarted, onResto
   const importing = pendingAction === "import";
 
   return (
-    <section className={`panel mediweb-panel phase-${phase}`} aria-labelledby="mediweb-title">
+    <section className={`mediweb-panel phase-${phase}`} aria-labelledby="mediweb-title">
       <div className="panel__header mediweb-panel__header">
         <div>
           <p className="section-label">Importar desde MediWeb</p>
-          <h2 id="mediweb-title">Conector MediWeb</h2>
+          <h2 id="mediweb-title">MediWeb</h2>
           {phase === "ready" ? <p className="section-text">Importa evaluaciones directamente desde MediWeb.</p> : null}
         </div>
         <div className={`connector-status is-${connectorIncompatible ? "incompatible" : updateCompatibility === "update_available" ? "outdated" : connectorStatus}`}>
@@ -441,8 +441,8 @@ export default function MediwebImporter({ onPdfSelected, onBatchStarted, onResto
         </div>
       </div>
 
-      <div className="mediweb-live-region" aria-live="polite" aria-atomic="true">{feedback}</div>
-      <IntegratedProcessing onPdfSelected={onPdfSelected} onBatchStarted={onBatchStarted} onRestoreBatch={onRestoreBatch} analysis={analysis} connected={connectorStatus === "connected" && !connectorIncompatible} onOpen={handleOpen} />
+      {connectorStatus !== "connected" && <div className="mediweb-live-region" aria-live="polite" aria-atomic="true">{feedback}</div>}
+      <IntegratedProcessing onPdfSelected={onPdfSelected} onBatchStarted={onBatchStarted} onRestoreBatch={onRestoreBatch} analysis={analysis} connected={connectorStatus === "connected" && !connectorIncompatible} onOpen={handleOpen} onReview={onReview} />
 
       {phase === "checking" ? <div className="mediweb-empty-state"><p>Comprobando el conector MediWeb…</p></div> : null}
 

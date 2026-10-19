@@ -70,9 +70,9 @@ export function getRecipientChecks(worker, now = Date.now()) {
   const availability = getWhatsAppAvailability(worker);
   const fields = worker.app_fields || {};
   const authorization = fields.recipient_authorization;
-  const bound = authorization?.version === recipientVersion(worker);
-  const unexpired = !worker.evaluation_id || (Number.isFinite(Date.parse(authorization?.expires_at)) && Date.parse(authorization.expires_at) > now);
-  const legacy = authorization?.schema !== 2;
+  const bound = authorization?.version === recipientVersion(worker) && (authorization?.schema !== 3 || authorization.evaluation_id === worker.evaluation_id);
+  const unexpired = !worker.evaluation_id || (authorization?.schema === 3 && authorization.scope === "evaluation" && authorization.expires_at === null) || (Number.isFinite(Date.parse(authorization?.expires_at)) && Date.parse(authorization.expires_at) > now);
+  const legacy = authorization?.schema !== 2 && authorization?.schema !== 3;
   // Phase 01 explicitly confirmed these three decisions together. Keep that
   // declaration valid, but never manufacture separate confirmations on restore.
   const declared = bound && authorization?.status === "confirmada";
@@ -83,7 +83,7 @@ export function getRecipientChecks(worker, now = Date.now()) {
   const duplicateResolved = !conflict?.conflicting || Boolean(identity && consent && authorization?.duplicate_signature === conflict.signature);
   const whatsapp = isWhatsAppConfirmed(worker, now);
   return { formatValid: availability.hasValidPhone, whatsapp, identity, consent, pdf, duplicateResolved,
-    authorizationStatus: !unexpired && authorization ? "vencida" : authorization?.status || "pendiente",
+    authorizationStatus: authorization?.status === "revocada" ? "revocada" : !unexpired && authorization ? "vencida" : authorization?.status || "pendiente",
     authorized: Boolean(availability.hasValidPhone && whatsapp && identity && consent && pdf && duplicateResolved) };
 }
 
@@ -96,5 +96,14 @@ export function hasValidClinicalApproval(worker, text) {
 
 export function canonical(value) { return stable(value); }
 export function audioFingerprintPayload(worker, text, configuration, tts) {
-  return stable({ evaluation_id: worker.evaluation_id, batch_id: worker.batch_id, clinical: clinicalVersion(worker), recipient: recipientVersion(worker), text, tts, configuration, contract: 1 });
+  return stable({ evaluation_id: worker.evaluation_id, batch_id: worker.batch_id, clinical: clinicalVersion(worker), text, tts, configuration, contract: 2 });
+}
+
+// Existing encrypted operations remain recoverable across the contract migration.
+// The unique approval id binds old audio to its individually approved exact text.
+export function matchesApprovedAudio(worker, text, metadata, configuration) {
+  return Boolean(hasValidClinicalApproval(worker, text) && worker.clinical_approval?.approval_id &&
+    metadata?.approval_id === worker.clinical_approval.approval_id &&
+    metadata.evaluation_id === worker.evaluation_id && metadata.text === text &&
+    JSON.stringify(stable(metadata.configuration)) === JSON.stringify(stable(configuration)));
 }

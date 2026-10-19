@@ -1,3 +1,4 @@
+import { grantLocalTtsAccess } from './localTtsAccess.js'
 import { synthesizeSpeech, getTtsConfiguration } from './ttsService.js'
 import { authorizeTtsRequest, authorizeTtsConfigurationRequest, MAX_TTS_BODY_BYTES, ttsAccessError } from './ttsAccess.js'
 import { createTtsSession, clearTtsSession, ttsSessionState } from './ttsSession.js'
@@ -77,6 +78,7 @@ export function viteTtsApiPlugin() {
         }
 
         try {
+          grantLocalTtsAccess(request)
           authorizeTtsRequest(request)
           if (String(request.headers['content-type'] || '').split(';')[0].trim().toLowerCase() !== 'application/json') throw ttsAccessError(415, 'TTS_JSON_REQUIRED')
           const body = await readJsonBody(request)

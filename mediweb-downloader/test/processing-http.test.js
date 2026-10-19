@@ -45,6 +45,6 @@ test("Fase04: importar duplicados repartidos conserva referencias a todos sus lo
     const worker = (await store.load(first.id)).snapshot.workers[0];
     assert.equal(worker.datos_operativos.telefono, "999222222");
     assert.equal(worker.app_fields.recipient_authorization, null); assert.equal(worker.app_fields.whatsapp_confirmed_phone, "");
-    assert.equal(worker.app_fields.audio_stale, true); assert.equal(worker.clinical_approval.status, "aprobada");
+    assert.notEqual(worker.app_fields.audio_stale, true); assert.equal(worker.clinical_approval.status, "aprobada");
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

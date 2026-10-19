@@ -12,16 +12,15 @@ export function estimateCredits(characters, configuration) {
 }
 
 export function approvalToken(worker) {
-  return JSON.stringify(canonical({ approval: worker.clinical_approval, authorization: worker.app_fields?.recipient_authorization,
-    whatsapp: worker.app_fields?.whatsapp_verification }));
+  return JSON.stringify(canonical({ approval: worker.clinical_approval }));
 }
 
 export function audioBlockers(worker, text) {
   const state = getAudioAuthorization(worker, text);
   const reasons = [];
+  if (state.extraction !== "extraido") reasons.push("Evaluacion no importada correctamente");
   if (state.approval !== "aprobada") reasons.push("Falta aprobación clínica vigente");
   if (state.validation === "bloqueada") reasons.push("Errores clínicos bloqueantes");
-  if (state.recipient !== "confirmada") reasons.push("Destinatario, WhatsApp, identidad, autorización o PDF pendientes");
   if (worker.app_fields?.audio_status === "generando") reasons.push("Solicitud en curso");
   if (worker.app_fields?.audio_status === "incierto") reasons.push("Resultado incierto: requiere conciliación, sin reintento automático");
   return reasons;

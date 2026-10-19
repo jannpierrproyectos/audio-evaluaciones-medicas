@@ -19,15 +19,15 @@ export default function TtsSessionPanel() {
     catch (cause) { setError(cause.message) }
     finally { setBusy(false) }
   }
-  return <section className="panel" aria-label="Acceso al audio">
-    <h2>Acceso al audio</h2>
+  return <details className="panel tts-access" open={!status?.authenticated} aria-label="Acceso al audio"><summary>{status?.authenticated ? "Equipo autorizado para generar audio" : "Vincular acceso del operador"}</summary>
+
     {status?.authenticated ? <p>Sesión del operador activa para solicitar MP3.</p> :
-      <p>{status?.configured === false ? 'El acceso de operadores aún no está configurado en el servidor.' : 'Inicia sesión como operador antes de generar audios.'}</p>}
+      <p>{status?.configured === false ? 'El acceso de operadores aún no está configurado en el servidor.' : 'Vincula este navegador una vez. El acceso dura hasta 30 días; ciérralo al terminar en un equipo compartido.'}</p>}
     {status?.authenticated ? <button type="button" disabled={busy} onClick={logout}>Cerrar sesión de audio</button> :
       <form onSubmit={login}>
         <label>Contraseña del operador <input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></label>
         <button type="submit" disabled={busy || !password}>Acceder al audio</button>
       </form>}
     {error && <p role="alert">{error}</p>}
-  </section>
+  </details>
 }

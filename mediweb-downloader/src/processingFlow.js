@@ -19,15 +19,17 @@ export class ProcessingFlow {
   async initialize() {
     if (this.initialized) return;
     const store = await this.getStore();
-    await store.processingState(state => {
-      for (const run of state.runs) {
-        if (run.status === "running" && !this.jobManager.jobs.has(run.id)) run.status = "uncertain";
-        if (run.checkpoint && !this.jobManager.jobs.has(run.id)) {
-          this.jobManager.jobs.set(run.id, { ...run.checkpoint, id: run.id, status: run.status, controller: new AbortController(), completion: Promise.resolve() });
-        }
-      }
-      return null;
-    });
+    let state = await store.processingState();
+    if (state.runs.some(run => run.status === "running" && !this.jobManager.jobs.has(run.id))) {
+      await store.processingState(value => {
+        for (const run of value.runs) if (run.status === "running" && !this.jobManager.jobs.has(run.id)) run.status = "uncertain";
+        return null;
+      });
+      state = await store.processingState();
+    }
+    for (const run of state.runs) if (run.checkpoint && !this.jobManager.jobs.has(run.id)) {
+      this.jobManager.jobs.set(run.id, { ...run.checkpoint, id: run.id, status: run.status, controller: new AbortController(), completion: Promise.resolve() });
+    }
     this.initialized = true;
   }
   async status() {
@@ -49,7 +51,23 @@ export class ProcessingFlow {
       try { authentication = (await inspectSearch(this.engine.mainPage)).authentication; } catch { /* Do not infer authentication. */ }
     }
     return { authentication, profiles: state.profiles.map(profile => ({ id: profile.id, name: profile.name, confirmed_at: profile.confirmed_at })),
-      runs: state.runs.map(run => ({ id: run.id, status: run.status, batch_id: run.batch_id, batch_ids: run.batch_ids || [], job: run.checkpoint ? this.jobManager.publicJob({ ...run.checkpoint, status: run.status }) : null })) };
+      runs: await Promise.all(state.runs.map(async run => {
+        let availability = { status: "awaiting_import", evaluation_count: 0 };
+        if (run.batch_id) {
+          try {
+            const ids = [...new Set([run.batch_id, ...(run.batch_ids || [])])];
+            const batches = await Promise.all(ids.map(id => store.load(id)));
+            const count = batches.reduce((sum, batch) => sum + (batch.snapshot?.workers?.length || 0), 0);
+            availability = count > 0 ? { status: "stored", evaluation_count: count } : { status: "error", evaluation_count: 0, diagnostic_code: "PROCESS_BATCH_EMPTY" };
+          } catch (error) {
+            const code = ["STORE_NOT_FOUND", "STORE_CORRUPT", "STORE_KEY_UNAVAILABLE", "STORE_BUSY"].includes(error.code) ? error.code : "STORE_UNAVAILABLE";
+            availability = { status: "error", evaluation_count: 0, diagnostic_code: code };
+          }
+        }
+        return { id: run.id, status: run.status, batch_id: run.batch_id, batch_ids: run.batch_ids || [], availability,
+          job: run.checkpoint ? this.jobManager.publicJob({ ...run.checkpoint, status: run.status }) : null };
+      })) };
+
   }
   async saveProfile(name, manualToken) {
     if (this.jobManager.hasActiveJob) throw flowError("PROCESS_BUSY");
@@ -68,6 +86,7 @@ export class ProcessingFlow {
     if (this.jobManager.hasActiveJob) throw flowError("PROCESS_BUSY");
     const inspection = await inspectSearch(this.engine.mainPage);
     if (inspection.authentication === "expired") throw flowError("SESSION_EXPIRED");
+    if (!inspection.ready || !inspection.form) throw flowError("SEARCH_MANUAL_REQUIRED");
     const signature = verifySearchRows(inspection.extraction, inspection.form?.controls || []);
     const token = randomUUID();
     await (await this.getStore()).processingState(state => { state.confirmation = { token, signature, structure: inspection.structure,
@@ -135,6 +154,7 @@ export class ProcessingFlow {
   async complete(id, batchId) {
     const store = await this.getStore();
     const batch = await store.load(batchId);
+    if (!batch.snapshot.workers?.length) throw flowError("PROCESS_BATCH_EMPTY");
     if (!batch.snapshot.processing_run_ids?.includes(id)) throw flowError("PROCESS_BATCH_MISMATCH");
     await store.processingState(state => {
       const run = state.runs.find(value => value.id === id);

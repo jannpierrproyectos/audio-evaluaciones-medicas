@@ -139,7 +139,7 @@ test("recuperación invalida identidad, texto y saludo discrepantes y autorizaci
   recipient.app_fields = { ...recipient.app_fields, whatsapp_confirmed_phone: "51999888777", whatsapp_verification: whatsappVerification(recipient, true), recipient_authorization: { status: "confirmada", version: recipientVersion(recipient), expires_at: "2000-01-01T00:00:00Z" } };
   const restored = restoreWorker(recipient);
   assert.equal(restored.app_fields.recipient_authorization.status, "vencida");
-  assert.equal(getAudioAuthorization(restored, text).canGenerateAudio, false);
+  assert.equal(getAudioAuthorization(restored, text).canGenerateAudio, true);
   assert.equal(whatsappVerification(recipient, false).status, "no_disponible");
 }));
 
@@ -177,7 +177,7 @@ test("exportación denegada no escribe MP3 en claro", async () => fixture(async 
 }));
 
 for (const scenario of ["texto", "revocacion", "destinatario", "otro lote"]) {
-  test(`TTS persistente: respuesta tardía tras ${scenario} no se aplica como audio vigente`, async () => fixture(async ({ repository, store }) => {
+  test(`TTS persistente tras ${scenario}: vigencia independiente de entrega`, async () => fixture(async ({ repository, store }) => {
     const batch = await repository.import(snapshot(), await sha256(`race-${scenario}`));
     let current = approveClinicalText(batch.snapshot.workers[0], text);
     let active = true;
@@ -204,11 +204,11 @@ for (const scenario of ["texto", "revocacion", "destinatario", "otro lote"]) {
     if (scenario === "otro lote") active = false;
     finish();
     const result = await pending;
-    assert.equal(result.stale, true);
+    assert.equal(result.stale, ["texto", "otro lote"].includes(scenario));
     const persisted = await store.load(batch.id);
     const operation = await store.operation(current.evaluation_id, current.app_fields.audio_request.fingerprint);
     assert.equal(operation.status, "listo");
-    if (active) assert.equal(persisted.snapshot.workers[0].app_fields.audio_stale, true);
+    if (active) assert.equal(persisted.snapshot.workers[0].app_fields.audio_stale, scenario === "texto");
   }));
 }
 

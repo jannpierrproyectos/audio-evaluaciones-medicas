@@ -1,7 +1,5 @@
 import { EvaluationRepository, sha256, canonical, restoreWorker, recoverAudio, getTtsConfiguration, generatePersistentAudio, batchCounts, initialVerification } from "./lib/evaluationPersistence.js";
 import { synthesizeAudioFromText } from "./lib/ttsClient.js";
-import { requireTtsSession } from "./lib/ttsAccessClient.js";
-import TtsSessionPanel from "./components/TtsSessionPanel.jsx";
 import { validateManagedFile } from "./services/mediwebService.js";
 import { reconcileWorkerReview } from "./lib/clinicalApproval.js";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -20,8 +18,11 @@ import { revokeBatchAudioObjectUrls } from "./lib/batchState.js";
 import { DEFAULT_NARRATIVE_GREETING } from "./lib/narrativeGreeting.js";
 import { synchronizeRecipients, recordWhatsAppDecision } from "./lib/whatsappReview.js";
 import BulkAudioPanel from "./components/BulkAudioPanel.jsx";
-import { approvalToken, recoverBulkQueue } from "./lib/bulkAudio.js";
+import { approvalToken } from "./lib/bulkAudio.js";
 import { audioFingerprint } from "./lib/evaluationPersistence.js";
+import { matchesApprovedAudio } from "../mediweb-downloader/src/authorizationPolicy.js";
+import { getRecipientChecks } from "./lib/recipientPolicy.js";
+import { loadReviewableBatch, recoveryDiagnostic, reportRecoveryDiagnostic, recoveryError } from "./lib/batchRecovery.js";
 import DeliveryInbox from "./components/DeliveryInbox.jsx";
 
 function App() {
@@ -40,8 +41,11 @@ function App() {
   const [saving, setSaving] = useState(0);
   const [storageFailed, setStorageFailed] = useState(false);
   const [deliveryOpen, setDeliveryOpen] = useState(false);
+  const [reviewRecipient, setReviewRecipient] = useState(false);
+  const [workStage, setWorkStage] = useState("import");
   const [, setAuthorizationClock] = useState(0);
   const audioActiveRef = useRef(new Set());
+  const historyRef = useRef(null);
 
   const refreshBatches = useCallback(async () => {
     const result = await repository.list();
@@ -88,8 +92,8 @@ function App() {
   }
 
   async function recipientSnapshot(snapshot) {
-    const result = await repository.contacts();
-    return { ...snapshot, workers: synchronizeRecipients(snapshot.workers, result.contacts) };
+    try { const result = await repository.contacts(); return { ...snapshot, workers: synchronizeRecipients(snapshot.workers, result.contacts) }; }
+    catch (error) { reportRecoveryDiagnostic(recoveryDiagnostic(error, "BATCH_CONTACTS")); return snapshot; }
   }
 
   async function refreshRecipients() {
@@ -122,33 +126,45 @@ function App() {
     return persistAnalysis({ ...snapshot, whatsapp_queue: queue });
   }
 
-  async function restoreBatch(id) {
-    const operationId = resetCurrentBatch();
+  async function restoreBatch(id, { showStatus = true } = {}) {
+    const operationId = ++batchOperationIdRef.current;
+    if (showStatus) setStorageMessage("Abriendo evaluaciones guardadas...");
     try {
-      const batch = await repository.load(id);
-      const selectedGreeting = batch.snapshot.greeting || DEFAULT_NARRATIVE_GREETING;
-      let snapshot = await recipientSnapshot({ ...batch.snapshot, workers: batch.snapshot.workers.map(worker => restoreWorker(worker, selectedGreeting)) });
-      if (snapshot.workers.some(worker => worker.app_fields?.audio_record || worker.app_fields?.audio_request)) {
-        try {
-          const configuration = await getTtsConfiguration();
-          snapshot = { ...snapshot, workers: await Promise.all(snapshot.workers.map(worker => recoverAudio(worker, selectedGreeting, repository, configuration).catch(() => ({ ...worker, app_fields: { ...worker.app_fields, audio_stale: true, audio_status: "no_disponible" } })))) };
-        } catch { setStorageMessage("Lote recuperado; conecta el servicio TTS para verificar y recuperar sus MP3."); }
-      }
-      if (operationId !== batchOperationIdRef.current) { revokeBatchAudioObjectUrls(snapshot); return; }
-      snapshot = { ...snapshot, bulk_audio_queue: recoverBulkQueue(snapshot.bulk_audio_queue, snapshot.workers) };
-      setGreeting(selectedGreeting);
+      const { snapshot, warnings } = await loadReviewableBatch(repository, id);
+      if (operationId !== batchOperationIdRef.current) throw recoveryError("BATCH_INVALID");
+      revokeBatchAudioObjectUrls(currentAnalysisRef.current);
       displayAnalysis(snapshot);
-      setSelectedPdfWorkerIndex(0);
-      await persistAnalysis(snapshot);
+      setGreeting(snapshot.greeting);
+      setSelectedPdfWorkerIndex(Math.max(0, snapshot.workers.findIndex(worker => worker.evaluation_id === snapshot.review_ui?.selected_id)));
       setStorageFailed(false);
+      setStorageMessage(warnings.length ? `Evaluaciones abiertas. Contactos sin actualizar [${warnings[0].code}].` : "Almacenamiento seguro disponible.");
+      warnings.forEach(reportRecoveryDiagnostic);
+      if (historyRef.current) historyRef.current.open = false;
+      // Audio recovery uses its own encrypted reference, without blocking review.
+      for (const worker of snapshot.workers) {
+        const reference = worker.app_fields?.audio_record || worker.app_fields?.audio_request;
+        if (!reference?.configuration) continue;
+        recoverAudio(worker, snapshot.greeting, repository, reference.configuration).then(recovered => {
+          if (operationId !== batchOperationIdRef.current) { if (recovered.app_fields?.audio_url?.startsWith("blob:")) URL.revokeObjectURL(recovered.app_fields.audio_url); return; }
+          const latest = currentAnalysisRef.current;
+          const current = latest?.workers.find(value => value.evaluation_id === worker.evaluation_id);
+          if (current !== worker) return;
+          displayAnalysis({ ...latest, workers: latest.workers.map(value => value === worker ? recovered : value) });
+        }).catch(error => reportRecoveryDiagnostic(recoveryDiagnostic(error, "BATCH_AUDIO")));
+      }
       return snapshot;
-    } catch { setStorageMessage("No se pudo recuperar el lote. El cat?logo no se sobrescribi?."); }
+    } catch (error) {
+      const diagnostic = error.diagnostic || recoveryDiagnostic(error);
+      reportRecoveryDiagnostic(diagnostic);
+      if (showStatus) setStorageMessage(`No se pudieron abrir las evaluaciones [${diagnostic.code}]. Puedes reintentar; los PDF y lotes se conservan.`);
+      throw Object.assign(error, { diagnostic });
+    }
   }
 
   async function handlePersistentAudio(workerIndex, text, expectedItem, expectedConfiguration) {
     const expectedBatch = currentAnalysisRef.current;
     const expectedWorker = expectedBatch?.workers?.[workerIndex];
-    await refreshRecipients();
+    await repository.flush();
     const batch = currentAnalysisRef.current;
     const worker = batch?.workers?.[workerIndex];
     if (batch?.batch_id !== expectedBatch?.batch_id || worker?.evaluation_id !== expectedWorker?.evaluation_id) throw new Error("El lote cambió antes de solicitar audio.");
@@ -160,10 +176,12 @@ function App() {
       ? currentAnalysisRef.current.workers.find(item => item.evaluation_id === key) : null;
     const update = change => updatePdfWorkerAtIndex(workerIndex, change, batch.batch_id, key);
     try {
-      await requireTtsSession();
-      const configuration = await getTtsConfiguration();
+      const configuration = await getTtsConfiguration().catch(error => {
+        const reference = worker.app_fields?.audio_record;
+        if (reference?.configuration && matchesApprovedAudio(worker, text, reference, reference.configuration)) return reference.configuration;
+        throw error;
+      });
       if (expectedConfiguration && JSON.stringify(canonical(configuration)) !== JSON.stringify(canonical(expectedConfiguration))) throw new Error("Cambió la configuración TTS. Recalcula la estimación.");
-      if (worker.source_mode === MEDIWEB_SOURCE_MODE) await validateManagedFile(worker.datos_operativos?.archivo_pdf_completo_id);
       const latest = current();
       if (!latest || (expectedItem && (await sha256(approvalToken(latest)) !== expectedItem.token || await audioFingerprint(latest, text, configuration) !== expectedItem.fingerprint))) throw new Error("Cambió el contenido o la autorización.");
       return await generatePersistentAudio({ repository, worker: latest, text, configuration, synthesize: synthesizeAudioFromText, current, update, greeting: batch.greeting });
@@ -176,6 +194,7 @@ function App() {
     revokeBatchAudioObjectUrls(currentAnalysisRef.current);
     currentAnalysisRef.current = null;
     setPdfAnalysis(null);
+    setReviewRecipient(false);
     setSelectedPdfWorkerIndex(null);
     setPdfPreview("");
     setIsPdfProcessing(false);
@@ -194,6 +213,7 @@ function App() {
         pdf: await sha256(await file.arrayBuffer()), metadata: mediwebWorkerMetadata || null,
       })));
       const parsedAnalysis = await analyzePdfBatch(file);
+      if (!parsedAnalysis.workers?.length) throw recoveryError("PDF_IMPORT_EMPTY");
       if (operationId !== batchOperationIdRef.current) return null;
       const parsedWithMetadata = mediwebWorkerMetadata
         ? attachMediwebWorkerMetadata(parsedAnalysis, mediwebWorkerMetadata)
@@ -214,7 +234,7 @@ function App() {
         processing_related_batch_ids: [...new Set([saved.id, ...(saved.recovered_batch_ids || []), ...(analysis.duplicate_batch_ids || [])])] };
       if (analysis.workers.some(worker => worker.app_fields?.audio_record || worker.app_fields?.audio_request)) {
         const configuration = await getTtsConfiguration().catch(() => null);
-        if (configuration) analysis = { ...analysis, workers: await Promise.all(analysis.workers.map(worker => recoverAudio(worker, analysis.greeting, repository, configuration))) };
+        analysis = { ...analysis, workers: await Promise.all(analysis.workers.map(worker => recoverAudio(worker, analysis.greeting, repository, configuration || (worker.app_fields?.audio_record || worker.app_fields?.audio_request)?.configuration))) };
       }
       if (operationId !== batchOperationIdRef.current) return null;
       displayAnalysis(analysis);
@@ -229,13 +249,10 @@ function App() {
       if (operationId !== batchOperationIdRef.current) return null;
       displayAnalysis(null);
 
-      setPdfPreview(
-        `No se pudo procesar el PDF.
-
-Detalle:
-${error?.message || "Error desconocido"}`
-      );
-      return null;
+      const diagnostic = recoveryDiagnostic(error, "PDF_IMPORT");
+      reportRecoveryDiagnostic(diagnostic);
+      setPdfPreview(`No se pudieron importar las evaluaciones [${diagnostic.code}]. Los PDF descargados se conservan.`);
+      throw Object.assign(error, { diagnostic });
     } finally {
       if (operationId === batchOperationIdRef.current) setIsPdfProcessing(false);
     }
@@ -254,24 +271,41 @@ ${error?.message || "Error desconocido"}`
     return persistAnalysis({ ...analysis, workers: analysis.workers.map((worker, index) => index === workerIndex ? reconciled : worker) });
   }
 
+  function updateReviewUi(change) {
+    const snapshot = currentAnalysisRef.current;
+    if (snapshot) persistAnalysis({ ...snapshot, review_ui: { ...snapshot.review_ui, ...change } }).catch(() => {});
+  }
+  function selectWorker(index) {
+    setSelectedPdfWorkerIndex(index);
+    updateReviewUi({ selected_id: currentAnalysisRef.current?.workers[index]?.evaluation_id });
+  }
+
   function handlePdfWorkerChange(workerIndex, nextWorker) {
     updatePdfWorkerAtIndex(workerIndex, nextWorker).catch(() => {});
   }
 
   if (deliveryOpen) return <DeliveryInbox onClose={async () => {
     setDeliveryOpen(false);
-    if (currentAnalysisRef.current?.batch_id) await restoreBatch(currentAnalysisRef.current.batch_id);
+    if (currentAnalysisRef.current?.batch_id) await restoreBatch(currentAnalysisRef.current.batch_id).catch(() => {});
   }} onCorrect={async (batchId, evaluationId) => {
     setDeliveryOpen(false);
-    const analysis = await restoreBatch(batchId);
-    if (analysis) setSelectedPdfWorkerIndex(analysis.workers.findIndex(worker => worker.evaluation_id === evaluationId));
+    const analysis = await restoreBatch(batchId).catch(() => null);
+    setWorkStage("review");
+    if (analysis) {
+      setSelectedPdfWorkerIndex(analysis.workers.findIndex(worker => worker.evaluation_id === evaluationId));
+      const worker = analysis.workers.find(worker => worker.evaluation_id === evaluationId);
+      if (worker && !getRecipientChecks(worker).authorized) {
+        await persistAnalysis({ ...analysis, whatsapp_queue: { ...analysis.whatsapp_queue, filter: "bloqueados", selected_evaluation_id: evaluationId } });
+        setReviewRecipient(true);
+      }
+    }
   }} />;
 
   return (
     <div className="app-shell">
       <header className="app-header">
         <div className="app-header__copy">
-          <p className="eyebrow">MVP base interna</p>
+          <p className="eyebrow">Salud ocupacional</p>
           <h1>AudioEvaluaciones</h1>
           <p className="app-subtitle">
             Generacion de texto y audio desde evaluaciones ocupacionales en PDF
@@ -279,24 +313,29 @@ ${error?.message || "Error desconocido"}`
         </div>
 
         <div className="app-header__meta">
-          <button type="button" disabled={Boolean(saving || storageFailed || isPdfProcessing)} onClick={async () => {
-            try { await repository.flush(); setDeliveryOpen(true); }
-            catch { setStorageMessage("Guarda o recupera el lote antes de abrir la bandeja de entregas."); }
-          }}>Abrir bandeja de entregas</button>
-          <span className="meta-chip">Base visual lista para escalar</span>
+          <span className="meta-chip">Trabajo seguro por lotes</span>
         </div>
       </header>
 
+      <nav className="workspace-nav" aria-label="Etapas de trabajo">
+        <button type="button" aria-current={workStage === "import" ? "step" : undefined} onClick={() => setWorkStage("import")}>1. Importar</button>
+        <button type="button" disabled={!pdfAnalysis} aria-current={workStage === "review" ? "step" : undefined} onClick={() => setWorkStage("review")}>2. Revisar{pdfAnalysis ? ` (${pdfAnalysis.workers.length})` : ""}</button>
+        <button type="button" disabled={!pdfAnalysis} aria-current={workStage === "audio" ? "step" : undefined} onClick={() => setWorkStage("audio")}>3. Audios</button>
+        <button type="button" disabled={Boolean(saving || storageFailed || isPdfProcessing)} onClick={async () => {
+          try { await repository.flush(); setDeliveryOpen(true); }
+          catch { setStorageMessage("No se pudo guardar el lote antes de abrir las entregas."); }
+        }}>4. Entregas</button>
+      </nav>
       <main className="workspace">
+        <p className={`storage-status${storageFailed ? " is-error" : ""}`} role={storageFailed ? "alert" : "status"}>{saving ? "Guardando cambios..." : storageMessage}</p>
         <section className="surface">
           <div className="tab-content">
-              <section className="panel" aria-label="Lotes guardados">
+              <details ref={historyRef} className="batch-history" aria-label="Lotes guardados"><summary>Historial y recuperación de lotes</summary>
                 <h2>Progreso y lotes guardados</h2>
-                <p role="status">{saving ? "Guardando cambios... No cierres esta ventana." : storageMessage}</p>
                 <button type="button" className="secondary-button" onClick={() => refreshBatches().catch(() => setStorageMessage("Connector no disponible."))}>Actualizar lotes</button>
                 {savedBatches.map(batch => <div key={batch.id} className="detail-actions">
                   <span>{batch.file_name || "Lote"} · {batch.workers} evaluaciones · {batch.updated_at}</span>
-                  <button type="button" className="secondary-button" disabled={Boolean(saving) || isPdfProcessing} onClick={() => restoreBatch(batch.id)}>Recuperar lote</button>
+                  <button type="button" className="secondary-button" disabled={Boolean(saving) || isPdfProcessing} onClick={() => { restoreBatch(batch.id).then(() => setWorkStage("review")).catch(() => {}); }}>Recuperar lote</button>
                   <button type="button" className="secondary-button" onClick={async () => {
                     if (!window.confirm("¿Eliminar el lote y sus MP3 del almacén cifrado? No elimina PDFs de origen ni copias exportadas. Esta acción no se puede deshacer.")) return;
                     try {
@@ -309,13 +348,10 @@ ${error?.message || "Error desconocido"}`
                 </div>)}
                 {pdfAnalysis ? <p>{Object.entries(batchCounts(pdfAnalysis)).map(([label, count]) => `${label}: ${count}`).join(" · ")}</p> : null}
                 {pdfAnalysis?.duplicate_batch_ids?.length ? <p>Se omitieron evaluaciones ya guardadas en otros lotes; puedes recuperarlas desde la lista.</p> : null}
-              </section>
+              </details>
 
-              <section className="pdf-source-selector" aria-labelledby="pdf-source-title">
-                <div>
-                  <p className="section-label">Origen de evaluaciones</p>
-                  <h2 id="pdf-source-title">Selecciona cómo importar</h2>
-                </div>
+              <div id="import-workspace" className="import-workspace" hidden={workStage !== "import"}>
+              <section className="pdf-source-selector" aria-label="Origen de evaluaciones">
                 <div className="pdf-source-options" role="group" aria-label="Origen del PDF">
                   <button
                     type="button"
@@ -327,7 +363,7 @@ ${error?.message || "Error desconocido"}`
                     aria-pressed={pdfSource === "mediweb"}
                   >
                     <strong>Importar desde MediWeb</strong>
-                    <span>Opción principal mediante AudioEvaluaciones Connector</span>
+
                   </button>
                   <button
                     type="button"
@@ -336,7 +372,7 @@ ${error?.message || "Error desconocido"}`
                     aria-pressed={pdfSource === "manual"}
                   >
                     <strong>Cargar PDF</strong>
-                    <span>Respaldo manual desde esta computadora</span>
+
                   </button>
                 </div>
               </section>
@@ -364,7 +400,7 @@ ${error?.message || "Error desconocido"}`
                       onChange={(event) => {
                         const file = event.target.files?.[0];
                         if (file) {
-                          handlePdfSelected(file);
+                          handlePdfSelected(file).then(() => setWorkStage("review")).catch(() => {});
                         }
                         event.target.value = "";
                       }}
@@ -383,11 +419,14 @@ ${error?.message || "Error desconocido"}`
                   <MediwebImporter
                     onPdfSelected={handlePdfSelected}
                     onBatchStarted={resetCurrentBatch}
-                    onRestoreBatch={restoreBatch}
+                    onRestoreBatch={id => restoreBatch(id, { showStatus: false })}
                     analysis={pdfAnalysis}
+                    onReview={() => setWorkStage("review")}
                   />
                 </div>
               ) : null}
+
+              </div>
 
               {pdfPreview && (
                 <div className="preview-placeholder placeholder-box--narrative">
@@ -396,26 +435,21 @@ ${error?.message || "Error desconocido"}`
               )}
 
               {pdfAnalysis ? (
-                <div id="pdf-workers-results" tabIndex="-1" className="pdf-results-focus-target">
-                  <TtsSessionPanel />
-                  <BulkAudioPanel key={`bulk-${pdfAnalysis.batch_id}`} analysis={pdfAnalysis} repository={repository}
-                    onSelectWorker={setSelectedPdfWorkerIndex}
-                    getSnapshot={() => currentAnalysisRef.current} refreshRecipients={refreshRecipients}
-                    saveQueue={queue => { const current = currentAnalysisRef.current; if (current?.batch_id !== queue.batch_id) return Promise.reject(new Error("El lote cambió.")); return persistAnalysis({ ...current, bulk_audio_queue: queue,
-                      bulk_audio_history: current.bulk_audio_queue && current.bulk_audio_queue.id !== queue.id ? [...(current.bulk_audio_history || []), current.bulk_audio_queue] : current.bulk_audio_history }); }}
-                    runAudio={(item, text, configuration) => { const index = currentAnalysisRef.current?.workers.findIndex(worker => worker.evaluation_id === item.evaluation_id); return handlePersistentAudio(index, text, item, configuration); }}
-                    storageFailed={storageFailed} />
+                <div id="pdf-workers-results" hidden={workStage === "import"} tabIndex="-1" className="pdf-results-focus-target">
+                  <div hidden={workStage !== "review"}>
                   <PdfWorkersPreview
-                    key={pdfAnalysis.batch_id}
+                    key={`${pdfAnalysis.batch_id}:${reviewRecipient}`}
+                    initialContactReview={reviewRecipient}
                     analysis={pdfAnalysis}
                     selectedWorkerIndex={selectedPdfWorkerIndex}
-                    onSelectWorker={setSelectedPdfWorkerIndex}
+                    onSelectWorker={selectWorker}
                     onChangeWorker={handlePdfWorkerChange}
                     onUpdateWorker={(...args) => { const result = updatePdfWorkerAtIndex(...args); result.catch(() => {}); return result; }}
                     onGenerateAudio={handlePersistentAudio}
                     onVerifyContact={verifyContact}
                     onUpdateQueue={updateWhatsAppQueue}
                     onRefreshRecipients={refreshRecipients}
+                    onReviewUiChange={updateReviewUi}
                     greeting={greeting}
                     onGreetingChange={(value) => {
                       setGreeting(value);
@@ -428,6 +462,16 @@ ${error?.message || "Error desconocido"}`
                       })) }).catch(() => {});
                     }}
                   />
+                  </div>
+                  <section hidden={workStage !== "audio"} className="audio-workspace">
+                  <BulkAudioPanel key={`bulk-${pdfAnalysis.batch_id}`} analysis={pdfAnalysis} repository={repository}
+                    onSelectWorker={index => { selectWorker(index); setWorkStage("review"); }}
+                    getSnapshot={() => currentAnalysisRef.current} refreshRecipients={refreshRecipients}
+                    saveQueue={queue => { const current = currentAnalysisRef.current; if (current?.batch_id !== queue.batch_id) return Promise.reject(new Error("El lote cambió.")); return persistAnalysis({ ...current, bulk_audio_queue: queue,
+                      bulk_audio_history: current.bulk_audio_queue && current.bulk_audio_queue.id !== queue.id ? [...(current.bulk_audio_history || []), current.bulk_audio_queue] : current.bulk_audio_history }); }}
+                    runAudio={(item, text, configuration) => { const index = currentAnalysisRef.current?.workers.findIndex(worker => worker.evaluation_id === item.evaluation_id); return handlePersistentAudio(index, text, item, configuration); }}
+                    storageFailed={storageFailed} />
+                  </section>
                 </div>
               ) : (
                 !pdfPreview && pdfSource === "manual" && (

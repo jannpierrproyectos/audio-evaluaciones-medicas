@@ -34,7 +34,21 @@ export async function getTtsConfiguration() {
   }
   const response = await fetch(`${serviceUrl}/configuration`, { headers, redirect: 'error', signal: AbortSignal.timeout(10000) })
   if (!response.ok) throw new Error('El servicio TTS debe publicar su configuración para conservar MP3.')
-  return response.json()
+  return normalizeTtsConfiguration(await response.json())
+}
+
+// Adapt the provider's existing field names rather than asking the operator
+// to identify a model or voice. Do not fabricate a real service for local WAV.
+export function normalizeTtsConfiguration(value) {
+  const format = value.format || value.output_format
+  const { voice_id: voiceId, ...publicValue } = value
+  return {
+    ...publicValue,
+    provider: value.provider || value.engine,
+    model: value.model || value.model_id,
+    voice_ref: value.voice_ref || (voiceId ? createHash('sha256').update(String(voiceId)).digest('hex') : undefined),
+    format: String(format || '').startsWith('mp3') ? 'mp3' : format,
+  }
 }
 
 function getFileExtensionFromMimeType(mimeType) {
@@ -158,7 +172,7 @@ async function requestExternalTts({ text, filenameHint }) {
 
   // Check the legacy Space BEFORE a paid request. Its old API has no MP3
   // configuration header; this metadata must match the preflight fingerprint.
-  const legacyConfiguration = isLegacyTtsMode() ? await getTtsConfiguration() : null
+  const serviceConfiguration = await getTtsConfiguration()
   const response = await fetch(`${serviceUrl}${DEFAULT_TTS_ROUTE}`, {
     method: 'POST',
     headers: {
@@ -189,10 +203,13 @@ async function requestExternalTts({ text, filenameHint }) {
       ? generatedFilename
       : getFilenameFromContentDisposition(contentDisposition) || generatedFilename
 
+  const configurationHeader = response.headers.get('x-tts-configuration')
+  const actualConfiguration = configurationHeader
+    ? normalizeTtsConfiguration(JSON.parse(decodeURIComponent(configurationHeader)))
+    : serviceConfiguration
   return {
     audioBuffer: Buffer.from(await response.arrayBuffer()),
-    configuration: response.headers.get('x-tts-configuration') ||
-      (legacyConfiguration ? encodeURIComponent(JSON.stringify(legacyConfiguration)) : ''),
+    configuration: encodeURIComponent(JSON.stringify(actualConfiguration)),
     filename,
     mimeType,
     source: 'external',

@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { isTtsSessionActive } from './ttsSession.js'
+import { hasLocalTtsAccess } from './localTtsAccess.js'
 
 export const MAX_TTS_BODY_BYTES = 64 * 1024
 export const ttsAccessError = (status, code) => Object.assign(new Error('TTS bloqueado: revisa el acceso institucional, la configuración y los límites del backend.'), { status, code })
@@ -25,7 +26,7 @@ export function authorizeTtsRequest(request) {
     return // Local synthetic WAV only; never a provider call.
   }
   ttsServiceHeaders() // Service token or explicit, allowlisted legacy Space.
-  if (isTtsSessionActive(request)) return
+  if (hasLocalTtsAccess(request) || isTtsSessionActive(request)) return
   if (String(process.env.INSTITUTIONAL_PROXY_TOKEN || '').length >= 32) return requireInstitutionalAccess(request)
   throw ttsAccessError(401, 'TTS_OPERATOR_SESSION_REQUIRED')
 }
@@ -45,8 +46,6 @@ export function ttsServiceHeaders() {
     if (url.protocol !== 'https:' || url.hostname !== 'jannpi-audioevaluaciones-tts.hf.space' ||
       url.username || url.password || url.port || !['', '/'].includes(url.pathname) ||
       url.search || url.hash) throw ttsAccessError(503, 'TTS_LEGACY_URL_UNSAFE')
-    if (String(process.env.TTS_OPERATOR_PASSPHRASE || '').length < 32)
-      throw ttsAccessError(503, 'TTS_OPERATOR_ACCESS_NOT_CONFIGURED')
     return {}
   }
   if (token.length < 32) throw ttsAccessError(503, 'TTS_ACCESS_NOT_CONFIGURED')

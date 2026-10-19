@@ -15,6 +15,26 @@ import { createApp } from "../src/http/app.js";
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
 const fakeProtection = { restrictDirectory: async () => {}, protectKey: async bytes => Buffer.from(bytes).reverse() };
 
+test("UX scenario 5: expired readable PDF is recreated from its protected original without downloading", async () => fixture(async f => {
+  let now = Date.now();
+  const temporary = new TemporaryAttachments({ ...f.settings, now: () => now });
+  const downloads = path.join(f.directory, "downloads"); await mkdir(downloads);
+  const bytes = Buffer.from("%PDF-1.4 FICTICIO");
+  await writeFile(path.join(downloads, "original.pdf"), bytes);
+  const revealed = [];
+  const files = createManagedFileService({ downloadsDir: downloads, temporaryAttachments: temporary,
+    ensureProtectedFile: async () => {}, revealFile: async file => revealed.push(file) });
+  await files.revealPinned("original.pdf", sha256(bytes), ".pdf");
+  now += ATTACHMENT_TTL_MS + 1;
+  await files.revealPinned("original.pdf", sha256(bytes), ".pdf");
+  assert.equal(revealed.length, 2);
+  assert.notEqual(revealed[0], revealed[1]);
+  await assert.rejects(readFile(revealed[0]), { code: "ENOENT" });
+  assert.deepEqual(await readFile(revealed[1]), bytes);
+  assert.deepEqual(await readFile(path.join(downloads, "original.pdf")), bytes);
+  await temporary.release();
+}));
+
 async function fixture(callback) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "ae-attachments-test-"));
   try {

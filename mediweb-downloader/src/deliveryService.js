@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { canonical, hasValidClinicalApproval, getRecipientChecks, audioFingerprintPayload, recipientVersion } from "./authorizationPolicy.js";
+import { canonical, hasValidClinicalApproval, getRecipientChecks, audioFingerprintPayload, matchesApprovedAudio, recipientVersion } from "./authorizationPolicy.js";
 import { synchronizeRecipients } from "./recipientReview.js";
 import { buildWhatsAppMessage, getWhatsAppRecipientName } from "./whatsappContent.js";
 import { applyNarrativeGreeting } from "./narrativeGreeting.js";
@@ -44,12 +44,14 @@ export class DeliveryService {
     const reasons = [];
     if (!approval) reasons.push("Falta aprobación clínica vigente del texto exacto.");
     if (worker.validation?.has_errors) reasons.push("Errores clínicos bloqueantes.");
-    if (!checks.authorized) reasons.push("WhatsApp, identidad, autorización vigente o PDF pendientes.");
+    for (const [key, reason] of [["formatValid", "Falta un telefono valido."], ["whatsapp", "Falta comprobar WhatsApp."], ["identity", "Falta verificar la identidad del destinatario."], ["consent", "Falta autorizacion vigente para este canal."], ["pdf", "Falta confirmar el PDF de esta evaluacion."], ["duplicateResolved", "Resuelve el conflicto de identidad del telefono compartido."]]) {
+      if (!checks[key]) reasons.push(reason);
+    }
     if (worker.app_fields?.mediweb_link_error) reasons.push(worker.app_fields.mediweb_link_error);
     if (!operation || operation.status !== "listo" || worker.app_fields?.audio_stale || worker.app_fields?.audio_status !== "listo") reasons.push("Falta MP3 vigente en el almacén cifrado.");
     if (operation?.status === "listo") {
       const expected = digest(JSON.stringify(audioFingerprintPayload(worker, text, operation.metadata?.configuration, operation.metadata?.tts_text)));
-      if (expected !== operation.fingerprint || operation.metadata?.text !== text || operation.metadata?.evaluation_id !== evaluationId) reasons.push("El MP3 no corresponde a esta versión, identidad o evaluación.");
+      if ((expected !== operation.fingerprint && !matchesApprovedAudio(worker, text, operation.metadata, operation.metadata?.configuration)) || operation.metadata?.text !== text || operation.metadata?.evaluation_id !== evaluationId) reasons.push("El MP3 no corresponde a esta versión, identidad o evaluación.");
     }
     const message = buildWhatsAppMessage(worker);
     const binding = digest({ evaluationId, batchId: batch.id, approval: worker.clinical_approval, recipient: recipientVersion(worker),
@@ -89,7 +91,7 @@ export class DeliveryService {
     });
   }
   async detail(evaluationId) {
-    return this.transaction(data => { const context = this.context(data, evaluationId); return { worker: context.worker, greeting: context.batch.snapshot.greeting, binding: context.binding, reasons: context.reasons }; });
+    return this.transaction(data => { const context = this.context(data, evaluationId); return { worker: context.worker, greeting: context.batch.snapshot.greeting, audio_configuration: context.operation?.metadata?.configuration, binding: context.binding, reasons: context.reasons }; });
   }
   checkConfiguration(context, configuration) {
     if (digest(configuration || null) !== digest(context.operation?.metadata?.configuration || null)) throw fail("DELIVERY_CONFIGURATION_CHANGED", "Cambió la configuración de voz. Comprueba la vigencia del MP3 desde el panel de audio.");
@@ -226,10 +228,34 @@ export class DeliveryService {
       return this.publicRecord(record);
     });
   }
-  async complete({ id, confirmed, configuration }) {
+  async uncertain({ id, confirmed, configuration }) {
+    if (confirmed !== true) throw fail("DELIVERY_CONFIRMATION_REQUIRED");
+    return this.transaction(async data => {
+      const record = data.deliveries.find(record => record.id === id);
+      if (!record || record.pending || record.state !== "listo") throw fail("DELIVERY_UNCERTAIN");
+      await this.checked(data, record, configuration);
+      record.state = "incierta";
+      record.reason = "El operador declaró un envío parcial o incierto. Comprueba el chat antes de continuar.";
+      record.events.push({ action: "resultado_incierto", at: new Date().toISOString(), evidence: "declaracion_operador" });
+      await this.managedFiles.releaseTemporary?.([record.pdf?.id, record.mp3?.id]);
+      return this.publicRecord(record);
+    });
+  }
+  async complete({ id, confirmed, allParts, configuration }) {
     return this.transaction(async data => {
       const record = data.deliveries.find(record => record.id === id);
       if (record?.state === "completada") return this.publicRecord(record);
+      if (record && !record.pending && record.state === "listo" && confirmed === true && allParts === true) {
+        await this.checked(data, record, configuration);
+        if (!["conversation", ...sentParts].every(part => record.events.some(event => event.action === part))) throw fail("DELIVERY_PREPARATION_REQUIRED");
+        const at = new Date().toISOString();
+        for (const part of sentParts) {
+          if (!record.confirmations[part]) {
+            record.confirmations[part] = at;
+            record.events.push({ action: "confirm", part, at, evidence: "declaracion_operador_conjunta" });
+          }
+        }
+      }
       if (!record || record.pending || record.state !== "listo" || confirmed !== true || !sentParts.every(part => record.confirmations[part])) throw fail("DELIVERY_CONFIRMATION_REQUIRED");
       await this.checked(data, record, configuration);
       await this.managedFiles.releaseTemporary?.([record.pdf?.id, record.mp3?.id]);

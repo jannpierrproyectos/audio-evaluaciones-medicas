@@ -17,7 +17,7 @@ const req = { url: 'https://app.example.invalid/api/tts/session', headers: { get
 test('signed operator session allows paid request without exposing a bearer', () => {
   withEnv(opts, () => {
     const cookie = createTtsSession(req, opts.TTS_OPERATOR_PASSPHRASE)
-    assert.match(cookie, /HttpOnly; SameSite=Strict; Max-Age=28800; Secure/)
+    assert.match(cookie, /HttpOnly; SameSite=Strict; Max-Age=2592000; Secure/)
     const sessionRequest = { headers: { cookie: cookie.split(';')[0] } }
     assert.equal(isTtsSessionActive(sessionRequest), true)
     assert.doesNotThrow(() => authorizeTtsRequest(sessionRequest))
@@ -35,5 +35,23 @@ test('unconfigured operator access fails closed', () => {
   withEnv({ ...opts, TTS_OPERATOR_PASSPHRASE: '' }, () => {
     assert.equal(ttsSessionState(req).configured, false)
     assert.throws(() => createTtsSession(req, 'test'), { status: 503 })
+  })
+})
+
+test('scenario 9: trusted browser remains authorized after a day, expires at 30 days and rejects tampering', () => {
+  withEnv(opts, () => {
+    const originalNow = Date.now
+    const now = originalNow()
+    try {
+      Date.now = () => now
+      const cookie = createTtsSession(req, opts.TTS_OPERATOR_PASSPHRASE).split(';')[0]
+      Date.now = () => now + 24 * 60 * 60 * 1000
+      assert.equal(isTtsSessionActive({ headers: { cookie } }), true)
+      const tampered = cookie.slice(0, -1) + (cookie.endsWith('a') ? 'b' : 'a')
+      assert.equal(isTtsSessionActive({ headers: { cookie: tampered } }), false)
+      assert.throws(() => authorizeTtsRequest({ headers: {} }), { status: 401 })
+      Date.now = () => now + 30 * 24 * 60 * 60 * 1000
+      assert.equal(isTtsSessionActive({ headers: { cookie } }), false)
+    } finally { Date.now = originalNow }
   })
 })

@@ -36,7 +36,8 @@ test('Distribución: un Origin permitido no autoriza TTS; faltan claves => cierr
 }));
 test('Distribución: acceso válido solo reenvía credencial de servicio al backend HTTPS', async () => fixture(async f => {
   const response = await POST(f.request('Texto ficticio'));
-  assert.equal(response.status, 200); assert.equal(await response.text(), 'ID3FICTICIO'); assert.equal(f.calls, 1);
+  assert.equal(response.status, 200); assert.equal(await response.text(), 'ID3FICTICIO'); assert.equal(f.calls, 2); // Read-only metadata, then exactly one synthesis.
+  assert.equal(JSON.parse(decodeURIComponent(response.headers.get('x-tts-configuration'))).voice_ref, 'fixture');
   assert.equal(f.options.headers.Authorization, `Bearer ${process.env.TTS_SERVICE_ACCESS_TOKEN}`);
   assert.equal(f.options.redirect, 'error'); assert.ok(f.options.signal);
   assert.equal(response.headers.get('authorization'), null);

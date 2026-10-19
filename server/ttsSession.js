@@ -1,7 +1,8 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 
 const COOKIE_NAME = 'ae_tts_session'
-const TTL_SECONDS = 8 * 60 * 60
+// Bounded persistent operator session on a trusted workstation; never stored in JS.
+const TTL_SECONDS = 30 * 24 * 60 * 60
 const fail = (status, code) => Object.assign(new Error(code), { status, code })
 const header = (request, name) => typeof request?.headers?.get === 'function' ? request.headers.get(name) : request?.headers?.[name]
 function passphrase() {

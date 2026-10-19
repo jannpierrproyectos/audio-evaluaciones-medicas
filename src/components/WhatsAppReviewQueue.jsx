@@ -4,12 +4,6 @@ import { recipientVersion } from "../lib/recipientIdentity.js";
 import { getRecipientChecks } from "../lib/recipientPolicy.js";
 import { matchesReviewFilter, nextReviewId, openWhatsAppCheck, REVIEW_FILTERS, whatsappState } from "../lib/whatsappReview.js";
 
-function localDate(value) {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "";
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-}
-
 function ContactCard({ worker, busy, onDecision, onCorrectPhone }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -22,15 +16,8 @@ function ContactCard({ worker, busy, onDecision, onCorrectPhone }) {
   const conflict = worker.app_fields?.phone_analysis;
   const [openedVersion, setOpenedVersion] = useState("");
   const [feedback, setFeedback] = useState("");
-  const [identity, setIdentity] = useState(checks.identity);
-  const [consent, setConsent] = useState(checks.consent);
-  const [pdf, setPdf] = useState(checks.pdf);
-  const [duplicate, setDuplicate] = useState(Boolean(conflict?.conflicting && checks.duplicateResolved));
-  const [saveAuthorization, setSaveAuthorization] = useState(false);
-  const [expires, setExpires] = useState(localDate(worker.app_fields?.recipient_authorization?.expires_at));
   const [phone, setPhone] = useState(worker.datos_operativos?.telefono || "");
-  const canDeclare = openedVersion === version && availability.hasValidPhone;
-  const completeEvidence = identity && consent && pdf && Date.parse(expires) > now && (!conflict?.conflicting || duplicate);
+  const canDeclare = (checks.whatsapp || openedVersion === version) && availability.hasValidPhone;
   const label = status => status ? "Confirmada" : "Pendiente / bloqueada";
   return <section className="wa-review-card" aria-label="Contacto seleccionado">
     <h3>{getWhatsAppRecipientName(worker) || "Identidad pendiente"}</h3>
@@ -44,23 +31,12 @@ function ContactCard({ worker, busy, onDecision, onCorrectPhone }) {
       <div><dt>Correspondencia del PDF</dt><dd>{label(checks.pdf)}</dd></div>
     </dl>
     {worker.app_fields?.whatsapp_verification?.checked_at ? <p className="muted-text">Comprobación: {worker.app_fields.whatsapp_verification.checked_at} · Origen: {worker.app_fields.whatsapp_verification.origin}</p> : null}
-    <button type="button" className="primary-button" disabled={busy || !availability.hasValidPhone} onClick={async () => {
+    {!checks.whatsapp && <button type="button" className="primary-button" disabled={busy || !availability.hasValidPhone} onClick={async () => {
       setOpenedVersion("");
       try { await openWhatsAppCheck(worker); setOpenedVersion(version); setFeedback("Comprueba el chat y registra el resultado. Abrirlo no confirma la cuenta ni autoriza entregas."); }
       catch (error) { setOpenedVersion(""); setFeedback(error.message); }
-    }}>Abrir WhatsApp</button>
+    }}>Abrir WhatsApp</button>}
 
-    <details className="technical-detail">
-      <summary>Identidad y autorización para esta evaluación</summary>
-      <p className="muted-text">Son declaraciones independientes de la existencia de WhatsApp. No se copian de otras evaluaciones.</p>
-      <label><input type="checkbox" checked={identity} disabled={busy} onChange={event => setIdentity(event.target.checked)} /> Identidad del destinatario verificada</label>
-      <label><input type="checkbox" checked={consent} disabled={busy} onChange={event => setConsent(event.target.checked)} /> Autorización de entrega confirmada</label>
-      <label><input type="checkbox" checked={pdf} disabled={busy || !availability.hasPdf} onChange={event => setPdf(event.target.checked)} /> Trabajador y PDF corresponden</label>
-      {!availability.hasPdf ? <p>Falta el PDF completo vinculado. Importa desde MediWeb con la opción Ambos.</p> : <p className="muted-text">PDF: {availability.pdfName}</p>}
-      <label>Autorización vigente hasta<input type="datetime-local" value={expires} disabled={busy} onChange={event => setExpires(event.target.value)} /></label>
-      {conflict?.conflicting ? <label><input type="checkbox" checked={duplicate} disabled={busy} onChange={event => setDuplicate(event.target.checked)} /> Comprobé la identidad para este teléfono compartido</label> : null}
-      <label><input type="checkbox" checked={saveAuthorization} disabled={busy} onChange={event => setSaveAuthorization(event.target.checked)} /> Guardar estas declaraciones al confirmar «Tiene WhatsApp»</label>
-    </details>
     <details className="technical-detail">
       <summary>Corregir teléfono</summary>
       <label>Teléfono corregido<input type="tel" value={phone} disabled={busy} onChange={event => setPhone(event.target.value)} /></label>
@@ -68,11 +44,11 @@ function ContactCard({ worker, busy, onDecision, onCorrectPhone }) {
       <p className="muted-text">El cambio invalida la comprobación y las autorizaciones asociadas.</p>
     </details>
     <div className="audio-control-panel">
-      <button type="button" className="primary-button" disabled={busy || !canDeclare || (saveAuthorization && !completeEvidence)} onClick={() => onDecision("confirmado_por_operador", {
-        expectedVersion: version, expectedConflictSignature: conflict?.signature || "", identity, consent, pdf, duplicate,
+      <button type="button" className="primary-button" disabled={busy || !canDeclare} onClick={() => onDecision("confirmado_por_operador", {
+        expectedVersion: version, expectedConflictSignature: conflict?.signature || "",
         expectedAuthorization: JSON.stringify(worker.app_fields?.recipient_authorization || null),
-        saveAuthorization, expires_at: expires ? new Date(expires).toISOString() : null,
-      })}>Tiene WhatsApp</button>
+        saveAuthorization: false,
+      })}>{checks.whatsapp ? "Guardar y siguiente" : "Tiene WhatsApp"}</button>
       <button type="button" className="secondary-button" disabled={busy || !canDeclare} onClick={() => onDecision("no_disponible", { expectedVersion: version })}>No tiene WhatsApp</button>
       <button type="button" className="secondary-button" disabled={busy} onClick={() => onDecision("incierto", { expectedVersion: version })}>Revisar después</button>
     </div>
@@ -137,7 +113,7 @@ export default function WhatsAppReviewQueue({ analysis, onVerifyContact, onUpdat
             const updated = await onVerifyContact(selected.evaluation_id, decision, evidence);
             if (!activeRef.current) return;
             const visited = [...new Set([...(queue.visited || []), selected.evaluation_id])];
-            await navigate(nextReviewId(updated, selected.evaluation_id, visited, "pendientes"), { visited, filter: "pendientes" });
+            await navigate(nextReviewId(updated, selected.evaluation_id, visited, "bloqueados"), { visited, filter: "bloqueados" });
             setFeedback("Resultado guardado. Las autorizaciones clínicas y de entrega se mantienen independientes.");
           })} /> : <div className="preview-placeholder">No quedan otros contactos en esta vuelta. Los aplazados siguen pendientes.
           <button type="button" className="secondary-button" disabled={busy} onClick={() => run(() => navigate(workers.find(worker => matchesReviewFilter(worker, "pendientes"))?.evaluation_id || null, { visited: [], filter: "pendientes" }))}>Reanudar pendientes</button>

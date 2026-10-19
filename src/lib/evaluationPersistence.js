@@ -3,7 +3,7 @@ import { applyNarrativeGreeting, DEFAULT_NARRATIVE_GREETING } from "./narrativeG
 import { clinicalVersion, getAudioAuthorization, hasValidClinicalApproval, reconcileWorkerReview, recipientVersion, requestApprovedAudio } from "./clinicalApproval.js";
 import { prepareTextForTts } from "../clinical/ttsNormalizer.js";
 import { isWhatsAppConfirmed, normalizePhoneForWhatsApp } from "./whatsappMessage.js";
-import { audioFingerprintPayload } from "../../mediweb-downloader/src/authorizationPolicy.js";
+import { getRecipientChecks, audioFingerprintPayload, matchesApprovedAudio } from "../../mediweb-downloader/src/authorizationPolicy.js";
 
 export function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
@@ -19,6 +19,7 @@ export async function sha256(value) {
 export async function stateRequest(body, binary = false) {
   const response = await fetch(`${MEDIWEB_SERVICE_URL}/state`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), credentials: "omit",
+    signal: ["load", "list", "contacts"].includes(body.action) ? AbortSignal.timeout(15000) : undefined,
   });
   if (!response.ok) {
     const details = await response.json().catch(() => ({}));
@@ -39,8 +40,8 @@ export function restoreWorker(worker, greeting = DEFAULT_NARRATIVE_GREETING) {
     result = { ...result, app_fields: { ...result.app_fields, whatsapp_confirmed_phone: "", recipient_authorization: null } };
   }
   const authorization = result.app_fields?.recipient_authorization;
-  if (authorization && (!Number.isFinite(Date.parse(authorization.expires_at)) || Date.parse(authorization.expires_at) <= Date.now() || authorization.version !== recipientVersion(result))) {
-    result = { ...result, app_fields: { ...result.app_fields, recipient_authorization: { ...authorization, status: "vencida" }, audio_stale: true } };
+  if (authorization && authorization.status !== "revocada" && (getRecipientChecks(result).authorizationStatus === "vencida" || authorization.version !== recipientVersion(result))) {
+    result = { ...result, app_fields: { ...result.app_fields, recipient_authorization: { ...authorization, status: "vencida" } } };
   }
   if (result.app_fields?.audio_status === "generando") result = { ...result, app_fields: { ...result.app_fields, audio_status: "incierto", audio_error: "Solicitud interrumpida: no se repetirá automáticamente." } };
   return result;
@@ -56,12 +57,14 @@ export function batchCounts(snapshot) {
     if (state.approval === "aprobada") counts.aprobados++;
     else counts.pendientes++;
     if (state.validation === "bloqueada") counts.bloqueados++;
-    if (worker.app_fields?.audio_url && !worker.app_fields?.audio_stale && state.approval === "aprobada" && state.recipient === "confirmada") counts.audios++;
+    if (worker.app_fields?.audio_url && !worker.app_fields?.audio_stale && state.approval === "aprobada") counts.audios++;
   }
   return counts;
 }
 
 export async function audioFingerprint(worker, text, configuration) {
+  const reference = worker.app_fields?.audio_record || worker.app_fields?.audio_request;
+  if (reference?.fingerprint && matchesApprovedAudio(worker, text, reference, configuration)) return reference.fingerprint;
   return sha256(JSON.stringify(audioFingerprintPayload(worker, text, configuration, prepareTextForTts(text))));
 }
 
@@ -110,6 +113,7 @@ export async function getTtsConfiguration() {
   const response = await fetch("/api/tts/configuration", { cache: "no-store" });
   if (!response.ok) throw new Error("No se pudo comprobar modelo, voz y configuración TTS.");
   const configuration = await response.json();
+  if (configuration.provider === "mock") throw Object.assign(new Error("El servidor local no tiene conectado un servicio de voz real. Configura TTS_SERVICE_URL en el backend; no necesitas introducir una clave en la pantalla de audio."), { code: "TTS_SERVICE_NOT_CONFIGURED" });
   if (!configuration.provider || !configuration.model || !configuration.voice_ref || configuration.format !== "mp3") throw new Error("La persistencia de audio requiere un servicio MP3 con configuración identificable.");
   return configuration;
 }
@@ -131,7 +135,7 @@ export async function recoverAudio(worker, greeting, repository, configuration) 
 }
 
 // Reserves durably before the paid request. A timeout is uncertain, never an automatic retry.
-export async function generatePersistentAudio({ repository, worker, text, configuration, synthesize, update, current, greeting = DEFAULT_NARRATIVE_GREETING }) {
+export async function generatePersistentAudio({ repository, worker, text, configuration, synthesize, authorize = async () => {}, update, current, greeting = DEFAULT_NARRATIVE_GREETING }) {
   if (!getAudioAuthorization(worker, text).canGenerateAudio) throw new Error("Audio no autorizado.");
   await repository.flush();
   const fingerprint = await audioFingerprint(worker, text, configuration);
@@ -142,9 +146,8 @@ export async function generatePersistentAudio({ repository, worker, text, config
   if (operation.status === "listo") {
     const recovered = await recoverAudio(current(), greeting, repository, configuration);
     await update(value => {
-      const unchanged = clinicalVersion(value) === clinicalVersion(worker) && recipientVersion(value) === recipientVersion(worker) &&
+      const unchanged = clinicalVersion(value) === clinicalVersion(worker) &&
         JSON.stringify(value.clinical_approval) === JSON.stringify(worker.clinical_approval) &&
-        JSON.stringify(value.app_fields?.recipient_authorization) === JSON.stringify(worker.app_fields?.recipient_authorization) &&
         getAudioAuthorization(value, text).canGenerateAudio;
       return { ...value, app_fields: { ...value.app_fields, audio_record: recovered.app_fields.audio_record,
         audio_url: recovered.app_fields.audio_url, audio_filename: recovered.app_fields.audio_filename,
@@ -156,18 +159,18 @@ export async function generatePersistentAudio({ repository, worker, text, config
   if (operation.reused) throw Object.assign(new Error("Solicitud anterior de resultado incierto. No se repetirá el cargo automáticamente."), { code: "TTS_UNCERTAIN" });
   // Snapshot tokens are values, not JS reference identity, so restart is supported.
   const approvalToken = JSON.stringify(worker.clinical_approval);
-  const recipientToken = JSON.stringify(worker.app_fields?.recipient_authorization);
   const isCurrent = value => value?.evaluation_id === worker.evaluation_id &&
-    JSON.stringify(value.clinical_approval) === approvalToken && JSON.stringify(value.app_fields?.recipient_authorization) === recipientToken &&
+    JSON.stringify(value.clinical_approval) === approvalToken && clinicalVersion(value) === clinicalVersion(worker) &&
     getAudioAuthorization({ ...value, app_fields: { ...value.app_fields, audio_status: "listo" } }, text).canGenerateAudio &&
-    recipientVersion(value) === recipientVersion(worker) && value.app_fields?.texto_final === text;
+    value.app_fields?.texto_final === text;
   if (!isCurrent(current())) {
     await repository.request({ action: "cancel-unsent", operationId: operation.id });
     throw new Error("La autorización cambió antes de solicitar TTS.");
   }
-  await update(value => ({ ...value, app_fields: { ...value.app_fields, audio_status: "generando", audio_error: "" } }));
   let sent = false;
   try {
+    await authorize();
+    await update(value => ({ ...value, app_fields: { ...value.app_fields, audio_status: "generando", audio_error: "" } }));
     const latest = current();
     if (!isCurrent(latest)) throw new Error("La autorización cambió antes de solicitar TTS.");
     const result = await requestApprovedAudio({ worker: { ...latest, app_fields: { ...latest.app_fields, audio_status: "pendiente" } }, text, synthesize: options => { sent = true; return synthesize(options); }, filenameHint: "audio-evaluacion" });
@@ -186,7 +189,7 @@ export async function generatePersistentAudio({ repository, worker, text, config
     return { reused: false, stale };
   } catch (error) {
     if (!sent) await repository.request({ action: "cancel-unsent", operationId: operation.id });
-    await update(value => ({ ...value, app_fields: { ...value.app_fields, audio_status: "incierto", audio_stale: true, audio_error: "Solicitud de resultado incierto. Revisa el servicio antes de repetir." } }));
+    await update(value => ({ ...value, app_fields: { ...value.app_fields, audio_status: sent ? "incierto" : "pendiente", audio_stale: true, audio_error: sent ? "Solicitud de resultado incierto. Revisa el servicio antes de repetir." : "No se solicito audio. Revisa el acceso del operador." } }));
     throw error;
   }
 }

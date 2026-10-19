@@ -39,7 +39,7 @@ export function reconcileWorkerReview(previous, next) {
     app_fields: { ...next.app_fields,
       needs_review: invalid || validation.has_errors || next.clinical_approval?.status !== "aprobada",
       ...(recipientChanged ? { recipient_authorization: null, whatsapp_confirmed_phone: "", whatsapp_verification: null, phone_analysis: null } : {}),
-      ...((changed || recipientChanged || JSON.stringify(previous.app_fields?.recipient_authorization) !== JSON.stringify(next.app_fields?.recipient_authorization)) && (next.app_fields?.audio_url || next.app_fields?.audio_record) ? { audio_stale: true } : {}) } };
+      ...(changed && (next.app_fields?.audio_url || next.app_fields?.audio_record) ? { audio_stale: true } : {}) } };
 }
 
 export function getAudioAuthorization(worker, text) {
@@ -48,12 +48,13 @@ export function getAudioAuthorization(worker, text) {
   const recipientChecks = getRecipientChecks(worker);
   const recipientVerified = !recipientRequired || recipientChecks.authorized;
   const approved = hasValidClinicalApproval(worker, text);
-  return { extraction: worker.derived_states?.extraction_status || "extraido",
+  const extraction = worker.derived_states?.extraction_status || "extraido";
+  return { extraction,
     validation: clinical.blocked ? "bloqueada" : clinical.validation.has_warnings ? "con_alertas" : "valida",
     approval: approved ? "aprobada" : worker.clinical_approval?.status === "pendiente" ? "pendiente" : "invalidada",
     recipient: recipientVerified ? "confirmada" : "pendiente",
     recipientChecks,
-    canGenerateAudio: approved && !clinical.blocked && recipientVerified && worker.app_fields?.audio_status !== "generando" };
+    canGenerateAudio: extraction === "extraido" && approved && !clinical.blocked && worker.app_fields?.audio_status !== "generando" };
 }
 
 export async function requestApprovedAudio({ worker, text, synthesize, ...options }) {
@@ -61,12 +62,10 @@ export async function requestApprovedAudio({ worker, text, synthesize, ...option
   return synthesize({ ...options, text });
 }
 
-// A response belongs to the approval and recipient authorization that started it.
+// Audio belongs to the approved clinical content; delivery evidence is independent.
 export function isAudioResponseCurrent(requestWorker, currentWorker, text) {
-  return currentWorker.clinical_approval === requestWorker.clinical_approval &&
-    currentWorker.app_fields?.recipient_authorization === requestWorker.app_fields?.recipient_authorization &&
-    currentWorker.app_fields?.whatsapp_confirmed_phone === requestWorker.app_fields?.whatsapp_confirmed_phone &&
-    recipientVersion(currentWorker) === recipientVersion(requestWorker) &&
+  return JSON.stringify(currentWorker.clinical_approval) === JSON.stringify(requestWorker.clinical_approval) &&
+    clinicalVersion(currentWorker) === clinicalVersion(requestWorker) &&
     currentWorker.app_fields?.texto_final === text &&
     getAudioAuthorization({ ...currentWorker, app_fields: { ...currentWorker.app_fields, audio_status: "listo" } }, text).canGenerateAudio;
 }
