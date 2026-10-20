@@ -39,6 +39,11 @@ export async function stateRoute(request, response, getStore) {
     response.end(bytes);
   } catch (error) {
     if (error instanceof HttpError) throw error;
-    throw new HttpError(error.status || 503, error.code?.startsWith("STORE_") ? error.code : "STORE_UNAVAILABLE", "Almacenamiento seguro no disponible o en conflicto. Conserva esta ventana y vuelve a cargar el lote antes de continuar.");
+    const messages = {
+      STORE_EVALUATION_CONFLICT: "El lote contiene versiones diferentes de una misma evaluación. Los PDF se conservan; revisa esa discrepancia.",
+      STORE_REVISION_CONFLICT: "Otra ventana modificó el lote. Vuelve a abrirlo para continuar con la versión guardada.",
+      STORE_BUSY: "El almacenamiento está ocupado por otra operación. Espera un momento y reintenta.",
+    };
+    throw new HttpError(error.status || 503, error.code?.startsWith("STORE_") ? error.code : "STORE_UNAVAILABLE", messages[error.code] || "Almacenamiento seguro no disponible o en conflicto. Conserva esta ventana y vuelve a cargar el lote antes de continuar.");
   }
 }

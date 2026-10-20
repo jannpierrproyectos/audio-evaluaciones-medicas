@@ -9,5 +9,5 @@ test('Candidato: prerelease conserva SemVer y genera recurso numérico Windows v
   assert.throws(() => windowsVersion('70000.1.0'));
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
   const lock = JSON.parse(await readFile(new URL('../package-lock.json', import.meta.url)));
-  assert.equal(pkg.version, '0.6.0-rc.3'); assert.equal(lock.version, pkg.version); assert.equal(lock.packages[''].version, pkg.version);
+  assert.equal(pkg.version, '0.6.0-rc.4'); assert.equal(lock.version, pkg.version); assert.equal(lock.packages[''].version, pkg.version);
 });

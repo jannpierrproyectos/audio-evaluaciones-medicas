@@ -39,14 +39,22 @@ try {
     const response = await fetch(`http://127.0.0.1:${port}/state`, { method: "POST", headers: { Origin: "http://localhost:5173", "Content-Type": "application/json" }, body: JSON.stringify(body) });
     assert.equal(response.status, 200); return response.json();
   };
-  const saved = await request({ action: "import", importKey: "a".repeat(64), snapshot: { workers: [{ identificacion: { dni: "00000001" }, app_fields: { texto_final: "MARCADOR_STAGING_FICTICIO" } }] } });
+  const saved = await request({ action: "import", importKey: "a".repeat(64), snapshot: { workers: [{ identificacion: { dni: "00000001", nombres: "Persona", apellidos: "Ficticia" }, app_fields: { texto_final: "MARCADOR_STAGING_FICTICIO" } }] } });
+  const evaluationId = saved.snapshot.workers[0].evaluation_id;
+  const operation = await request({ action: "reserve", batchId: saved.id, evaluationId, fingerprint: "b".repeat(64) });
+  const syntheticMp3 = Buffer.from("ID3LOCAL-STAGING-SYNTHETIC-AUDIO");
+  await request({ action: "complete", operationId: operation.id, audio: syntheticMp3.toString("base64"), metadata: { evaluation_id: evaluationId, fingerprint: operation.fingerprint } });
+  const normalMp3 = path.join(isolatedUser, "Documents", "AudioEvaluaciones", "Descargas", "Documentos", "MP3", "02_Audio_Persona_Ficticia.mp3");
+  assert.deepEqual(await readFile(normalMp3), syntheticMp3);
   await stop(); child = launch();
   await waitForHealth(port, 12000);
   const restored = await request({ action: "load", id: saved.id });
   assert.equal(restored.snapshot.workers[0].app_fields.texto_final, "MARCADOR_STAGING_FICTICIO");
+  assert.deepEqual(await readFile(normalMp3), syntheticMp3);
   const vault = path.join(isolatedUser, "LocalAppData", "AudioEvaluacionesConnector", "evaluations-v1");
   for (const name of await readdir(vault)) assert.equal((await readFile(path.join(vault, name))).includes(Buffer.from("MARCADOR_STAGING_FICTICIO")), false);
   console.log("Reinicio real del proceso staging recupera lote con AES-GCM/DPAPI; sin marcador en claro.");
+  console.log("MP3 normal con nombre del paciente disponible antes y después de reiniciar; cero solicitudes al proveedor.");
 } catch (error) {
   throw new Error(`${error.message}\nstdout:\n${stdout}\nstderr:\n${stderr}`);
 } finally {

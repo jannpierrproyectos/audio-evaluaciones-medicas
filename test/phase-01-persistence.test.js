@@ -189,7 +189,11 @@ test("referencia de atención deduplica entre PDFs; distinta atención conserva 
   assert.notEqual(first.snapshot.workers[0].evaluation_id, second.snapshot.workers[0].evaluation_id);
   assert.equal(first.snapshot.workers[0].worker_id, second.snapshot.workers[0].worker_id);
   const discrepancy = structuredClone(input); discrepancy.workers[0].aptitud_y_recomendaciones.aptitud_final = "PENDIENTE";
-  await assert.rejects(store.import(discrepancy, await sha256("different-content")), error => error.code === "STORE_EVALUATION_CONFLICT");
+  const revised = await store.import(discrepancy, await sha256("different-content"));
+  assert.notEqual(revised.snapshot.workers[0].evaluation_id, first.snapshot.workers[0].evaluation_id);
+  assert.equal(revised.snapshot.workers[0].worker_id, first.snapshot.workers[0].worker_id);
+  assert.equal(revised.snapshot.workers[0].clinical_approval.status, "pendiente");
+  assert.deepEqual((await store.load(first.id)).snapshot, first.snapshot);
 }));
 
 test("exportación denegada no escribe MP3 en claro", async () => fixture(async ({ directory }) => {

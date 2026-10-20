@@ -178,10 +178,14 @@ export class EvaluationStore {
           return [];
         }
         seen.set(encounterKey, content);
+        let revisedEncounter = false;
         for (const previous of data.batches) {
-          const match = previous.snapshot.workers.find(item => item.source_evaluation_key === encounterKey);
-          if (!match) continue;
-          if (match.source_content_hash !== content) throw fail("STORE_EVALUATION_CONFLICT");
+          const versions = previous.snapshot.workers.filter(item => item.source_evaluation_key === encounterKey);
+          if (!versions.length) continue;
+          const match = versions.find(item => item.source_content_hash === content);
+          // Re-extraction or a revised report must not overwrite an older clinical
+          // version or prevent the rest of the current download from opening.
+          if (!match) { revisedEncounter = true; continue; }
           if (String(match.datos_operativos?.telefono || "") !== String(worker.datos_operativos?.telefono || "") ||
             (!match.datos_operativos?.archivo_pdf_completo_id && worker.datos_operativos?.archivo_pdf_completo_id)) {
             // Same clinical encounter, new recipient evidence: preserve clinical
@@ -192,6 +196,12 @@ export class EvaluationStore {
           }
           duplicateBatches.add(previous.id);
           return [];
+        }
+        if (revisedEncounter) {
+          worker.clinical_approval = { status: "pendiente" };
+          worker.derived_states = { ...worker.derived_states, reviewed_by_user: false, reviewed_at: "", needs_review: true };
+          worker.app_fields = Object.fromEntries(Object.entries(worker.app_fields || {}).filter(([key]) => !/^(audio_|whatsapp_audio_)/.test(key)));
+          worker.app_fields = { ...worker.app_fields, needs_review: true, recipient_authorization: null, whatsapp_verification: null, whatsapp_confirmed_phone: "" };
         }
         return [{ ...worker, worker_id: workerId, source_evaluation_key: encounterKey, source_content_hash: content, evaluation_id: randomUUID(), batch_id: batch.id }];
       });
@@ -284,6 +294,9 @@ export class EvaluationStore {
       await this.atomic(file, this.seal(Buffer.from(JSON.stringify(record)), operation.id));
       Object.assign(operation, { status: "listo", sha256: digest(bytes), metadata, completed_at: this.now().toISOString() });
       return { write: true, value: structuredClone(operation) };
+    }).then(async operation => {
+      await this.onAudioReady?.(operation);
+      return operation;
     });
   }
 

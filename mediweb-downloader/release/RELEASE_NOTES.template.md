@@ -1,6 +1,9 @@
 # AudioEvaluaciones Connector {{VERSION}}
 
 Novedades:
+- PDF y MP3 normales, permanentes y con el nombre del paciente en Documentos/PDF y Documentos/MP3 dentro de la carpeta de descargas. Recupera documentos anteriores sin descargas ni sintesis nuevas.
+- Importa revisiones de evaluaciones ya descargadas como versiones nuevas pendientes de revision, sin bloquear el lote ni sobrescribir aprobaciones o audios anteriores.
+- Muestra el motivo seguro de una discrepancia de importacion en vez de un error generico.
 - Reconoce los MP3 aprobados con la politica actual, independiente de WhatsApp y del destinatario. Recupera audios sin otra sintesis.
 - Recupera originales cifrados de las descargas hechas anteriormente por el servicio de fuentes, sin moverlos ni descargarlos otra vez.
 - PDF y MP3 preparados con el nombre del trabajador.

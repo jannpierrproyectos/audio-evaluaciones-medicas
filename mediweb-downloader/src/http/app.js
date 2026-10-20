@@ -32,7 +32,7 @@ export function normalizeOrigin(value) {
   }
 }
 
-export function createApp({ engine, jobManager, managedFiles = null, updateService = null, getEvaluationStore = null, processingService = null, version, allowedOrigins = parseAllowedOrigins(process.env.MEDIWEB_ALLOWED_ORIGINS) }) {
+export function createApp({ engine, jobManager, managedFiles = null, updateService = null, getEvaluationStore = null, processingService = null, findDownloadedImport = null, version, allowedOrigins = parseAllowedOrigins(process.env.MEDIWEB_ALLOWED_ORIGINS) }) {
   const route = createRoutes({ engine, jobManager, managedFiles, updateService, version });
   const normalizedAllowedOrigins = new Set([...allowedOrigins].map(normalizeOrigin));
   const processing = processingService || (getEvaluationStore ? new ProcessingFlow({ engine, jobManager, getStore: getEvaluationStore }) : null);
@@ -68,6 +68,13 @@ export function createApp({ engine, jobManager, managedFiles = null, updateServi
         return;
       }
       const url = new URL(request.url, "http://127.0.0.1");
+      if (url.pathname === "/downloads/metadata") {
+        if (!origin) throw new HttpError(403, "ORIGIN_REQUIRED", "Origin obligatorio.");
+        if (request.method !== "POST" || !findDownloadedImport) throw new HttpError(400, "INVALID_REQUEST", "Importación no disponible.");
+        const body = await readJson(request);
+        if (!body || Object.keys(body).length !== 1 || !/^[a-f0-9]{64}$/.test(body.sha256 || "")) throw new HttpError(400, "INVALID_REQUEST", "Referencia no válida.");
+        return json(response, 200, await findDownloadedImport(body.sha256));
+      }
       if (url.pathname === "/deliveries") {
         if (!origin) throw new HttpError(403, "ORIGIN_REQUIRED", "Origin obligatorio.");
         if (!deliveries || request.method !== "POST") throw new HttpError(400, "DELIVERY_UNAVAILABLE", "Actualiza el Connector para preparar entregas protegidas.");

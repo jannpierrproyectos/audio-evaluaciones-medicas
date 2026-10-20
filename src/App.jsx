@@ -3,7 +3,7 @@ import { flowSummary, suggestedFlowStep } from "./lib/operationalFlow.js";
 import { confirmDeliveryRecipient } from "./lib/deliveryUx.js";
 import { EvaluationRepository, sha256, canonical, restoreWorker, recoverAudio, getTtsConfiguration, generatePersistentAudio, initialVerification } from "./lib/evaluationPersistence.js";
 import { synthesizeAudioFromText } from "./lib/ttsClient.js";
-import { validateManagedFile } from "./services/mediwebService.js";
+import { validateManagedFile, findDownloadedPdfMetadata } from "./services/mediwebService.js";
 import { reconcileWorkerReview } from "./lib/clinicalApproval.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./App.css";
@@ -25,7 +25,7 @@ import { approvalToken } from "./lib/bulkAudio.js";
 import { audioFingerprint } from "./lib/evaluationPersistence.js";
 import { matchesApprovedAudio } from "../mediweb-downloader/src/authorizationPolicy.js";
 import { getRecipientChecks } from "./lib/recipientPolicy.js";
-import { loadReviewableBatch, recoveryDiagnostic, reportRecoveryDiagnostic, recoveryError } from "./lib/batchRecovery.js";
+import { loadReviewableBatch, recoveryDiagnostic, recoveryDescription, reportRecoveryDiagnostic, recoveryError } from "./lib/batchRecovery.js";
 import DeliveryInbox from "./components/DeliveryInbox.jsx";
 import GoogleAccess from "./components/GoogleAccess.jsx";
 
@@ -118,7 +118,7 @@ function App() {
     return currentAnalysisRef.current.workers;
   }
 
-  function updateWhatsAppQueue(queue, expectedBatchId = pdfAnalysis?.batch_id) {
+  function updateWhatsAppQueue(queue, expectedBatchId = currentAnalysisRef.current?.batch_id) {
     const snapshot = currentAnalysisRef.current;
     if (!snapshot || snapshot.batch_id !== expectedBatchId) return Promise.reject(new Error("El lote ya no está disponible."));
     return persistAnalysis({ ...snapshot, whatsapp_queue: queue });
@@ -204,9 +204,15 @@ function App() {
       setPdfPreview(`Procesando PDF: ${file.name}`);
 
       await repository.flush();
+      const pdfHash = await sha256(await file.arrayBuffer());
+      if (!mediwebWorkerMetadata) {
+        const recovered = await findDownloadedPdfMetadata(pdfHash).catch(() => null);
+        if (recovered?.ambiguous) throw recoveryError("PDF_IMPORT_AMBIGUOUS");
+        if (recovered?.matched) mediwebWorkerMetadata = recovered;
+      }
       const importKey = await sha256(JSON.stringify(canonical({
         source: mediwebWorkerMetadata ? MEDIWEB_SOURCE_MODE : PDF_SOURCE_MODE,
-        pdf: await sha256(await file.arrayBuffer()), metadata: mediwebWorkerMetadata || null,
+        pdf: pdfHash, metadata: mediwebWorkerMetadata || null,
       })));
       const parsedAnalysis = await analyzePdfBatch(file);
       if (!parsedAnalysis.workers?.length) throw recoveryError("PDF_IMPORT_EMPTY");
@@ -247,7 +253,7 @@ function App() {
 
       const diagnostic = recoveryDiagnostic(error, "PDF_IMPORT");
       reportRecoveryDiagnostic(diagnostic);
-      setPdfPreview(`No se pudieron importar las evaluaciones [${diagnostic.code}]. Los PDF descargados se conservan.`);
+      setPdfPreview(`${recoveryDescription(diagnostic)} [${diagnostic.code}]. Los PDF descargados se conservan.`);
       throw Object.assign(error, { diagnostic });
     } finally {
       if (operationId === batchOperationIdRef.current) setIsPdfProcessing(false);

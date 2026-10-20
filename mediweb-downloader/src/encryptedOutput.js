@@ -5,7 +5,7 @@ import { restrictDirectory, verifyPrivateDirectory } from "./windowsProtection.j
 
 // Same AES-GCM/DPAPI key as evaluations. Encrypt BEFORE the first disk write;
 // no plaintext intermediate files, no second key store or export catalogue.
-export function createEncryptedOutput({ downloadsDir, getStore, protect = restrictDirectory, verify = verifyPrivateDirectory }) {
+export function createEncryptedOutput({ downloadsDir, getStore, protect = restrictDirectory, verify = verifyPrivateDirectory, readableDocuments = false }) {
   const root = path.resolve(downloadsDir);
   async function context(file, checkAcl = true) {
     const relative = path.relative(root, path.resolve(file));
@@ -26,7 +26,9 @@ export function createEncryptedOutput({ downloadsDir, getStore, protect = restri
     // Each run has already verified all output ACLs. The atomic writer receives
     // ciphertext only; do not launch another PowerShell process per checkpoint.
     const aad = await context(file, false), store = await getStore();
-    await writeAtomicOutput(file, Buffer.concat([Buffer.from("AED1"), store.seal(Buffer.from(bytes), aad)]));
+    const content = readableDocuments && /\.(pdf|mp3)$/i.test(file)
+      ? Buffer.from(bytes) : Buffer.concat([Buffer.from("AED1"), store.seal(Buffer.from(bytes), aad)]);
+    await writeAtomicOutput(file, content);
   }
   async function read(file) {
     const aad = await context(file);

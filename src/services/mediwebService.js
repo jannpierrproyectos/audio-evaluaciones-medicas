@@ -103,6 +103,10 @@ export async function getMediwebWorkerMetadata(jobId, { signal } = {}) {
   return requestJson(`/jobs/${encodeURIComponent(jobId)}/worker-metadata`, { signal });
 }
 
+export async function findDownloadedPdfMetadata(sha256) {
+  return requestJson("/downloads/metadata", { method: "POST", body: { sha256 }, timeoutMs: 60000 });
+}
+
 export async function getMediwebFirstPages(jobId, { signal } = {}) {
   const response = await request(`/jobs/${encodeURIComponent(jobId)}/first-pages`, { signal });
   if (!response.ok) throw await createHttpError(response);

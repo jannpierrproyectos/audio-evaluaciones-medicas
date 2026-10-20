@@ -11,7 +11,7 @@ test("API de persistencia exige Origin permitido, rechaza IDs y no expone rutas 
   const directory = await mkdtemp(path.join(os.tmpdir(), "ae-store-http-"));
   const protection = { restrictDirectory: async () => {}, protectKey: async bytes => Buffer.from(bytes).reverse() };
   const store = await new EvaluationStore({ directory, protection }).initialize();
-  const server = createServer(createApp({ engine: {}, jobManager: {}, getEvaluationStore: async () => store, allowedOrigins: new Set(["http://localhost:5173"]) }));
+  const server = createServer(createApp({ engine: {}, jobManager: {}, getEvaluationStore: async () => store, findDownloadedImport: async () => ({ matched: false, workers: [] }), allowedOrigins: new Set(["http://localhost:5173"]) }));
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const endpoint = `http://127.0.0.1:${server.address().port}/state`;
   try {
@@ -33,5 +33,18 @@ test("API de persistencia exige Origin permitido, rechaza IDs y no expone rutas 
     const preflight = await fetch(endpoint, { method: "OPTIONS", headers: { Origin: "http://localhost:5173", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "Content-Type" } });
     assert.equal(preflight.status, 204);
     assert.equal((await request({ action: "list" })).headers.get("cache-control"), "no-store");
+    const encounter = { source_mode: "mediweb", identificacion: { dni: "00000001", n_ficha: "F1", fecha_evaluacion: "20/10/2026" } };
+    const discrepancy = await request({ action: "import", importKey: "b".repeat(64), snapshot: { workers: [encounter, { ...encounter, laboratorio_numerico: { glucosa: 91 } }] } });
+    assert.equal(discrepancy.status, 409);
+    const reason = await discrepancy.json();
+    assert.equal(reason.code, "STORE_EVALUATION_CONFLICT");
+    assert.match(reason.message, /versiones diferentes/);
+    assert.doesNotMatch(JSON.stringify(reason), /00000001|glucosa/);
+    const lookup = (body, origin = "http://localhost:5173") => fetch(endpoint.replace("/state", "/downloads/metadata"), { method: "POST", headers: { "Content-Type": "application/json", ...(origin ? { Origin: origin } : {}) }, body: JSON.stringify(body) });
+    assert.equal((await lookup({ sha256: "a".repeat(64) }, null)).status, 403);
+    assert.equal((await lookup({ sha256: "a".repeat(64) }, "https://malicious.invalid")).status, 403);
+    assert.equal((await lookup({ sha256: "../../private" })).status, 400);
+    assert.equal((await lookup({ sha256: "a".repeat(64), path: "C:/private" })).status, 400);
+    assert.deepEqual(await (await lookup({ sha256: "a".repeat(64) })).json(), { matched: false, workers: [] });
   } finally { await new Promise(resolve => server.close(resolve)); await rm(directory, { recursive: true, force: true }); }
 });

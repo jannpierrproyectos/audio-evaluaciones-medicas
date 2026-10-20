@@ -3,9 +3,9 @@ import { synchronizeRecipients } from "./whatsappReview.js";
 import { recoverBulkQueue } from "./bulkAudio.js";
 import { DEFAULT_NARRATIVE_GREETING } from "./narrativeGreeting.js";
 
-const known = new Set(["STORE_NOT_FOUND", "STORE_CORRUPT", "STORE_KEY_UNAVAILABLE", "STORE_BUSY", "STORE_UNAVAILABLE", "STORE_SCHEMA_UNSUPPORTED", "STORE_INVALID_ID", "STORE_REVISION_CONFLICT", "BATCH_EMPTY", "BATCH_INVALID", "PDF_IMPORT_EMPTY", "FIRST_PAGES_NOT_FOUND", "FIRST_PAGES_NOT_READY", "ORIGIN_REQUIRED", "ORIGIN_NOT_ALLOWED", "INVALID_RESPONSE", "NETWORK_ERROR", "CONNECTOR_TIMEOUT", "STORE_INVALID_SNAPSHOT"]);
+const known = new Set(["STORE_NOT_FOUND", "STORE_CORRUPT", "STORE_KEY_UNAVAILABLE", "STORE_BUSY", "STORE_UNAVAILABLE", "STORE_SCHEMA_UNSUPPORTED", "STORE_INVALID_ID", "STORE_REVISION_CONFLICT", "STORE_EVALUATION_CONFLICT", "STORE_IDENTITY_CONFLICT", "STORE_INVALID_IMPORT", "REQUEST_TOO_LARGE", "BATCH_EMPTY", "BATCH_INVALID", "PDF_IMPORT_EMPTY", "FIRST_PAGES_NOT_FOUND", "FIRST_PAGES_NOT_READY", "ORIGIN_REQUIRED", "ORIGIN_NOT_ALLOWED", "INVALID_RESPONSE", "NETWORK_ERROR", "CONNECTOR_TIMEOUT", "STORE_INVALID_SNAPSHOT"]);
 export function recoveryDiagnostic(error, stage = "BATCH_LOAD") {
-  const reason = known.has(error?.code) ? error.code : error?.name === "TypeError" ? "NETWORK" : error?.name === "TimeoutError" ? "TIMEOUT" : "FAILED";
+  const reason = known.has(error?.code) || error?.code === "PDF_IMPORT_AMBIGUOUS" ? error.code : error?.name === "TypeError" ? "NETWORK" : error?.name === "TimeoutError" ? "TIMEOUT" : "FAILED";
   return { code: `${stage}_${reason}`, stage };
 }
 export function recoveryError(code) {
@@ -16,6 +16,10 @@ export function reportRecoveryDiagnostic(diagnostic) {
   console.warn("[AudioEvaluaciones:recuperacion]", diagnostic.code, diagnostic.stage);
 }
 export function recoveryDescription(diagnostic) {
+  if (diagnostic.code.endsWith("PDF_IMPORT_AMBIGUOUS")) return "Hay varias descargas con las mismas primeras hojas. No se vinculará un PDF completo de forma automática.";
+  if (diagnostic.code.endsWith("STORE_EVALUATION_CONFLICT")) return "El mismo lote contiene versiones diferentes de una evaluación. Es necesario revisar esa discrepancia.";
+  if (diagnostic.code.endsWith("STORE_REVISION_CONFLICT")) return "Otra ventana modificó este lote. Vuelve a abrirlo para continuar con la versión guardada.";
+  if (diagnostic.code.endsWith("STORE_IDENTITY_CONFLICT")) return "Las evaluaciones que se intentan guardar no corresponden al lote abierto.";
   if (diagnostic.code.endsWith("STORE_BUSY")) return "El almacén está ocupado por otra operación. Espera un momento y reintenta.";
   if (diagnostic.code.endsWith("STORE_NOT_FOUND")) return "El proceso apunta a un lote que no está disponible en este catálogo.";
   if (diagnostic.code.endsWith("STORE_CORRUPT")) return "No se pudo verificar la integridad del catálogo. No se sobrescribirá su contenido.";

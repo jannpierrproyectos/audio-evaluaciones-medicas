@@ -1,6 +1,5 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
 import { PDFDocument } from "pdf-lib";
 import { launchBrowser, closeQuietly, MEDIWEB_URL } from "./browser.js";
 import { extractVisibleReports } from "./mediwebTable.js";
@@ -334,11 +333,11 @@ export class DownloaderRunner {
           throw new ProcessingError(error instanceof Error ? error.message : String(error), "error_pdf");
         }
         if (mode === "full" || mode === "both") {
-          const opaqueName = `${randomUUID()}.pdf`;
-          const output = this.readOutput ? { absolute: path.join(this.paths.full, opaqueName), relative: opaqueName } : await uniqueReportPath(this.paths.full, report, fileOrder);
+          const output = await uniqueReportPath(this.paths.full, report, fileOrder);
           await this.writeOutput(output.absolute, buffer);
           entry.archivoCompleto = relativeOutputPath(this.paths.root, output.absolute);
           entry.archivoPdfCompleto = output.relative;
+          await this.onDocument?.(buffer, report.paciente);
           try {
             const operationalData = await extractOperationalDataFromPdf(buffer);
             entry.telefono = operationalData.telefono;

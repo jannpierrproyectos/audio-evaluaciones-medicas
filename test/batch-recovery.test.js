@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadReviewableBatch, recoveryDiagnostic } from "../src/lib/batchRecovery.js";
+import { loadReviewableBatch, recoveryDiagnostic, recoveryDescription } from "../src/lib/batchRecovery.js";
 import { prepareAnalysisForReview } from "../src/lib/workerReviewUx.js";
 
 const id = crypto.randomUUID();
@@ -37,4 +37,11 @@ test("empty and mismatched batches never advertise successful recovery", async (
 });
 test("diagnostics discard arbitrary exception messages and unknown codes", () => {
   assert.deepEqual(recoveryDiagnostic({ message: "patient medical data", code: "PATIENT_PRIVATE" }), { stage: "BATCH_LOAD", code: "BATCH_LOAD_FAILED" });
+});
+
+test("import errors retain the safe discrepancy code and explain it without clinical details", () => {
+  const diagnostic = recoveryDiagnostic({ code: "STORE_EVALUATION_CONFLICT", message: "PRIVATE CLINICAL DATA" }, "PDF_IMPORT");
+  assert.equal(diagnostic.code, "PDF_IMPORT_STORE_EVALUATION_CONFLICT");
+  assert.match(recoveryDescription(diagnostic), /versiones diferentes/);
+  assert.doesNotMatch(JSON.stringify(diagnostic) + recoveryDescription(diagnostic), /PRIVATE/);
 });

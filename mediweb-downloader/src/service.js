@@ -15,6 +15,7 @@ import { EvaluationStore } from "./evaluationStore.js";
 import { restrictFile } from "./windowsProtection.js";
 import { TemporaryAttachments } from "./temporaryAttachments.js";
 import { createEncryptedOutput } from "./encryptedOutput.js";
+import { DocumentLibrary } from "./documentLibrary.js";
 
 export const moduleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -48,9 +49,13 @@ export async function startConnectorService({
   });
   // User data never lives beside the installed executable or in the source tree.
   const stateDirectory = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "AudioEvaluacionesConnector", "evaluations-v1");
+  const documents = new DocumentLibrary({ downloadsDir: runtimePaths.downloadsDir });
   let storePromise;
   const getEvaluationStore = () => {
-    storePromise ||= new EvaluationStore({ directory: stateDirectory }).initialize().catch(error => { storePromise = null; throw error; });
+    storePromise ||= new EvaluationStore({ directory: stateDirectory }).initialize().then(store => {
+      store.onAudioReady = operation => documents.publishAudio(store, operation).catch(() => logger.warn?.("No se pudo guardar un MP3 en Documentos/MP3. El audio sigue recuperable desde la aplicación."));
+      return store;
+    }).catch(error => { storePromise = null; throw error; });
     return storePromise;
   };
   const temporaryAttachments = new TemporaryAttachments({
@@ -59,8 +64,9 @@ export async function startConnectorService({
   // Sweep leftovers even when the operator does not open the delivery inbox.
   // A failure remains local to export: importing/reviewing still works.
   await temporaryAttachments.initialize().catch(() => logger.warn?.("Adjuntos temporales bloqueados: revisa los permisos o archivos abiertos y reinicia el Connector."));
-  const output = createEncryptedOutput({ downloadsDir: runtimePaths.downloadsDir, getStore: getEvaluationStore });
+  const output = createEncryptedOutput({ downloadsDir: runtimePaths.downloadsDir, getStore: getEvaluationStore, readableDocuments: true });
   engine.protectOutput = output.protectOutput; engine.writeOutput = output.write; engine.readOutput = output.read;
+  engine.onDocument = (bytes, patient) => documents.publish(bytes, patient, ".pdf").catch(() => logger.warn?.("No se pudo guardar un PDF en Documentos/PDF. El reporte descargado se conserva."));
   const readFallbacks = [];
   {
     const installedPaths = getRuntimePaths({ moduleRoot, packaged: true });
@@ -74,7 +80,10 @@ export async function startConnectorService({
     }
   }
   const managedFiles = createManagedFileService({ readFallbacks, downloadsDir: runtimePaths.downloadsDir, ensureProtectedFile: restrictFile, temporaryAttachments, readProtectedOutput: output.read });
-  const server = createServer(createApp({ engine, jobManager, managedFiles, updateService, getEvaluationStore, version: packageJson.version, allowedOrigins }));
+  const documentRoots = [runtimePaths.downloadsDir, ...readFallbacks.map(location => location.downloadsDir)];
+  const server = createServer(createApp({ engine, jobManager, managedFiles, updateService, getEvaluationStore,
+    findDownloadedImport: async fingerprint => documents.findImport(fingerprint, { store: await getEvaluationStore(), roots: documentRoots }),
+    version: packageJson.version, allowedOrigins }));
   let shuttingDown = false;
   let updateTimer = null;
 
@@ -103,6 +112,10 @@ export async function startConnectorService({
   logger.log(`mediweb-downloader escuchando en http://127.0.0.1:${resolvedConfig.port}`);
   logger.log(`Origins permitidos: ${[...allowedOrigins].join(", ")}`);
   events.emit("connector:ready", { port: resolvedConfig.port, version: packageJson.version });
+  // Recover normal, patient-named documents from older downloads in the
+  // background. Originals and catalogue references are never renamed/deleted.
+  getEvaluationStore().then(store => documents.restore({ store, roots: documentRoots, logger }))
+    .catch(() => logger.warn?.("No se pudieron recuperar todos los documentos locales. Los originales se conservan."));
   updateService.check().catch(() => {});
   updateTimer = setInterval(() => updateService.check({ force: true }).catch(() => {}), 12 * 60 * 60 * 1000);
   updateTimer.unref?.();
