@@ -4,6 +4,8 @@ import { clinicalVersion, getAudioAuthorization, hasValidClinicalApproval, recon
 import { prepareTextForTts } from "../clinical/ttsNormalizer.js";
 import { isWhatsAppConfirmed, normalizePhoneForWhatsApp } from "./whatsappMessage.js";
 import { getRecipientChecks, audioFingerprintPayload, matchesApprovedAudio } from "../../mediweb-downloader/src/authorizationPolicy.js";
+import { deliveryAttachmentName } from "../../mediweb-downloader/src/attachmentNames.js";
+import { getWhatsAppRecipientName } from "../../mediweb-downloader/src/whatsappContent.js";
 
 export function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
@@ -131,7 +133,7 @@ export async function recoverAudio(worker, greeting, repository, configuration) 
   if (op.status !== "listo") return { ...worker, app_fields: { ...worker.app_fields, audio_status: "incierto", audio_stale: true } };
   if (JSON.stringify(canonical(op.metadata?.configuration)) !== JSON.stringify(canonical(configuration))) return { ...worker, app_fields: { ...worker.app_fields, audio_stale: true } };
   const blob = await repository.request({ action: "audio", batchId: worker.batch_id, evaluationId: worker.evaluation_id, operationId: op.id }, true);
-  return { ...worker, app_fields: { ...worker.app_fields, audio_record: op.metadata, audio_url: URL.createObjectURL(blob), audio_status: "listo", audio_filename: "audio-evaluacion.mp3", audio_mime_type: "audio/mpeg", audio_stale: false } };
+  return { ...worker, app_fields: { ...worker.app_fields, audio_record: op.metadata, audio_url: URL.createObjectURL(blob), audio_status: "listo", audio_filename: deliveryAttachmentName(getWhatsAppRecipientName(worker), ".mp3"), audio_mime_type: "audio/mpeg", audio_stale: false } };
 }
 
 // Reserves durably before the paid request. A timeout is uncertain, never an automatic retry.
@@ -183,7 +185,7 @@ export async function generatePersistentAudio({ repository, worker, text, config
     const stale = !isCurrent(value) || !configurationMatches;
     if (!value) { URL.revokeObjectURL(result.audioUrl); return { reused: false, stale: true }; }
     await update(item => ({ ...item, app_fields: { ...item.app_fields, audio_record: actualMetadata,
-      audio_url: result.audioUrl, audio_filename: result.audioFilename, audio_mime_type: result.mimeType,
+      audio_url: result.audioUrl, audio_filename: deliveryAttachmentName(getWhatsAppRecipientName(item), ".mp3"), audio_mime_type: result.mimeType,
       texto_tts: result.ttsText, audio_status: "listo", audio_stale: stale, audio_error: "",
       whatsapp_audio_file_id: "", whatsapp_audio_filename: "", whatsapp_audio_sha256: "" } }));
     return { reused: false, stale };

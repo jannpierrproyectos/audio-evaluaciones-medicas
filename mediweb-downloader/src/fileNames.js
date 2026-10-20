@@ -1,15 +1,7 @@
 import path from "node:path";
 import { access } from "node:fs/promises";
-
-const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
-
-export function sanitizeFilePart(value, fallback = "") {
-  let result = String(value ?? "").replace(/[<>:"/\\|?*]/g, " ").replace(/[\r\n]+/g, " ")
-    .replace(/\s+/g, " ").trim().replace(/[. ]+$/g, "");
-  if (RESERVED.test(result)) result = `_${result}`;
-  if (!result) result = fallback;
-  return result.slice(0, 90).trim().replace(/[. ]+$/g, "");
-}
+import { sanitizeFilePart } from "./attachmentNames.js";
+export { sanitizeFilePart, deliveryAttachmentName, isDeliveryAttachmentName } from "./attachmentNames.js";
 
 export async function uniqueReportPath(directory, report, order) {
   const prefix = String(order).padStart(3, "0");

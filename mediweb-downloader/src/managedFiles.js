@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { access, mkdir, open, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
-import { sanitizeFilePart } from "./fileNames.js";
+import { sanitizeFilePart, deliveryAttachmentName } from "./fileNames.js";
 
 export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const ALLOWED_EXTENSIONS = new Set([".pdf", ".mp3"]);
@@ -180,10 +180,10 @@ export function createManagedFileService({
       return { ...file, bytes, sha256: createHash("sha256").update(bytes).digest("hex") };
     } finally { await handle.close(); }
   }
-  async function revealPinned(fileId, expectedHash, extension) {
+  async function revealPinned(fileId, expectedHash, extension, recipientName) {
     const file = await inspectFile(fileId, extension);
     if (file.sha256 !== expectedHash) throw new ManagedFileError(409, "FILE_CHANGED", "El contenido del archivo ya no coincide con la entrega preparada.");
-    if (temporaryAttachments) return temporaryAttachments.reveal(file, revealFile);
+    if (temporaryAttachments) return temporaryAttachments.reveal({ ...file, attachmentName: deliveryAttachmentName(recipientName, extension) }, revealFile);
     return reveal(file.id);
   }
   const releaseTemporary = ids => temporaryAttachments?.release(ids);

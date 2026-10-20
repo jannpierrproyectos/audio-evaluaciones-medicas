@@ -129,6 +129,8 @@ test("MP3 cifrado se recupera tras reinicio y reutiliza sin segunda solicitud TT
   await generatePersistentAudio(options);
   assert.equal(calls, 1);
   assert.equal(current.app_fields.audio_stale, false);
+  assert.match(current.app_fields.audio_filename, /^02_Audio_.+\.mp3$/);
+  const namedAudio = current.app_fields.audio_filename;
   await generatePersistentAudio({ ...options, worker: current });
   assert.equal(calls, 1);
   const restarted = await new EvaluationStore({ directory, protection }).initialize();
@@ -137,6 +139,7 @@ test("MP3 cifrado se recupera tras reinicio y reutiliza sin segunda solicitud TT
   const recovered = await recoverAudio(restoreWorker(saved.snapshot.workers[0]), "Buenos días", repository, configuration);
   assert.equal(recovered.app_fields.audio_status, "listo");
   assert.equal(recovered.app_fields.audio_stale, false);
+  assert.equal(recovered.app_fields.audio_filename, namedAudio);
   const bytes = Buffer.from(await (await fetch(recovered.app_fields.audio_url)).arrayBuffer());
   assert.deepEqual(bytes, syntheticMp3);
   const op = await store.reserve(batch.id, current.evaluation_id, current.app_fields.audio_record.fingerprint);

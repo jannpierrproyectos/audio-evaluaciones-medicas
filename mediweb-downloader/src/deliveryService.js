@@ -209,7 +209,7 @@ export class DeliveryService {
         const record = data.deliveries.find(record => record.id === body.id);
         if (record.pending?.id !== begun.intent) throw fail("DELIVERY_ACTION_CHANGED");
         await this.checked(data, record, body.configuration);
-        const pin = record[body.kind]; await this.managedFiles.revealPinned(pin.id, pin.sha256, `.${body.kind === "pdf" ? "pdf" : "mp3"}`); return null;
+        const pin = record[body.kind]; await this.managedFiles.revealPinned(pin.id, pin.sha256, `.${body.kind === "pdf" ? "pdf" : "mp3"}`, record.recipient_name); return null;
       });
       return await this.settle({ ...body, intent: begun.intent, success: true });
     } catch (error) { await this.settle({ ...body, intent: begun.intent, success: false }).catch(() => {}); throw error; }

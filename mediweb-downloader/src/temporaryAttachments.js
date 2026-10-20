@@ -5,6 +5,7 @@ import { fork } from "node:child_process";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { restrictDirectory, verifyPrivateDirectory } from "./windowsProtection.js";
+import { isDeliveryAttachmentName } from "./fileNames.js";
 
 export const ATTACHMENT_TTL_MS = 15 * 60 * 1000;
 const uuid = /^[a-f0-9-]{36}$/i;
@@ -19,8 +20,10 @@ export async function removeAttachmentSession(directory) {
   if (!info) return;
   if (!uuid.test(path.basename(directory)) || !info.isDirectory() || info.isSymbolicLink() || path.relative(await realpath(directory), path.resolve(directory))) throw fail();
   const entries = await readdir(directory);
+  const lease = JSON.parse(await readFile(path.join(directory, "lease.json"), "utf8").catch(error => { if (error.code === "ENOENT") return "{}"; throw error; }));
+  const namedAttachment = isDeliveryAttachmentName(lease.file_name) ? lease.file_name : null;
   for (const name of entries) {
-    if (!["lease.json", "adjunto.pdf", "adjunto.mp3"].includes(name)) throw fail();
+    if (!["lease.json", "adjunto.pdf", "adjunto.mp3"].includes(name) && name !== namedAttachment) throw fail();
     const entry = await lstat(path.join(directory, name));
     if (!entry.isFile() || entry.isSymbolicLink()) throw fail();
   }
@@ -114,10 +117,11 @@ export class TemporaryAttachments {
       this.sessions.set(directory, session);
       let stage = "watchdog";
       try {
-        await writeFile(path.join(directory, "lease.json"), JSON.stringify({ pid: process.pid, expires }), { flag: "wx" });
+        const filename = isDeliveryAttachmentName(file.attachmentName) && path.extname(file.attachmentName) === file.extension ? file.attachmentName : file.extension === ".pdf" ? "adjunto.pdf" : "adjunto.mp3";
+        await writeFile(path.join(directory, "lease.json"), JSON.stringify({ pid: process.pid, expires, file_name: filename }), { flag: "wx" });
         await this.watchdog(directory); // ACK required BEFORE readable content.
         stage = "write";
-        const output = path.join(directory, file.extension === ".pdf" ? "adjunto.pdf" : "adjunto.mp3");
+        const output = path.join(directory, filename);
         await writeFile(output, file.bytes, { flag: "wx" });
         stage = "verify";
         await this.verify(directory);

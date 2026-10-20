@@ -12,6 +12,66 @@ import { createEncryptedOutput } from "../src/encryptedOutput.js";
 import { saveControl } from "../src/manifest.js";
 import { createServer } from "node:http";
 import { createApp } from "../src/http/app.js";
+import { deliveryAttachmentName, isDeliveryAttachmentName } from "../src/fileNames.js";
+
+test("nombres de adjuntos: nombre del trabajador, extension fija y sin rutas ni controles", () => {
+  assert.equal(deliveryAttachmentName("Persona Ficticia", ".pdf"), "01_Evaluacion_Persona_Ficticia.pdf");
+  assert.equal(deliveryAttachmentName("Persona Ficticia", ".mp3"), "02_Audio_Persona_Ficticia.mp3");
+  for (const patient of ['../Persona: Ficticia\\carpeta', "CON", "Persona\nFicticia\u0000", "Ángela Muñoz", "A".repeat(200)]) {
+    for (const extension of [".pdf", ".mp3"]) {
+      const name = deliveryAttachmentName(patient, extension);
+      assert.equal(path.basename(name), name);
+      assert.equal(isDeliveryAttachmentName(name), true);
+      assert.equal(path.extname(name), extension);
+    }
+  }
+  for (const name of ["../01_Evaluacion_Persona.pdf", "02_Audio_Persona.pdf", "01_Evaluacion_Persona.exe", "01_Evaluacion_Persona\u0000.pdf"]) assert.equal(isDeliveryAttachmentName(name), false);
+});
+
+test("adjuntos con nombre: entrega real, vencimiento y reinicio conservan originales cifrados", async () => deliveryFixture(async f => {
+  let clock = Date.now();
+  const settings = { directory: path.join(f.directory, "named-attachments"), getStore: f.getStore, protect: async () => {}, verify: async () => {}, watchdog: async () => {}, now: () => clock };
+  const temporary = new TemporaryAttachments(settings), revealed = [];
+  const files = createManagedFileService({ downloadsDir: f.downloads, temporaryAttachments: temporary, ensureProtectedFile: async () => {}, revealFile: async file => revealed.push(file) });
+  f.service.managedFiles = files;
+  const record = await f.prepare();
+  const stored = (await f.store.catalogue()).data.deliveries[0];
+  await f.effect(record, "conversation");
+  const original = await readFile(path.join(f.downloads, "informe-1.pdf"));
+  await f.service.reveal({ id: record.id, kind: "pdf", configuration });
+  await f.service.reveal({ id: record.id, kind: "mp3", configuration });
+  assert.equal(path.basename(revealed[0]), deliveryAttachmentName(record.recipient_name, ".pdf"));
+  assert.equal(path.basename(revealed[1]), deliveryAttachmentName(record.recipient_name, ".mp3"));
+  assert.notEqual(path.basename(revealed[0]), "adjunto.pdf");
+  assert.deepEqual(await readFile(revealed[0]), original);
+  assert.equal((await f.store.catalogue()).data.deliveries[0].confirmations.pdf, undefined);
+  const sourceAudio = (await files.inspectFile(stored.mp3.id, ".mp3")).bytes;
+  assert.equal((await readFile(revealed[1])).equals(sourceAudio), true);
+  clock += ATTACHMENT_TTL_MS + 1;
+  const restarted = new TemporaryAttachments(settings);
+  await restarted.initialize();
+  await assert.rejects(readFile(revealed[0]), { code: "ENOENT" });
+  await assert.rejects(readFile(revealed[1]), { code: "ENOENT" });
+  const recovered = createManagedFileService({ downloadsDir: f.downloads, temporaryAttachments: restarted, ensureProtectedFile: async () => {}, revealFile: async file => revealed.push(file) });
+  await recovered.revealPinned(stored.pdf.id, stored.pdf.sha256, ".pdf", record.recipient_name);
+  await recovered.revealPinned(stored.mp3.id, stored.mp3.sha256, ".mp3", record.recipient_name);
+  assert.deepEqual(await readFile(revealed[2]), original);
+  assert.deepEqual(await readFile(revealed[3]), sourceAudio);
+  assert.deepEqual(await readFile(path.join(f.downloads, "informe-1.pdf")), original);
+  await restarted.release();
+  assert.deepEqual(await readdir(settings.directory), []);
+}));
+
+test("limpieza de adjuntos con nombre rechaza archivos no declarados en la sesion", async () => fixture(async f => {
+  await mkdir(f.settings.directory);
+  const directory = path.join(f.settings.directory, randomUUID()); await mkdir(directory);
+  await writeFile(path.join(directory, "lease.json"), JSON.stringify({ pid: process.pid, expires: 0, file_name: "01_Evaluacion_Persona.pdf" }));
+  await writeFile(path.join(directory, "01_Evaluacion_Persona.pdf"), "%PDF-FICTICIO");
+  await writeFile(path.join(directory, "01_Evaluacion_Ajeno.pdf"), "NO BORRAR");
+  await assert.rejects(removeAttachmentSession(directory));
+  assert.equal((await readFile(path.join(directory, "01_Evaluacion_Ajeno.pdf"))).toString(), "NO BORRAR");
+  assert.equal((await readFile(path.join(directory, "01_Evaluacion_Persona.pdf"))).toString(), "%PDF-FICTICIO");
+}));
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
 const fakeProtection = { restrictDirectory: async () => {}, protectKey: async bytes => Buffer.from(bytes).reverse() };
 
