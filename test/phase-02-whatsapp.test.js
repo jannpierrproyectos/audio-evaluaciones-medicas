@@ -9,9 +9,30 @@ import { approveClinicalText, reconcileWorkerReview, recipientVersion, requestAp
 import { isWhatsAppConfirmed } from "../src/lib/whatsappMessage.js";
 import { restoreWorker } from "../src/lib/evaluationPersistence.js";
 import { getRecipientChecks } from "../src/lib/recipientPolicy.js";
-import { analyzePhones, createWhatsAppCheckWindow, matchesReviewFilter, nextReviewId, phoneSummary, recordWhatsAppDecision, synchronizeRecipients } from "../src/lib/whatsappReview.js";
+import { analyzePhones, createWhatsAppCheckWindow, createWhatsAppDeliveryWindow, matchesReviewFilter, nextReviewId, phoneSummary, recordWhatsAppDecision, synchronizeRecipients } from "../src/lib/whatsappReview.js";
+import { buildWhatsAppMessage } from "../mediweb-downloader/src/whatsappContent.js";
 
 const now = Date.parse("2026-10-01T12:00:00Z");
+test("delivery opens the established greeting as a draft; verification never carries text", async () => {
+  const urls = [];
+  const openWindow = () => ({ closed: false, opener: null, location: { replace(url) { urls.push(new URL(url)); } } });
+  const person = worker();
+  const message = buildWhatsAppMessage(person);
+  assert.match(message, /^Buenas tardes, Persona Ficticia/);
+  const verify = createWhatsAppCheckWindow(openWindow);
+  await verify(person, message);
+  assert.equal(urls[0].search, "");
+  const deliver = createWhatsAppDeliveryWindow(openWindow);
+  deliver.reserve({ fresh: true });
+  await deliver(person, message);
+  assert.equal(urls[1].pathname, "/51999888777");
+  assert.equal(urls[1].searchParams.get("text"), message);
+  const special = "Buenas tardes, Ángela & José.\nClínica INNOMEDIC: ¿cómo está?";
+  await deliver(person, special);
+  assert.equal(urls[2].searchParams.get("text"), special);
+  await assert.rejects(deliver(person), /Falta el mensaje/);
+  assert.equal(urls.length, 3, "Missing message never opens a delivery chat");
+});
 const text = "Buenos días. Texto ficticio aprobado para prueba.";
 function worker(document = "00000001", phone = "999888777") {
   return { ...prepareAnalysisForReview({ workers: [{ identificacion: { nombres: "Persona", apellidos: `Ficticia ${document}`, dni: document },

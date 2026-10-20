@@ -23,3 +23,5 @@ Para probar estas fuentes, salir del Connector instalado desde su icono de bande
 - Prueba aislada con DPAPI, permisos y vigilante reales de Windows, PDF/MP3 ficticios y ninguna llamada externa.
 
 Estos cambios no modifican la instalacion existente ni publican la web automaticamente.
+
+El saludo institucional existente se precarga mediante el parametro text del enlace de WhatsApp solo al preparar o abrir una entrega validada. La comprobacion de existencia sigue abriendo exclusivamente el telefono, sin mensaje. Precargar y copiar el saludo no registra ninguna parte como enviada: la declaracion de envio sigue siendo manual.

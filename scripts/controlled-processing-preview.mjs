@@ -91,7 +91,7 @@ export async function startControlledPreview(port = 4180, { manualResultsOnly = 
       define: { "import.meta.env.VITE_MEDIWEB_SERVICE_URL": JSON.stringify(connectorUrl) },
       plugins: [react(), { name: "controlled-connector-preview",
         transform(source, id) {
-          if (id.replaceAll("\\", "/").endsWith("/src/lib/whatsappReview.js")) return source.replace('`https://wa.me/${phone}`', '`/__fixture/chat?phone=${phone}`');
+          if (id.replaceAll("\\", "/").endsWith("/src/lib/whatsappReview.js")) return source.replace('`https://wa.me/${phone}`', '`/__fixture/chat/${phone}`');
         },
         transformIndexHtml(html) {
           return html.replace('<div id="root">', `<aside style="padding:8px;background:#fff0c2;text-align:center;font:13px Segoe UI">PRUEBA AISLADA · 8 personas ficticias · Connector real, sin MediWeb ni voz externos <button onclick="fetch('/__fixture/failure',{method:'POST',body:'on'}).then(()=>location.reload())">Simular fallo de apertura</button> <button onclick="fetch('/__fixture/failure',{method:'POST',body:'off'}).then(()=>location.reload())">Restablecer apertura</button></aside><div id="root">`);

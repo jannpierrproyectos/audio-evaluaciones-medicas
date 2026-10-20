@@ -185,7 +185,7 @@ export class DeliveryService {
       if (kind !== "conversation" && !record.events.some(event => event.action === "conversation")) throw fail("DELIVERY_CONVERSATION_REQUIRED", "Abre primero la conversación del destinatario seleccionado.");
       if (record.confirmations[kind]) throw fail("DELIVERY_PART_ALREADY_SENT", "Este elemento ya está confirmado; no se prepara un envío duplicado.");
       record.pending = { id: randomUUID(), kind, at: new Date().toISOString() };
-      return { intent: record.pending.id, phone: record.phone, message: kind === "message" ? record.message : undefined };
+      return { intent: record.pending.id, phone: record.phone, message: ["conversation", "message"].includes(kind) ? record.message : undefined };
     });
   }
   async settle({ id, intent, success, configuration }) {

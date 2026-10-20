@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { deliveryAction } from "../services/mediwebService.js";
 import { canConfirmDeliveryRecipient, deliveryPreflight, deliveryState, deliveryTaskLabel, matchesDeliveryFilter, nextDelivery, nextPendingDelivery } from "../lib/deliveryUx.js";
 import { getTtsConfiguration } from "../lib/evaluationPersistence.js";
-import { openWhatsAppCheck } from "../lib/whatsappReview.js";
+import { openWhatsAppDelivery } from "../lib/whatsappReview.js";
 
 const parts = [["message", "mensaje"], ["pdf", "PDF"], ["mp3", "MP3"]];
 export default function DeliveryInbox({ onClose, onCorrect, onAuthorizeRecipient, initialBatchId, embedded = false }) {
@@ -34,7 +34,7 @@ export default function DeliveryInbox({ onClose, onCorrect, onAuthorizeRecipient
     if (lock.current) return;
     lock.current = true; setBusy(label); setMessage("");
     try { await task(); }
-    catch (error) { setFilter("pendientes"); openWhatsAppCheck.discardReservation(); if (mounted.current) setMessage(error.code === "FILE_NOT_FOUND" ? "El PDF completo no está disponible en las ubicaciones de este Connector [FILE_NOT_FOUND]. Los audios y el lote se conservan; comprueba el Connector que guardó el documento." : error.message || "No se pudo completar la accion. Revisa su estado antes de repetir."); }
+    catch (error) { setFilter("pendientes"); openWhatsAppDelivery.discardReservation(); if (mounted.current) setMessage(error.code === "FILE_NOT_FOUND" ? "El PDF completo no está disponible en las ubicaciones de este Connector [FILE_NOT_FOUND]. Los audios y el lote se conservan; comprueba el Connector que guardó el documento." : error.message || "No se pudo completar la accion. Revisa su estado antes de repetir."); }
     finally { await refresh().catch(() => {}); lock.current = false; if (mounted.current) setBusy(""); }
   }
   function select(id) {
@@ -44,19 +44,19 @@ export default function DeliveryInbox({ onClose, onCorrect, onAuthorizeRecipient
   }
   function openConversation() {
     if (lock.current || !ready) return;
-    try { openWhatsAppCheck.reserve({ fresh: true }); } catch { setMessage("Permite ventanas emergentes; no se abrió una conversación ni se confirmó un envío."); return; }
+    try { openWhatsAppDelivery.reserve({ fresh: true }); } catch { setMessage("Permite ventanas emergentes; no se abrió una conversación ni se confirmó un envío."); return; }
     execute("abriendo conversación", async () => {
       const proof = await deliveryPreflight(selected.evaluation_id);
       const begun = await deliveryAction("begin", { id: record.id, kind: "conversation", configuration: proof.configuration });
       let success = false;
-      try { await openWhatsAppCheck({ datos_operativos: { telefono: begun.phone } }); success = true; }
+      try { await openWhatsAppDelivery({ datos_operativos: { telefono: begun.phone } }, begun.message || record.message); success = true; }
       finally { await deliveryAction("settle", { id: record.id, intent: begun.intent, success, configuration: proof.configuration }); }
       if (mounted.current) setOpened(value => new Set([...value, record.id]));
     });
   }
   function prepareAndOpen() {
     if (lock.current || !selected || (selected.reasons.length && !canConfirmDeliveryRecipient(selected))) return;
-    try { openWhatsAppCheck.reserve({ fresh: true }); } catch { setMessage("Permite abrir WhatsApp para continuar."); return; }
+    try { openWhatsAppDelivery.reserve({ fresh: true }); } catch { setMessage("Permite abrir WhatsApp para continuar."); return; }
     execute("preparando envío", async () => {
       if (!selected.checks.authorized && canConfirmDeliveryRecipient(selected)) await onAuthorizeRecipient(selected);
       const proof = await deliveryPreflight(selected.evaluation_id);
@@ -67,13 +67,13 @@ export default function DeliveryInbox({ onClose, onCorrect, onAuthorizeRecipient
         try { await perform(begun); success = true; }
         finally { await deliveryAction("settle", { id: prepared.id, intent: begun.intent, success, configuration: proof.configuration }); }
       };
-      await action("conversation", begun => openWhatsAppCheck({ datos_operativos: { telefono: begun.phone } }));
+      await action("conversation", begun => openWhatsAppDelivery({ datos_operativos: { telefono: begun.phone } }, begun.message || prepared.message));
       setOpened(value => new Set([...value, prepared.id]));
       if (!prepared.confirmations.message) await action("message", begun => navigator.clipboard.writeText(begun.message));
       for (const kind of ["pdf", "mp3"]) {
         if (!prepared.confirmations[kind]) await deliveryAction("reveal", { id: prepared.id, kind, configuration: proof.configuration });
       }
-      setMessage("Conversación abierta, mensaje copiado y archivos disponibles. Envía manualmente en WhatsApp y registra el resultado.");
+      setMessage("Conversación abierta con el saludo preparado, mensaje copiado y archivos disponibles. Envía manualmente en WhatsApp y registra el resultado.");
     });
   }
   function copyMessage() {

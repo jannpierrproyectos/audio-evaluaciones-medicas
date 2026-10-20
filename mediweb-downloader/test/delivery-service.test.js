@@ -6,6 +6,16 @@ import { createServer } from "node:http";
 import { createApp } from "../src/http/app.js";
 import { deliveryFixture, configuration, pdfBytes } from "../test-support/deliveryFixture.js";
 
+test("abrir entrega devuelve el saludo validado sin declarar mensaje enviado", async () => deliveryFixture(async f => {
+  const record = await f.prepare();
+  const begun = await f.service.begin({ id: record.id, kind: "conversation", configuration });
+  assert.equal(begun.message, record.message);
+  assert.match(begun.message, /^Buenas tardes, Persona1 Ficticia/);
+  assert.deepEqual((await f.store.catalogue()).data.deliveries[0].confirmations, {});
+  await f.service.settle({ id: record.id, intent: begun.intent, success: true, configuration });
+  assert.deepEqual((await f.store.catalogue()).data.deliveries[0].confirmations, {});
+}));
+
 test("Fase05: prepara PDF/MP3 de la misma evaluación y reutiliza sin TTS ni duplicar exportación", async () => deliveryFixture(async f => {
   const [first, again] = await Promise.all([f.prepare(), f.prepare()]);
   assert.equal(first.id, again.id); assert.equal(first.state, "listo");
