@@ -12,7 +12,7 @@ const hash = value => createHash("sha256").update(JSON.stringify(value)).digest(
 export async function inspectSearch(page) {
   if (!page || await isSessionExpired(page)) return { authentication: "expired", ready: false };
   if (new URL(page.url()).origin !== new URL(MEDIWEB_URL).origin) throw flowError("SEARCH_ORIGIN_CHANGED");
-  const form = await page.evaluate(() => {
+  const search = await page.evaluate(() => {
     const norm = value => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
     const visible = element => Boolean(element.getClientRects().length) && getComputedStyle(element).visibility !== "hidden";
     const forms = [...document.forms].filter(form => new URL(form.action || location.href).origin === location.origin && !new URL(form.action || location.href).search && ["get", "post"].includes(form.method.toLowerCase()) && /atencion|ocupacional|consulta|busqueda/i.test(new URL(form.action || location.href).pathname));
@@ -31,13 +31,21 @@ export async function inspectSearch(page) {
       const action = new URL(form.action || location.href); action.search = ""; action.hash = "";
       return { action: action.href, method: form.method.toLowerCase(), controls, supported: supported && controls.length > 0 && new Set(controls.map(control => control.kind)).size === controls.length,
         button: buttons[0]?.textContent?.trim() || buttons[0]?.value || "" };
-    }).filter(form => form.supported);
-    return candidates.length === 1 ? candidates[0] : null;
+    });
+    const supported = candidates.filter(form => form.supported);
+    const form = supported.length === 1 ? supported[0] : null;
+    // Saving/replaying filters requires a fully supported form. Importing the
+    // table already prepared by the operator does not. Still check every known
+    // filter when another control makes that form unsuitable for replay.
+    const manual = form || (candidates.length === 1 ? candidates[0] : null);
+    return { form, controls: manual?.controls || [] };
   });
+  const { form, controls } = search;
   const ready = await hasValidResultsTable(page);
   const extraction = ready ? await extractVisibleReports(page) : null;
-  const structure = form ? hash({ action: form.action, method: form.method, controls: form.controls.map(({ id, kind, type }) => ({ id, kind, type })), button: form.button }) : null;
-  return { authentication: ready ? "results_visible" : "unknown", ready, form, structure, extraction };
+  const structure = form ? hash({ action: form.action, method: form.method, controls: form.controls.map(({ id, kind, type }) => ({ id, kind, type })), button: form.button })
+    : controls.length ? hash(controls.map(({ id, kind, type }) => ({ id, kind, type }))) : null;
+  return { authentication: ready ? "results_visible" : "unknown", ready, form, controls, structure, extraction };
 }
 
 function dateValue(value) {

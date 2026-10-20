@@ -5,9 +5,10 @@ import path from "node:path";
 import { startControlledPreview } from "./controlled-processing-preview.mjs";
 
 const keepPreview = process.argv.includes("--keep-preview");
-const preview = await startControlledPreview(Number(process.env.AE_TEST_PORT) || (keepPreview ? 4182 : 4181));
+const manualResultsOnly = process.argv.includes("--manual-results");
+const preview = await startControlledPreview(Number(process.env.AE_TEST_PORT) || (keepPreview ? 4182 : 4181), { manualResultsOnly, resultsInNewTab: manualResultsOnly });
 let passed = false;
-const captures = "artifacts/sequential-flow";
+const captures = manualResultsOnly ? "artifacts/manual-results-flow" : "artifacts/sequential-flow";
 await mkdir(captures, { recursive: true });
 const context = await preview.browser.newContext({ viewport: { width: 1440, height: 1000 }, permissions: ["clipboard-read", "clipboard-write"] });
 let page;
@@ -143,10 +144,10 @@ try {
   await shot("15-texto-audio-movil");
   assert.deepEqual(errors, []);
   assert.equal(preview.stats.actualExternalRequests, 0);
-  const result = { passed: true, evaluations: 8, ...preview.stats, catalogueUnchangedByRecovery: true,
+  const result = { passed: true, evaluations: 8, manualResultsOnly, resultsInNewTab: manualResultsOnly, ...preview.stats, catalogueUnchangedByRecovery: true,
     originalPdfHashesUnchanged: true, originalRecoveredFromKnownLocation: true, noTaskTabs: true, workflowOrder: ["import", "whatsapp", "clinical-text", "audio", "manual-send"], realWindowsProtection: true, realConnectorPipeline: true,
     pageErrors: errors, safeDiagnostics: diagnostics, completedAt: new Date().toISOString() };
-  await writeFile("artifacts/sequential-flow/results.json", JSON.stringify(result, null, 2));
+  await writeFile(`${captures}/results.json`, JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result));
   passed = true;
 } catch (error) {

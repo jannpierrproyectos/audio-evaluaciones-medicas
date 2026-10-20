@@ -7,6 +7,7 @@ import { chromium } from "playwright";
 import { EvaluationStore } from "../src/evaluationStore.js";
 import { ProcessingFlow } from "../src/processingFlow.js";
 import { JobManager } from "../src/http/jobManager.js";
+import { DownloaderRunner } from "../src/runner.js";
 import { inspectSearch, applySearchProfile, verifySearchRows } from "../src/searchProfile.js";
 
 const url = "https://resultados.innomedic.pe/atenciones/ocupacional";
@@ -17,7 +18,8 @@ async function fixture(callback) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "ae-processing-test-"));
   const browser = await chromium.launch({ headless: true });
   try {
-    const page = await browser.newPage(); let body = html;
+    const context = await browser.newContext();
+    const page = await context.newPage(); let body = html;
     await page.route("https://resultados.innomedic.pe/**", route => route.fulfill({ contentType: "text/html", body }));
     await page.goto(url);
     let store = await new EvaluationStore({ directory, protection }).initialize(), runs = 0;
@@ -42,16 +44,64 @@ async function fixture(callback) {
   } finally { await browser.close(); await rm(directory, { recursive: true, force: true }); }
 }
 
-test("Fase04: sesión expirada, interfaz desconocida y filtros no coincidentes no descargan", async () => fixture(async f => {
+test("Fase04: sesión expirada, perfiles desconocidos y filtros no coincidentes no descargan", async () => fixture(async f => {
   assert.equal((await inspectSearch(f.page)).authentication, "results_visible");
   await f.page.setContent('<form><input type="password"><button>Ingresar</button></form>');
   await assert.rejects(f.flow.start({ manualConfirmed: true }), error => error.code === "SESSION_EXPIRED"); assert.equal(f.runs, 0);
   await f.page.setContent(f.html.replace('for="empresa"', 'for="desconocido"'));
-  await assert.rejects(f.flow.confirmSearch(), error => error.code === "SEARCH_MANUAL_REQUIRED");
+  assert.ok((await f.flow.confirmSearch()).token, "A visible results table does not require a replayable search form");
   assert.equal(f.runs, 0);
   await assert.rejects(f.flow.saveProfile("No reconocida"), error => error.code === "SEARCH_MANUAL_REQUIRED");
   await f.page.setContent(f.html.replace("<td>Ficticia</td>", "<td>Otra</td>"));
   await assert.rejects(f.flow.start({ manualConfirmed: true }), error => error.code === "SEARCH_RESULTS_MISMATCH"); assert.equal(f.runs, 0);
+}));
+
+test("Importación manual: ocho resultados sin formulario se procesan una sola vez", async () => fixture(async f => {
+  const row = f.html.match(/<tr><td>F1[\s\S]*?<\/tr>/)[0];
+  const rows = Array.from({ length: 8 }, (_, index) => row.replaceAll("idcomprobante=1", `idcomprobante=${index + 1}`).replaceAll("idpaciente=1", `idpaciente=${index + 1}`)).join("");
+  await f.page.setContent(f.html.replace(/<form[\s\S]*?<\/form>/, "").replace(row, rows));
+  const inspection = await inspectSearch(f.page);
+  assert.equal(inspection.form, null);
+  assert.equal(inspection.extraction.atenciones.length, 8);
+  const options = { manualConfirmed: true, manualToken: (await f.flow.confirmSearch()).token };
+  const created = await f.flow.start(options);
+  await f.manager.get(created.id).completion;
+  assert.equal((await f.flow.start(options)).reused, true);
+  assert.equal(f.runs, 1);
+}));
+
+test("Importación manual: controles adicionales no descartan los filtros reconocidos", async () => fixture(async f => {
+  await f.page.setContent(f.html.replace("<button>Buscar", '<input aria-label="Otro control" value="no persistir"><button>Buscar'));
+  assert.equal((await inspectSearch(f.page)).form, null);
+  const token = (await f.flow.confirmSearch()).token;
+  await f.page.locator("#empresa").evaluate(select => select.options[0].textContent = "Otra");
+  await assert.rejects(f.flow.start({ manualConfirmed: true, manualToken: token }), error => error.code === "SEARCH_RESULTS_MISMATCH");
+  assert.equal(f.runs, 0);
+  assert.equal(JSON.stringify(await f.store.processingState()).includes("no persistir"), false);
+}));
+
+test("Importación manual: distingue tabla ausente de tabla sin reportes sin iniciar descargas", async () => fixture(async f => {
+  await f.page.setContent("<h1>Atenciones</h1>");
+  await assert.rejects(f.flow.confirmSearch(), error => error.code === "SEARCH_TABLE_NOT_FOUND");
+  await f.page.setContent(f.html.replace(/<tr><td>F1[\s\S]*?<\/tr>/, ""));
+  await assert.rejects(f.flow.confirmSearch(), error => error.code === "SEARCH_NO_RESULTS");
+  assert.equal(f.runs, 0);
+}));
+
+test("Importación manual: usa la única pestaña de resultados y rechaza búsquedas ambiguas", async () => fixture(async f => {
+  const results = await f.page.context().newPage();
+  await results.route("**/*", route => route.fulfill({ contentType: "text/html", body: f.html }));
+  await results.goto(url);
+  await f.page.setContent("<h1>Menú de MediWeb</h1>");
+  f.engine.context = f.page.context();
+  f.engine.selectResultsPage = DownloaderRunner.prototype.selectResultsPage;
+  const token = (await f.flow.confirmSearch()).token;
+  assert.equal(f.engine.mainPage, results);
+  await results.setContent(f.html.replace("idcomprobante=1", "idcomprobante=2"));
+  await assert.rejects(f.flow.start({ manualConfirmed: true, manualToken: token }), error => error.code === "SEARCH_CONFIRMATION_CHANGED");
+  await f.page.setContent(f.html);
+  await assert.rejects(f.flow.confirmSearch(), error => error.code === "SEARCH_MULTIPLE_RESULTS");
+  assert.equal(f.runs, 0);
 }));
 
 test("Fase04: búsqueda confirmada guardada/reaplicada; cambios de interfaz y origen se bloquean", async () => fixture(async f => {

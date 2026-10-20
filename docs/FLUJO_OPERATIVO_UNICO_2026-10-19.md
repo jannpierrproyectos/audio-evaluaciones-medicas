@@ -36,3 +36,11 @@ La prueba reproduce archivo ausente, comprueba que no abre la conversacion ni gu
 La web se publica solo en Preview. No se cambian Google, secretos, ElevenLabs, Hugging Face, la instalacion del Connector ni los lotes existentes. Para cargar el ajuste de rutas, el operador que usa npm run service debe cerrar ese proceso y volver a iniciarlo desde estas fuentes actualizadas. No requiere reinstalar ni borrar datos.
 
 Una declaracion de destinatario que puede resolverse en el mismo boton aparece como pendiente, no como incidencia. Si todos los MP3 ya estan guardados, desaparece la accion de continuar una cola sin pendientes y queda como accion principal Continuar con envios.
+
+## Resultados manuales rechazados como inexistentes
+
+confirmSearch exigia tanto una tabla valida como un formulario de filtros totalmente compatible con guardar/repetir busquedas. Un formulario con campos adicionales, etiquetas diferentes o ausente rechazaba resultados validos con SEARCH_MANUAL_REQUIRED. Se separan ambos requisitos: importar resultados visibles exige tabla, reportes, sesion y origen validos; guardar/repetir un perfil sigue exigiendo formulario compatible. Los filtros reconocidos se verifican incluso si otros controles impiden guardar el perfil. La firma de filas, controles, prevencion de duplicados y comprobacion antes de descargar se conservan.
+
+Antes de comprobar la busqueda manual, el Connector puede adoptar la unica pestana de resultados de su propio navegador. Varias pestanas producen SEARCH_MULTIPLE_RESULTS sin elegir arbitrariamente. SEARCH_TABLE_NOT_FOUND identifica tabla no reconocida; SEARCH_NO_RESULTS identifica tabla sin reportes. Ningun diagnostico contiene datos clinicos ni secretos.
+
+Regresion completa: node scripts/validate-delivery-flow.mjs --manual-results. Ejecuta Edge con ocho filas ficticias sin formulario y en otra pestana, Connector real aislado y proteccion de Windows. Las capturas quedan en artifacts/manual-results-flow. El operador debe reiniciar el servicio de fuentes para cargar estos cambios; actualizar solo la pagina Preview no modifica el proceso local ya iniciado.

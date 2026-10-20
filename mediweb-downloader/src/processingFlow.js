@@ -84,13 +84,14 @@ export class ProcessingFlow {
 
   async confirmSearch() {
     if (this.jobManager.hasActiveJob) throw flowError("PROCESS_BUSY");
+    await this.engine.selectResultsPage?.();
     const inspection = await inspectSearch(this.engine.mainPage);
     if (inspection.authentication === "expired") throw flowError("SESSION_EXPIRED");
-    if (!inspection.ready || !inspection.form) throw flowError("SEARCH_MANUAL_REQUIRED");
-    const signature = verifySearchRows(inspection.extraction, inspection.form?.controls || []);
+    if (!inspection.ready) throw flowError("SEARCH_TABLE_NOT_FOUND");
+    const signature = verifySearchRows(inspection.extraction, inspection.controls);
     const token = randomUUID();
     await (await this.getStore()).processingState(state => { state.confirmation = { token, signature, structure: inspection.structure,
-      controls: inspection.form?.controls || [], confirmed_at: new Date().toISOString() }; return null; });
+      controls: inspection.controls, confirmed_at: new Date().toISOString() }; return null; });
     return { token };
   }
   start({ profileId = null, manualConfirmed = false, manualToken = null } = {}) {
@@ -113,8 +114,8 @@ export class ProcessingFlow {
         if (inspection.authentication === "expired") throw flowError("SESSION_EXPIRED");
         if (!manualConfirmed) throw flowError("SEARCH_MANUAL_REQUIRED");
       }
-      if (!inspection.ready) throw flowError("SEARCH_MANUAL_REQUIRED");
-      const controls = inspection.form?.controls || [];
+      if (!inspection.ready) throw flowError("SEARCH_TABLE_NOT_FOUND");
+      const controls = inspection.controls;
       const signature = verifySearchRows(inspection.extraction, controls);
       if (!profileId && (manualToken !== state.confirmation?.token || signature !== state.confirmation?.signature ||
         inspection.structure !== state.confirmation?.structure || JSON.stringify(controls) !== JSON.stringify(state.confirmation?.controls))) throw flowError("SEARCH_CONFIRMATION_CHANGED");

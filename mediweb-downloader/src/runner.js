@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { PDFDocument } from "pdf-lib";
-import { launchBrowser, closeQuietly } from "./browser.js";
+import { launchBrowser, closeQuietly, MEDIWEB_URL } from "./browser.js";
 import { extractVisibleReports } from "./mediwebTable.js";
 import { getCurrentPageNumber, goToNextResultsPage, hasValidResultsTable } from "./pagination.js";
 import { runPaginatedWorkflow } from "./paginationWorkflow.js";
@@ -86,6 +86,20 @@ export class DownloaderRunner {
 
   resetCancellation() {
     this.cancelled = false;
+  }
+
+  async selectResultsPage() {
+    // A search may open in another tab of the Connector's browser. Do not read
+    // an unrelated browser, navigate away, or choose between two result sets.
+    const candidates = [];
+    for (const page of this.context?.pages() || []) {
+      if (page.isClosed()) continue;
+      let sameOrigin = false;
+      try { sameOrigin = new URL(page.url()).origin === new URL(MEDIWEB_URL).origin; } catch { /* Blank tab. */ }
+      if (sameOrigin && !await isSessionExpired(page) && await hasValidResultsTable(page)) candidates.push(page);
+    }
+    if (candidates.length > 1) throw Object.assign(new Error("Hay varias pestañas de resultados de MediWeb abiertas. Deja abierta la que deseas procesar."), { code: "SEARCH_MULTIPLE_RESULTS", status: 409 });
+    if (candidates.length === 1) this.mainPage = candidates[0];
   }
 
   async inspectResults() {

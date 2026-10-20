@@ -28,7 +28,7 @@ const report = id => `<html><head><style>body{font-family:Arial;font-size:12px}p
   `TELEFONO: 99911111${id}`, "RESUMEN DE RESULTADOS", "PRUEBAS DE LABORATORIO", "APTITUD", "X APTO -", "RECOMENDACIONES", "CONTROL",
 ].map(line => `<p>${line}</p>`).join("")}</body></html>`;
 
-export async function startControlledPreview(port = 4180) {
+export async function startControlledPreview(port = 4180, { manualResultsOnly = false, resultsInNewTab = false } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "ae-ux-correction-"));
   let browser, vite, temporary, connector;
   const stats = { reportRequests: 0, ttsRequests: 0, actualExternalRequests: 0, reveals: 0, loadRequests: 0, chatOpens: 0 };
@@ -49,9 +49,14 @@ export async function startControlledPreview(port = 4180) {
         stats.reportRequests++;
         return route.fulfill({ contentType: "text/html", body: report(new URL(route.request().url()).searchParams.get("idcomprobante")) });
       }
-      return route.fulfill({ contentType: "text/html", body: search });
+      return route.fulfill({ contentType: "text/html", body: manualResultsOnly ? search.replace(/<form[\s\S]*?<\/form>/, "") : search });
     });
     const mainPage = await mediweb.newPage(); await mainPage.goto(`${upstream}/atenciones/ocupacional`);
+    if (resultsInNewTab) {
+      await mainPage.setContent("<h1>Menú ficticio de MediWeb</h1>");
+      const resultsPage = await mediweb.newPage();
+      await resultsPage.goto(`${upstream}/atenciones/ocupacional`);
+    }
     const store = await new EvaluationStore({ directory: path.join(directory, "vault") }).initialize();
     // Failure injection changes only an in-memory test switch, never ciphertext.
     const controlledStore = new Proxy(store, { get(target, key) {

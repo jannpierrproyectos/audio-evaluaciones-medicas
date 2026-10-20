@@ -5,7 +5,10 @@ import { recoveryDiagnostic, recoveryDescription, recoveryError, reportRecoveryD
 
 const problems = {
   SESSION_EXPIRED: "Abre MediWeb e inicia sesión para continuar.",
-  SEARCH_MANUAL_REQUIRED: "Prepara la búsqueda en MediWeb. No hay resultados suficientes para iniciar.",
+  SEARCH_MANUAL_REQUIRED: "Prepara la búsqueda en la ventana de MediWeb abierta por el Connector y vuelve a intentarlo.",
+  SEARCH_TABLE_NOT_FOUND: "No se reconoció la tabla en la ventana de MediWeb del Connector. Abre allí Atenciones → Ocupacional y muestra los resultados.",
+  SEARCH_NO_RESULTS: "La tabla de MediWeb está abierta, pero no contiene reportes disponibles para importar.",
+  SEARCH_MULTIPLE_RESULTS: "Hay varias pestañas con resultados de MediWeb. Deja abierta solo la búsqueda que deseas procesar y reintenta.",
   SEARCH_RESULTS_MISMATCH: "Los resultados no corresponden a los filtros. Corrige la búsqueda en MediWeb y reintenta.",
   SEARCH_CONFIRMATION_CHANGED: "La búsqueda cambió mientras se comprobaba. Revisa los resultados y reintenta.",
   SEARCH_INTERFACE_CHANGED: "La búsqueda guardada no coincide con esta pantalla de MediWeb. Prepara otra búsqueda.",
@@ -125,7 +128,7 @@ export default function IntegratedProcessing({ onPdfSelected, onBatchStarted, on
         </div>
       </div>
     </> : <div className="process-search">
-      <div><p className="section-label">Nuevo lote</p><h2>Importar evaluaciones</h2><p>Prepara los resultados en MediWeb. Comprobamos los filtros al iniciar.</p></div>
+      <div><p className="section-label">Nuevo lote</p><h2>Importar evaluaciones</h2><p>Prepara los resultados en la ventana de MediWeb abierta por el Connector.</p></div>
       <label>Búsqueda de MediWeb<select aria-label="Búsqueda guardada" disabled={busy} value={profileId} onChange={event => setProfileId(event.target.value)}><option value="">Resultados visibles en MediWeb</option>{state?.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select></label>
       <div className="process-actions"><button type="button" className="primary-button" disabled={!connected || busy || running} onClick={start}>{busy ? "Comprobando resultados..." : "Procesar evaluaciones"}</button><button type="button" className="secondary-button" disabled={!connected || busy} onClick={onOpen}>Abrir MediWeb</button>{runId && <button type="button" onClick={() => setNewSearch(false)}>Volver al resultado</button>}</div>
       <details><summary>Guardar esta búsqueda</summary><label>Nombre de búsqueda<input value={name} onChange={event => setName(event.target.value)} maxLength={80} /></label><button type="button" disabled={!name.trim() || busy} onClick={async () => {
