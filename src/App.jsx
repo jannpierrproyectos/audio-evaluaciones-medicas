@@ -1,3 +1,5 @@
+import WhatsAppReviewQueue from "./components/WhatsAppReviewQueue.jsx";
+import { flowSummary, suggestedFlowStep } from "./lib/operationalFlow.js";
 import { confirmDeliveryRecipient } from "./lib/deliveryUx.js";
 import { EvaluationRepository, sha256, canonical, restoreWorker, recoverAudio, getTtsConfiguration, generatePersistentAudio, batchCounts, initialVerification } from "./lib/evaluationPersistence.js";
 import { synthesizeAudioFromText } from "./lib/ttsClient.js";
@@ -17,7 +19,7 @@ import {
 } from "./lib/workerReviewUx.js";
 import { revokeBatchAudioObjectUrls } from "./lib/batchState.js";
 import { DEFAULT_NARRATIVE_GREETING } from "./lib/narrativeGreeting.js";
-import { synchronizeRecipients, recordWhatsAppDecision } from "./lib/whatsappReview.js";
+import { synchronizeRecipients, recordWhatsAppDecision, matchesReviewFilter } from "./lib/whatsappReview.js";
 import BulkAudioPanel from "./components/BulkAudioPanel.jsx";
 import { approvalToken } from "./lib/bulkAudio.js";
 import { audioFingerprint } from "./lib/evaluationPersistence.js";
@@ -42,8 +44,6 @@ function App() {
   const [storageMessage, setStorageMessage] = useState("Comprobando almacenamiento seguro...");
   const [saving, setSaving] = useState(0);
   const [storageFailed, setStorageFailed] = useState(false);
-  const [deliveryOpen, setDeliveryOpen] = useState(false);
-  const [reviewRecipient, setReviewRecipient] = useState(false);
   const [workStage, setWorkStage] = useState("import");
   const [, setAuthorizationClock] = useState(0);
   const audioActiveRef = useRef(new Set());
@@ -196,7 +196,6 @@ function App() {
     revokeBatchAudioObjectUrls(currentAnalysisRef.current);
     currentAnalysisRef.current = null;
     setPdfAnalysis(null);
-    setReviewRecipient(false);
     setSelectedPdfWorkerIndex(null);
     setPdfPreview("");
     setIsPdfProcessing(false);
@@ -286,23 +285,64 @@ function App() {
     updatePdfWorkerAtIndex(workerIndex, nextWorker).catch(() => {});
   }
 
-  if (deliveryOpen) return <DeliveryInbox initialBatchId={pdfAnalysis?.batch_id} onAuthorizeRecipient={row => confirmDeliveryRecipient(row, new EvaluationRepository(repository.request), undefined, undefined,
-    row.batch_id === currentAnalysisRef.current?.batch_id ? evidence => verifyContact(row.evaluation_id, "confirmado_por_operador", evidence, row.batch_id) : undefined)} onClose={async () => {
-    setDeliveryOpen(false);
-    if (currentAnalysisRef.current?.batch_id) await restoreBatch(currentAnalysisRef.current.batch_id).catch(() => {});
-  }} onCorrect={async (batchId, evaluationId) => {
-    setDeliveryOpen(false);
-    const analysis = await restoreBatch(batchId).catch(() => null);
-    setWorkStage("review");
-    if (analysis) {
-      setSelectedPdfWorkerIndex(analysis.workers.findIndex(worker => worker.evaluation_id === evaluationId));
+  function goToFlow(step) {
+    setWorkStage(step);
+    if (step !== "import") updateReviewUi({ flow_step: step });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  function continueToTexts() {
+    const index = currentAnalysisRef.current?.workers.findIndex(worker => worker.clinical_approval?.status !== "aprobada");
+    if (index >= 0) selectWorker(index);
+    goToFlow("review");
+  }
+  async function continueBatch() {
+    const step = suggestedFlowStep(currentAnalysisRef.current);
+    if (step === "delivery") return openDelivery();
+    if (step === "review") return continueToTexts();
+    return openContacts();
+  }
+  async function openContacts(evaluationId, reviewExisting = false) {
+    try {
+      const snapshot = await refreshRecipients();
+      if (!snapshot) return;
+      const pending = snapshot.workers.filter(worker => matchesReviewFilter(worker, "pendientes"));
+      if (!pending.length && !reviewExisting) { continueToTexts(); return; }
+      const candidates = pending.length ? pending : snapshot.workers;
+      const selected = candidates.find(worker => worker.evaluation_id === evaluationId) || candidates.find(worker => worker.evaluation_id === snapshot.whatsapp_queue?.selected_evaluation_id) || candidates[0];
+      await updateWhatsAppQueue({ ...snapshot.whatsapp_queue, filter: pending.length ? "pendientes" : "todos", visited: [], selected_evaluation_id: selected?.evaluation_id || null });
+      goToFlow("whatsapp");
+    } catch { setStorageMessage("No se pudo abrir la verificacion. Comprueba el Connector y reintenta."); }
+  }
+  async function openDelivery() {
+    try { await repository.flush(); goToFlow("delivery"); }
+    catch { setStorageMessage("No se pudo guardar el lote antes de preparar los envios."); }
+  }
+  const flow = flowSummary(pdfAnalysis);
+  const completedSteps = [flow.total > 0, flow.total > 0 && flow.contactsResolved === flow.total, flow.total > 0 && flow.approved === flow.total, flow.total > 0 && flow.audio === flow.total, false];
+  const activeStep = workStage === "import" ? 0 : workStage === "whatsapp" ? 1 : workStage === "delivery" ? 4 : flow.generating || (flow.approved === flow.total && flow.total > 0) ? 3 : 2;
+  const batchAudioControls = pdfAnalysis ? (
+<section className="audio-workspace">
+                  <BulkAudioPanel compact key={`bulk-${pdfAnalysis.batch_id}`} analysis={pdfAnalysis} repository={repository}
+                    onDeliver={openDelivery}
+                    onSelectWorker={index => { selectWorker(index); goToFlow("review"); }}
+                    getSnapshot={() => currentAnalysisRef.current} refreshRecipients={refreshRecipients}
+                    saveQueue={queue => { const current = currentAnalysisRef.current; if (current?.batch_id !== queue.batch_id) return Promise.reject(new Error("El lote cambió.")); return persistAnalysis({ ...current, bulk_audio_queue: queue,
+                      bulk_audio_history: current.bulk_audio_queue && current.bulk_audio_queue.id !== queue.id ? [...(current.bulk_audio_history || []), current.bulk_audio_queue] : current.bulk_audio_history }); }}
+                    runAudio={(item, text, configuration) => { const index = currentAnalysisRef.current?.workers.findIndex(worker => worker.evaluation_id === item.evaluation_id); return handlePersistentAudio(index, text, item, configuration); }}
+                    storageFailed={storageFailed} />
+                  </section>
+  ) : null;
+  const delivery = <DeliveryInbox embedded initialBatchId={pdfAnalysis?.batch_id}
+    onAuthorizeRecipient={row => confirmDeliveryRecipient(row, new EvaluationRepository(repository.request), undefined, undefined,
+      row.batch_id === currentAnalysisRef.current?.batch_id ? evidence => verifyContact(row.evaluation_id, "confirmado_por_operador", evidence, row.batch_id) : undefined)}
+    onClose={() => goToFlow("review")} onCorrect={async (batchId, evaluationId) => {
+      const analysis = batchId === currentAnalysisRef.current?.batch_id ? currentAnalysisRef.current : await restoreBatch(batchId).catch(() => null);
+      if (!analysis) return;
+      selectWorker(analysis.workers.findIndex(worker => worker.evaluation_id === evaluationId));
       const worker = analysis.workers.find(worker => worker.evaluation_id === evaluationId);
-      if (worker && !getRecipientChecks(worker).whatsapp) {
-        await persistAnalysis({ ...analysis, whatsapp_queue: { ...analysis.whatsapp_queue, filter: "bloqueados", selected_evaluation_id: evaluationId } });
-        setReviewRecipient(true);
-      }
-    }
-  }} />;
+      if (worker && !getRecipientChecks(worker).whatsapp) await openContacts(evaluationId, true);
+      else goToFlow("review");
+    }} />;
 
   return (
     <div className="app-shell">
@@ -321,25 +361,22 @@ function App() {
       </header>
 
       <GoogleAccess />
-      <nav className="workspace-nav" aria-label="Etapas de trabajo">
-        <button type="button" aria-current={workStage === "import" ? "step" : undefined} onClick={() => setWorkStage("import")}>1. Importar</button>
-        <button type="button" disabled={!pdfAnalysis} aria-current={workStage === "review" ? "step" : undefined} onClick={() => setWorkStage("review")}>2. Revisar{pdfAnalysis ? ` (${pdfAnalysis.workers.length})` : ""}</button>
-        <button type="button" disabled={!pdfAnalysis} aria-current={workStage === "audio" ? "step" : undefined} onClick={() => setWorkStage("audio")}>3. Audios</button>
-        <button type="button" disabled={Boolean(saving || storageFailed || isPdfProcessing)} onClick={async () => {
-          try { await repository.flush(); setDeliveryOpen(true); }
-          catch { setStorageMessage("No se pudo guardar el lote antes de abrir las entregas."); }
-        }}>4. Entregas</button>
-      </nav>
+      <div className="flow-toolbar">
+        <ol className="flow-progress" aria-label="Flujo del lote">
+          {["Importar", "WhatsApp", "Texto clínico", "Audio", "Enviar"].map((label, index) => <li key={label} aria-current={activeStep === index ? "step" : undefined} className={completedSteps[index] ? "is-complete" : ""}><span>{index + 1}</span>{label}</li>)}
+        </ol>
+        {pdfAnalysis && <button type="button" className="secondary-button" disabled={Boolean(saving || isPdfProcessing || flow.generating)} onClick={() => goToFlow("import")}>{workStage === "import" ? "Importación" : "Importar otro lote"}</button>}
+      </div>
       <main className="workspace">
         <p className={`storage-status${storageFailed ? " is-error" : ""}`} role={storageFailed ? "alert" : "status"}>{saving ? "Guardando cambios..." : storageMessage}</p>
         <section className="surface">
           <div className="tab-content">
-              <details ref={historyRef} className="batch-history" aria-label="Lotes guardados"><summary>Historial y recuperación de lotes</summary>
+              <details hidden={workStage === "delivery"} ref={historyRef} className="batch-history" aria-label="Lotes guardados"><summary>Historial y recuperación de lotes</summary>
                 <h2>Progreso y lotes guardados</h2>
                 <button type="button" className="secondary-button" onClick={() => refreshBatches().catch(() => setStorageMessage("Connector no disponible."))}>Actualizar lotes</button>
                 {savedBatches.map(batch => <div key={batch.id} className="detail-actions">
                   <span>{batch.file_name || "Lote"} · {batch.workers} evaluaciones · {batch.updated_at}</span>
-                  <button type="button" className="secondary-button" disabled={Boolean(saving) || isPdfProcessing} onClick={() => { restoreBatch(batch.id).then(() => setWorkStage("review")).catch(() => {}); }}>Recuperar lote</button>
+                  <button type="button" className="secondary-button" disabled={Boolean(saving) || isPdfProcessing} onClick={() => { restoreBatch(batch.id).then(analysis => { const step = suggestedFlowStep(analysis); if (step === "whatsapp") return openContacts(); goToFlow(step); }).catch(() => {}); }}>Recuperar lote</button>
                   <button type="button" className="secondary-button" onClick={async () => {
                     if (!window.confirm("¿Eliminar el lote y sus MP3 del almacén cifrado? No elimina PDFs de origen ni copias exportadas. Esta acción no se puede deshacer.")) return;
                     try {
@@ -404,7 +441,7 @@ function App() {
                       onChange={(event) => {
                         const file = event.target.files?.[0];
                         if (file) {
-                          handlePdfSelected(file).then(() => setWorkStage("review")).catch(() => {});
+                          handlePdfSelected(file).then(() => openContacts()).catch(() => {});
                         }
                         event.target.value = "";
                       }}
@@ -425,7 +462,8 @@ function App() {
                     onBatchStarted={resetCurrentBatch}
                     onRestoreBatch={id => restoreBatch(id, { showStatus: false })}
                     analysis={pdfAnalysis}
-                    onReview={() => setWorkStage("review")}
+                    onReview={continueBatch}
+                    nextActionLabel={pdfAnalysis?.review_ui?.flow_step ? "Continuar lote" : "Verificar WhatsApp"}
                   />
                 </div>
               ) : null}
@@ -439,22 +477,21 @@ function App() {
               )}
 
               {pdfAnalysis ? (
-                <div id="pdf-workers-results" hidden={workStage === "import"} tabIndex="-1" className="pdf-results-focus-target">
+                <div id="pdf-workers-results" hidden={workStage === "import" || workStage === "delivery"} tabIndex="-1" className="pdf-results-focus-target">
+                  {workStage === "whatsapp" && <WhatsAppReviewQueue analysis={pdfAnalysis} onVerifyContact={verifyContact} onUpdateQueue={updateWhatsAppQueue}
+                    onUpdateWorker={(...args) => updatePdfWorkerAtIndex(...args)} onRefreshRecipients={refreshRecipients} onSelectWorker={selectWorker}
+                    onClose={() => goToFlow("import")} onContinue={continueToTexts} />}
                   <div hidden={workStage !== "review"}>
                   <PdfWorkersPreview
-                    key={`${pdfAnalysis.batch_id}:${reviewRecipient}`}
-                    onGoAudio={() => setWorkStage("audio")}
-                    onDeliver={async () => { await repository.flush(); setDeliveryOpen(true); }}
-                    initialContactReview={reviewRecipient}
+                    key={pdfAnalysis.batch_id}
+                    onReviewContacts={() => openContacts(undefined, true)}
+                    batchAudioControls={batchAudioControls}
                     analysis={pdfAnalysis}
                     selectedWorkerIndex={selectedPdfWorkerIndex}
                     onSelectWorker={selectWorker}
                     onChangeWorker={handlePdfWorkerChange}
                     onUpdateWorker={(...args) => { const result = updatePdfWorkerAtIndex(...args); result.catch(() => {}); return result; }}
                     onGenerateAudio={handlePersistentAudio}
-                    onVerifyContact={verifyContact}
-                    onUpdateQueue={updateWhatsAppQueue}
-                    onRefreshRecipients={refreshRecipients}
                     onReviewUiChange={updateReviewUi}
                     greeting={greeting}
                     onGreetingChange={(value) => {
@@ -468,17 +505,8 @@ function App() {
                       })) }).catch(() => {});
                     }}
                   />
+
                   </div>
-                  <section hidden={workStage !== "audio"} className="audio-workspace">
-                  <BulkAudioPanel key={`bulk-${pdfAnalysis.batch_id}`} analysis={pdfAnalysis} repository={repository}
-                    onDeliver={async () => { await repository.flush(); setDeliveryOpen(true); }}
-                    onSelectWorker={index => { selectWorker(index); setWorkStage("review"); }}
-                    getSnapshot={() => currentAnalysisRef.current} refreshRecipients={refreshRecipients}
-                    saveQueue={queue => { const current = currentAnalysisRef.current; if (current?.batch_id !== queue.batch_id) return Promise.reject(new Error("El lote cambió.")); return persistAnalysis({ ...current, bulk_audio_queue: queue,
-                      bulk_audio_history: current.bulk_audio_queue && current.bulk_audio_queue.id !== queue.id ? [...(current.bulk_audio_history || []), current.bulk_audio_queue] : current.bulk_audio_history }); }}
-                    runAudio={(item, text, configuration) => { const index = currentAnalysisRef.current?.workers.findIndex(worker => worker.evaluation_id === item.evaluation_id); return handlePersistentAudio(index, text, item, configuration); }}
-                    storageFailed={storageFailed} />
-                  </section>
                 </div>
               ) : (
                 !pdfPreview && pdfSource === "manual" && (
@@ -487,6 +515,7 @@ function App() {
                   </div>
                 )
               )}
+              {workStage === "delivery" && delivery}
           </div>
         </section>
       </main>

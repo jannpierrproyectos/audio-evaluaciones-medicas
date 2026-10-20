@@ -1,7 +1,6 @@
-import WhatsAppReviewQueue from "./WhatsAppReviewQueue.jsx";
 import { matchesReviewFilter, phoneSummary } from "../lib/whatsappReview.js";
 import { approveClinicalText, getAudioAuthorization, requestApprovedAudio, isAudioResponseCurrent } from "../lib/clinicalApproval.js";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import PdfWorkerReviewForm from "./PdfWorkerReviewForm.jsx";
 import { processWorkerClinicalNarrative } from "../clinical/index.js";
 import { synthesizeAudioFromText } from "../lib/ttsClient.js";
@@ -820,23 +819,15 @@ function PdfWorkersPreview({
   onChangeWorker,
   onUpdateWorker,
   onGenerateAudio,
-  onVerifyContact,
-  onUpdateQueue,
-  onRefreshRecipients,
   greeting,
   onGreetingChange,
   onReviewUiChange,
-  onGoAudio,
-  onDeliver,
-  initialContactReview = false,
+  onReviewContacts,
+  batchAudioControls,
 }) {
   const [query, setQuery] = useState(analysis?.review_ui?.query || "");
   const [activeFilter, setActiveFilter] = useState(analysis?.review_ui?.filter || "all");
   const [audioRequestGuard] = useState(() => createAudioRequestGuard());
-  const [quickOpen, setQuickOpen] = useState(initialContactReview);
-  const [quickFeedback, setQuickFeedback] = useState("");
-  const [quickOpening, setQuickOpening] = useState(false);
-  const quickOpeningRef = useRef(false);
 
   if (!analysis) {
     return (
@@ -869,21 +860,8 @@ function PdfWorkersPreview({
     : null;
 
   const contacts = phoneSummary(workers);
-  const contactSummary = <div className="wa-summary" aria-label="Resumen de destinatarios">
-    <span className="meta-chip">WhatsApp confirmado: <strong>{contacts.confirmados}/{workers.length}</strong></span>
-    <span className="meta-chip">Por comprobar: <strong>{contacts.pendientes}</strong></span>
-    {contacts.conflictos > 0 && <span className="meta-chip">Conflictos de identidad: <strong>{contacts.conflictos}</strong></span>}
-  </div>;
-  if (quickOpen) return <div className="pdf-workspace">
-    {contactSummary}
-    <WhatsAppReviewQueue analysis={analysis} onVerifyContact={onVerifyContact} onUpdateQueue={onUpdateQueue}
-      onUpdateWorker={onUpdateWorker} onRefreshRecipients={onRefreshRecipients} onSelectWorker={onSelectWorker}
-      onGoAudio={onGoAudio} onDeliver={onDeliver} onClose={() => setQuickOpen(false)} />
-  </div>;
-
   return (
     <div className="pdf-workspace">
-      <div className="button-row"><button type="button" className="secondary-button" onClick={onGoAudio}>Ir a audios masivos</button><button type="button" className="secondary-button" onClick={onDeliver}>Preparar entregas</button></div>
       <details className="batch-metadata"><summary>{workers.length} evaluaciones · datos del lote y saludo</summary>
       <PdfSummaryBar
         analysis={analysis}
@@ -894,22 +872,8 @@ function PdfWorkersPreview({
       </details>
       <div className="review-toolbar">
       <div className="detail-actions">
-        <button type="button" className="secondary-button" disabled={quickOpening || !analysis.batch_id} onClick={async () => {
-          if (quickOpeningRef.current) return;
-          quickOpeningRef.current = true; setQuickOpening(true); setQuickFeedback("");
-          try {
-            const snapshot = await onRefreshRecipients();
-            const currentWorkers = snapshot?.workers || workers;
-            const queue = snapshot?.whatsapp_queue || analysis.whatsapp_queue || {};
-            const saved = currentWorkers.find(worker => worker.evaluation_id === queue.selected_evaluation_id && matchesReviewFilter(worker, "pendientes"));
-            const first = saved || currentWorkers.find(worker => matchesReviewFilter(worker, "pendientes") && !(queue.visited || []).includes(worker.evaluation_id)) || currentWorkers.find(worker => matchesReviewFilter(worker, "pendientes"));
-            await onUpdateQueue({ ...queue, filter: "pendientes", selected_evaluation_id: first?.evaluation_id || null,
-              visited: saved || first && !(queue.visited || []).includes(first.evaluation_id) ? queue.visited || [] : [] });
-            setQuickOpen(true);
-          } catch (error) { setQuickFeedback(error.message || "No se pudo abrir la cola segura."); }
-          finally { quickOpeningRef.current = false; setQuickOpening(false); }
-        }}>Revisar destinatarios</button>
-        {quickFeedback ? <p role="status">{quickFeedback}</p> : null}
+        <span className="muted-text">WhatsApp confirmado: {contacts.confirmados}/{workers.length}</span>
+        <button type="button" className="secondary-button" onClick={onReviewContacts}>Revisar contactos</button>
       </div>
 
       <div className="review-navigation" aria-label="Navegar evaluaciones">
@@ -918,7 +882,7 @@ function PdfWorkersPreview({
         <button type="button" disabled={selectedIndex >= workers.length - 1} onClick={() => onSelectWorker(selectedIndex + 1)}>Siguiente</button>
       </div>
       </div>
-      <div className="pdf-operational-layout">
+      <div className={`pdf-operational-layout${batchAudioControls ? " has-batch-audio" : ""}`}>
         <section className="pdf-worker-panel">
           <div className="panel__header pdf-panel-header">
             <div>
@@ -966,6 +930,7 @@ function PdfWorkersPreview({
             </div>
           </section>
         )}
+        {batchAudioControls && <div className="review-batch-audio">{batchAudioControls}</div>}
       </div>
     </div>
   );

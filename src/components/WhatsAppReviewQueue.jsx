@@ -4,6 +4,8 @@ import { recipientVersion } from "../lib/recipientIdentity.js";
 import { getRecipientChecks } from "../lib/recipientPolicy.js";
 import { matchesReviewFilter, nextReviewId, openWhatsAppCheck, REVIEW_FILTERS, whatsappState } from "../lib/whatsappReview.js";
 
+const contactLabels = { confirmado_por_operador: "Confirmado", no_disponible: "Sin WhatsApp", pendiente: "Por comprobar", bloqueado: "Corregir telefono" };
+
 function ContactCard({ worker, busy, onDecision, onCorrectPhone }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -18,19 +20,12 @@ function ContactCard({ worker, busy, onDecision, onCorrectPhone }) {
   const [feedback, setFeedback] = useState("");
   const [phone, setPhone] = useState(worker.datos_operativos?.telefono || "");
   const canDeclare = (checks.whatsapp || openedVersion === version) && availability.hasValidPhone;
-  const label = status => status ? "Confirmada" : "Pendiente / bloqueada";
   return <section className="wa-review-card" aria-label="Contacto seleccionado">
     <h3>{getWhatsAppRecipientName(worker) || "Identidad pendiente"}</h3>
     <p><strong>Teléfono:</strong> {worker.datos_operativos?.telefono || "Ausente"} {availability.phone ? `(${availability.phone})` : ""}</p>
-    <p><strong>WhatsApp:</strong> {whatsappState(worker)} · Formato: {conflict?.format || "pendiente"}</p>
+    <p><strong>WhatsApp:</strong> {checks.whatsapp ? "Confirmado" : whatsappState(worker, now) === "no_disponible" ? "Sin WhatsApp" : "Por comprobar"}</p>
     {conflict?.duplicate ? <p className="inline-feedback is-error">Teléfono repetido en {conflict.duplicate_count} evaluaciones. {conflict.conflicting ? "Hay identidades distintas: se exige comprobación individual." : "Corresponde a la misma identidad; cada evaluación conserva su autorización."}</p> : null}
-    <dl className="whatsapp-availability">
-      <div><dt>Existencia de WhatsApp</dt><dd>{label(checks.whatsapp)}</dd></div>
-      <div><dt>Identidad del destinatario</dt><dd>{label(checks.identity)}</dd></div>
-      <div><dt>Autorización vigente</dt><dd>{label(checks.consent)} ({checks.authorizationStatus})</dd></div>
-      <div><dt>Correspondencia del PDF</dt><dd>{label(checks.pdf)}</dd></div>
-    </dl>
-    {worker.app_fields?.whatsapp_verification?.checked_at ? <p className="muted-text">Comprobación: {worker.app_fields.whatsapp_verification.checked_at} · Origen: {worker.app_fields.whatsapp_verification.origin}</p> : null}
+
     {!checks.whatsapp && <button type="button" className="primary-button" disabled={busy || !availability.hasValidPhone} onClick={async () => {
       setOpenedVersion("");
       try { await openWhatsAppCheck(worker); setOpenedVersion(version); setFeedback("Comprueba el chat y registra el resultado. Abrirlo no confirma la cuenta ni autoriza entregas."); }
@@ -56,7 +51,7 @@ function ContactCard({ worker, busy, onDecision, onCorrectPhone }) {
   </section>;
 }
 
-export default function WhatsAppReviewQueue({ analysis, onVerifyContact, onUpdateQueue, onUpdateWorker, onRefreshRecipients, onClose, onSelectWorker, onGoAudio, onDeliver }) {
+export default function WhatsAppReviewQueue({ analysis, onVerifyContact, onUpdateQueue, onUpdateWorker, onRefreshRecipients, onClose, onSelectWorker, onContinue }) {
   const [busy, setBusy] = useState(false);
   const savingRef = useRef(false);
   const activeRef = useRef(true);
@@ -90,7 +85,7 @@ export default function WhatsAppReviewQueue({ analysis, onVerifyContact, onUpdat
   }
   return <section ref={sectionRef} tabIndex={-1} className="wa-review" aria-label="Verificación rápida de WhatsApp">
     <div className="panel__header"><div><h2>Verificación rápida de WhatsApp</h2><p>Un contacto por vez. Los resultados se guardan cifrados antes de avanzar.</p></div>
-      <button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Volver al panel</button></div>
+      <button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Volver a importación</button></div>
     <label>Filtrar contactos<select value={filter} disabled={busy} onChange={event => {
       const value = event.target.value;
       run(() => navigate(workers.find(worker => matchesReviewFilter(worker, value))?.evaluation_id || null, { filter: value, visited: [] }));
@@ -98,7 +93,7 @@ export default function WhatsAppReviewQueue({ analysis, onVerifyContact, onUpdat
     <div className="wa-review-layout">
       <div className="wa-review-list" aria-label="Lista de contactos">
         {filtered.map(worker => <button type="button" key={worker.evaluation_id} className={`worker-row${worker.evaluation_id === selected?.evaluation_id ? " is-selected" : ""}`} disabled={busy} aria-pressed={worker.evaluation_id === selected?.evaluation_id} onClick={() => run(() => navigate(worker.evaluation_id))}>
-          <span><strong>{getWhatsAppRecipientName(worker) || "Identidad pendiente"}</strong><small>{worker.datos_operativos?.telefono || "Sin teléfono"} · {whatsappState(worker)}</small></span>
+          <span><strong>{getWhatsAppRecipientName(worker) || "Identidad pendiente"}</strong><small>{worker.datos_operativos?.telefono || "Sin teléfono"} · {contactLabels[whatsappState(worker)] || "Por comprobar"}</small></span>
         </button>)}
       </div>
       <div>
@@ -114,7 +109,7 @@ export default function WhatsAppReviewQueue({ analysis, onVerifyContact, onUpdat
             if (!activeRef.current) return;
             const visited = [...new Set([...(queue.visited || []), selected.evaluation_id])];
             await navigate(nextReviewId(updated, selected.evaluation_id, visited, "pendientes"), { visited, filter: "pendientes" });
-            setFeedback("Resultado guardado. Las autorizaciones clínicas y de entrega se mantienen independientes.");
+            setFeedback("Resultado guardado.");
           })} /> : <div className="preview-placeholder">No quedan otros contactos en esta vuelta. Los aplazados siguen pendientes.
           <button type="button" className="secondary-button" disabled={busy} onClick={() => run(() => navigate(workers.find(worker => matchesReviewFilter(worker, "pendientes"))?.evaluation_id || null, { visited: [], filter: "pendientes" }))}>Reanudar pendientes</button>
         </div>}
@@ -124,7 +119,7 @@ export default function WhatsAppReviewQueue({ analysis, onVerifyContact, onUpdat
         </div>
       </div>
     </div>
-    <div className="button-row">{onGoAudio && <button type="button" className="secondary-button" disabled={busy} onClick={onGoAudio}>Ir a audios masivos</button>}{onDeliver && <button type="button" className="primary-button" disabled={busy} onClick={onDeliver}>Preparar entregas</button>}</div>
+    <div className="flow-next-action"><p>Revisa el texto antes de convertirlo en audio. Puedes continuar aunque quede algún WhatsApp pendiente.</p><button type="button" className="primary-button" disabled={busy} onClick={onContinue}>Continuar con texto clínico</button></div>
     <p role="status">{busy ? "Guardando…" : feedback}</p>
   </section>;
 }

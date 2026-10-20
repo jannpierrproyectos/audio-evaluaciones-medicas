@@ -13,7 +13,7 @@ const problems = {
   PROCESS_ALREADY_DOWNLOADED: "Estas evaluaciones ya se descargaron. Abre el proceso anterior desde el historial.",
 };
 
-export default function IntegratedProcessing({ onPdfSelected, onBatchStarted, onRestoreBatch, analysis, connected, onOpen, onReview }) {
+export default function IntegratedProcessing({ onPdfSelected, onBatchStarted, onRestoreBatch, analysis, connected, onOpen, onReview, nextActionLabel = "Verificar WhatsApp" }) {
   const [state, setState] = useState(null), [runId, setRunId] = useState(null);
   const [attempt, setAttempt] = useState(0), [job, setJob] = useState(null);
   const [profileId, setProfileId] = useState(""), [name, setName] = useState("");
@@ -119,7 +119,7 @@ export default function IntegratedProcessing({ onPdfSelected, onBatchStarted, on
         {running && <progress aria-label="Avance de importación" value={job?.processed || 0} max={Math.max(job?.detected || 8, job?.processed || 0, 1)} />}
         {recovery.status === "error" && <p className="process-error" role="alert">{recoveryDescription(recovery.diagnostic)} [{recovery.diagnostic.code}]. Los archivos se conservan; no se repetirán descargas.</p>}
         <div className="process-actions">
-          {available ? <button type="button" className="primary-button" onClick={onReview}>Revisar evaluaciones</button> : recovery.status === "error" ? <button type="button" className="primary-button" onClick={() => retry()}>Reintentar recuperación</button> : <span role="status">{running ? "Descargando y conservando documentos..." : "Abriendo las evaluaciones para comprobar su disponibilidad..."}</span>}
+          {available ? <button type="button" className="primary-button" onClick={onReview}>{nextActionLabel}</button> : recovery.status === "error" ? <button type="button" className="primary-button" onClick={() => retry()}>Reintentar recuperación</button> : <span role="status">{running ? "Descargando y conservando documentos..." : "Abriendo las evaluaciones para comprobar su disponibilidad..."}</span>}
           {!running && <button type="button" className="secondary-button" onClick={() => setNewSearch(true)}>Otra búsqueda</button>}
           {running && <button type="button" onClick={async () => { await processingAction("cancel", { id: runId }); }}>Detener descarga</button>}
         </div>

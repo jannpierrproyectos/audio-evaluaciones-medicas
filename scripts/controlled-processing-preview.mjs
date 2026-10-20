@@ -31,8 +31,8 @@ const report = id => `<html><head><style>body{font-family:Arial;font-size:12px}p
 export async function startControlledPreview(port = 4180) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "ae-ux-correction-"));
   let browser, vite, temporary, connector;
-  const stats = { reportRequests: 0, ttsRequests: 0, actualExternalRequests: 0, reveals: 0, loadRequests: 0 };
-  let failLoad = false;
+  const stats = { reportRequests: 0, ttsRequests: 0, actualExternalRequests: 0, reveals: 0, loadRequests: 0, chatOpens: 0 };
+  let failLoad = false, fileMode = "primary";
   const stop = async () => {
     await vite?.close();
     if (connector) await new Promise(resolve => connector.close(resolve));
@@ -71,8 +71,14 @@ export async function startControlledPreview(port = 4180) {
     const url = `http://127.0.0.1:${port}`;
     const files = createManagedFileService({ downloadsDir, ensureProtectedFile: restrictFile,
       temporaryAttachments: temporary, readProtectedOutput: output.read, revealFile: async () => { stats.reveals++; } });
+    const missingFiles = createManagedFileService({ downloadsDir: path.join(directory, "empty-downloads"), ensureProtectedFile: restrictFile, temporaryAttachments: temporary });
+    const fallbackFiles = createManagedFileService({ downloadsDir: path.join(directory, "empty-downloads"), ensureProtectedFile: restrictFile,
+      readFallbacks: [{ downloadsDir, readProtectedOutput: output.read }], temporaryAttachments: temporary, revealFile: async () => { stats.reveals++; } });
+    const controlledFiles = new Proxy(files, { get(target, key) {
+      return (...args) => (fileMode === "missing" ? missingFiles : fileMode === "fallback" ? fallbackFiles : target)[key](...args);
+    } });
     const app = createApp({ engine, jobManager: manager, processingService: processing, getEvaluationStore: getStore,
-      managedFiles: files, version: "0.6.0-rc.2", allowedOrigins: new Set([url]) });
+      managedFiles: controlledFiles, version: "0.6.0-rc.2", allowedOrigins: new Set([url]) });
     connector = createHttpServer(app);
     await new Promise(resolve => connector.listen(0, "127.0.0.1", resolve));
     const connectorUrl = `http://127.0.0.1:${connector.address().port}`;
@@ -90,7 +96,7 @@ export async function startControlledPreview(port = 4180) {
             let body = ""; for await (const chunk of req) body += chunk;
             failLoad = body === "on"; res.end("ok");
           });
-          server.middlewares.use("/__fixture/chat", (_req, res) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.end("<h1>Conversación ficticia. No se abrió WhatsApp.</h1>"); });
+          server.middlewares.use("/__fixture/chat", (_req, res) => { stats.chatOpens++; res.setHeader("Content-Type", "text/html; charset=utf-8"); res.end("<h1>Conversación ficticia. No se abrió WhatsApp.</h1>"); });
           server.middlewares.use("/api/tts", async (req, res) => {
             res.setHeader("Cache-Control", "no-store"); res.setHeader("Content-Type", "application/json");
             if (req.url === "/session") return res.end(JSON.stringify({ authenticated: true, configured: true }));
@@ -106,7 +112,7 @@ export async function startControlledPreview(port = 4180) {
         },
       }], server: { host: "127.0.0.1", port, strictPort: true, watch: { ignored: ["**/mediweb-downloader/.auth/**", "**/mediweb-downloader/downloads/**", "**/mediweb-downloader/build-windows/**", "**/artifacts/**", "**/docs/**"] } } });
     await vite.listen();
-    return { url, connectorUrl, directory, store, processing, manager, files, browser, stats, setLoadFailure: value => { failLoad = value; }, stop };
+    return { url, connectorUrl, directory, store, processing, manager, files, browser, stats, setFileMode: value => { fileMode = value; }, setLoadFailure: value => { failLoad = value; }, stop };
   } catch (error) { await stop(); throw error; }
 }
 if (process.argv[1]?.replaceAll("\\", "/").endsWith("/controlled-processing-preview.mjs")) {

@@ -5,9 +5,9 @@ import path from "node:path";
 import { startControlledPreview } from "./controlled-processing-preview.mjs";
 
 const keepPreview = process.argv.includes("--keep-preview");
-const preview = await startControlledPreview(Number(process.env.AE_TEST_PORT) || (keepPreview ? 4190 : 4181));
+const preview = await startControlledPreview(Number(process.env.AE_TEST_PORT) || (keepPreview ? 4182 : 4181));
 let passed = false;
-const captures = "artifacts/delivery-flow";
+const captures = "artifacts/sequential-flow";
 await mkdir(captures, { recursive: true });
 const context = await preview.browser.newContext({ viewport: { width: 1440, height: 1000 }, permissions: ["clipboard-read", "clipboard-write"] });
 let page;
@@ -58,7 +58,7 @@ try {
   await page.reload();
   await panel.getByRole("alert").filter({ hasText: "BATCH_LOAD_STORE_BUSY" }).waitFor();
   assert.equal(await panel.getByRole("heading", { name: "Lote procesado y disponible", exact: true }).count(), 0);
-  assert.equal(await panel.getByRole("button", { name: "Revisar evaluaciones", exact: true }).count(), 0);
+  assert.equal(await panel.getByRole("button", { name: "Verificar WhatsApp", exact: true }).count(), 0);
   assert.equal(await catalogueHash(), beforeRecovery);
   await shot("05-error-real-de-recuperacion");
   preview.setLoadFailure(false);
@@ -66,87 +66,87 @@ try {
   await panel.getByRole("heading", { name: "Lote procesado y disponible", exact: true }).waitFor();
   assert.equal(preview.stats.reportRequests, 8);
   assert.equal(await catalogueHash(), beforeRecovery);
-  await panel.getByRole("button", { name: "Revisar evaluaciones", exact: true }).click();
-  await page.getByRole("textbox", { name: "Texto final editable PDF" }).waitFor();
-  assert.equal(await page.getByRole("option").filter({ hasText: "DNI:" }).count(), 8);
-  await shot("06-revision-clinica");
-  await page.getByRole("button", { name: "Aprobar texto clínico y siguiente", exact: true }).click();
-  await page.getByRole("button", { name: "Anterior", exact: true }).click();
-  const generate = page.getByRole("button", { name: "Generar audio", exact: true });
-  assert.equal(await generate.isEnabled(), true);
-  await generate.click();
-  await page.getByRole("button", { name: "Generando audio...", exact: true }).waitFor();
-  await shot("07-generacion-sin-whatsapp");
-  await page.getByRole("button", { name: "Recuperar audio guardado", exact: true }).waitFor();
-  assert.equal(preview.stats.ttsRequests, 1);
-  await page.getByRole("button", { name: "Recuperar audio guardado", exact: true }).click();
-  await page.getByText("Cambios guardados de forma segura.", { exact: true }).waitFor();
-  assert.equal(preview.stats.ttsRequests, 1);
-  // Review each narrative explicitly before bulk generation. WhatsApp remains unverified.
-  for (let index = 1; index < 8; index++) {
-    if (index === 1) await page.getByRole("button", { name: "Siguiente", exact: true }).click();
-    await page.getByRole("button", { name: /^Aprobar texto cl\u00ednico/ }).click();
+  assert.equal(await page.getByRole("navigation", { name: "Etapas de trabajo" }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: /^(2\. Revisar|3\. Audios|4\. Entregas)/ }).count(), 0);
+  await panel.getByRole("button", { name: "Verificar WhatsApp", exact: true }).click();
+  const contact = page.getByRole("region", { name: "Contacto seleccionado" });
+  await contact.getByRole("heading", { name: /Persona1/i }).waitFor();
+  await shot("06-whatsapp-primero");
+  for (let index = 1; index <= 8; index++) {
+    await contact.getByRole("heading", { name: new RegExp(`Persona${index}`, "i") }).waitFor();
+    await contact.getByRole("button", { name: "Abrir WhatsApp", exact: true }).click();
+    await contact.getByRole("button", { name: index === 3 ? "No tiene WhatsApp" : "Tiene WhatsApp", exact: true }).click();
   }
-  await page.getByRole("button", { name: "Ir a audios masivos", exact: true }).click();
-  await page.getByRole("heading", { name: "Audios del lote" }).waitFor();
-  await page.getByRole("button", { name: "Generar audios masivos", exact: true }).waitFor();
-  await shot("08-boton-masivo-visible");
+  await page.getByText("No quedan otros contactos en esta vuelta.", { exact: false }).waitFor();
+  assert.equal(preview.stats.chatOpens, 8);
+  assert.equal(await page.getByRole("checkbox").count(), 0);
+  await shot("07-whatsapp-revisado");
+  await page.getByRole("button", { name: "Continuar con texto cl\u00ednico", exact: true }).click();
+  await page.getByRole("textbox", { name: "Texto final editable PDF" }).waitFor();
+  await shot("08-texto-y-audio-juntos");
+  for (let index = 0; index < 8; index++) {
+    await page.getByRole("button", { name: /^Aprobar texto cl\u00ednico/ }).click();
+    if (index === 2) {
+      await page.getByRole("option", { name: /FICTICIA PERSONA3/i }).click();
+      await page.getByRole("button", { name: "Generar audio", exact: true }).click();
+      await page.getByRole("button", { name: "Generando audio...", exact: true }).waitFor();
+      await shot("09-audio-sin-whatsapp");
+      await page.getByRole("button", { name: "Recuperar audio guardado", exact: true }).waitFor();
+      await page.getByRole("button", { name: "Recuperar audio guardado", exact: true }).click();
+      assert.equal(preview.stats.ttsRequests, 1);
+      await page.getByRole("button", { name: "Siguiente", exact: true }).click();
+    }
+  }
   await page.getByRole("button", { name: "Generar audios masivos", exact: true }).click();
   await page.waitForFunction(() => document.body.innerText.includes("Completados: 7") && document.body.innerText.includes("Reutilizados: 1"), null, { timeout: 180000 });
-  assert.equal(preview.stats.ttsRequests, 8, "Only seven new calls; existing MP3 reused");
-  await shot("09-ocho-mp3-sin-whatsapp");
-  await page.getByRole("button", { name: /^2\. Revisar/ }).click();
-  await page.getByRole("button", { name: "Revisar destinatarios", exact: true }).click();
-  await page.getByRole("button", { name: /Persona1/i }).click();
-  for (let index = 0; index < 2; index++) {
-    await page.getByRole("button", { name: "Abrir WhatsApp", exact: true }).click();
-    await page.getByRole("button", { name: "Tiene WhatsApp", exact: true }).click();
-    await page.getByText("Resultado guardado.", { exact: false }).waitFor();
-  }
-  assert.equal(await page.getByRole("checkbox").count(), 0);
-  await shot("10-whatsapp-guardado-sin-formularios");
-  await page.getByRole("button", { name: "Preparar entregas", exact: true }).click();
+  assert.equal(preview.stats.ttsRequests, 8);
+  await shot("10-ocho-mp3-en-la-misma-pantalla");
+  preview.setFileMode("missing");
+  await page.getByRole("button", { name: "Continuar con env\u00edos", exact: true }).click();
   const recipient = page.getByRole("region", { name: "Entrega seleccionada" });
   await recipient.getByRole("heading", { name: /Persona1/i }).waitFor();
-  await recipient.getByRole("button", { name: "Confirmar destinatario y preparar envio", exact: true }).click();
-  const complete = page.getByRole("button", { name: /Confirmo que envié mensaje, PDF y MP3/ });
+  await recipient.getByRole("button", { name: "Confirmar destinatario y preparar env\u00edo", exact: true }).click();
+  await page.getByText(/\[FILE_NOT_FOUND\]/).waitFor();
+  assert.equal(preview.stats.chatOpens, 8, "Missing PDF stops before navigating to a WhatsApp conversation");
+  assert.equal((await preview.store.load(run.batch_id)).snapshot.workers[0].app_fields.recipient_authorization, null);
+  await shot("11-falta-pdf-diagnostico");
+  preview.setFileMode("fallback");
+  await recipient.getByRole("button", { name: "Confirmar destinatario y preparar env\u00edo", exact: true }).click();
+  const complete = page.getByRole("button", { name: /Confirmo que envi\u00e9 mensaje, PDF y MP3/ });
   await complete.waitFor({ timeout: 180000 });
-  await page.waitForFunction(() => [...document.querySelectorAll("button")].some(button => button.textContent.includes("Confirmo que envié mensaje, PDF y MP3") && !button.disabled), null, { timeout: 180000 });
+  await page.waitForFunction(() => [...document.querySelectorAll("button")].some(button => button.textContent.includes("Confirmo que envi\u00e9 mensaje, PDF y MP3") && !button.disabled), null, { timeout: 180000 });
   assert.equal(preview.stats.reveals, 2);
-  await shot("11-entrega-preparada");
+  assert.equal(preview.stats.chatOpens, 9);
+  await shot("12-original-recuperado-envio-preparado");
   const after = await preview.store.load(run.batch_id);
-  assert.equal(after.snapshot.workers.length, 8);
-  assert.ok(after.snapshot.workers[0].app_fields.whatsapp_verification.checked_at);
-  assert.equal(after.snapshot.workers[0].app_fields.recipient_authorization.identity_confirmed, true);
-  assert.equal(after.snapshot.workers[0].clinical_approval.status, "aprobada");
+  assert.equal(after.snapshot.workers[0].app_fields.recipient_authorization.scope, "evaluation");
+  assert.deepEqual((await preview.store.catalogue()).data.deliveries[0].confirmations, {});
   const afterHashes = await Promise.all(after.snapshot.workers.map(async worker => (await preview.files.inspectFile(worker.datos_operativos.archivo_pdf_completo_id, ".pdf")).sha256));
   assert.deepEqual(afterHashes, originalHashes);
-  const deliveries = (await preview.store.catalogue()).data.deliveries;
-  assert.deepEqual(deliveries[0].confirmations, {}, "Preparation never fabricates sending");
   await complete.click();
   await recipient.getByRole("heading", { name: /Persona2/i }).waitFor();
-  assert.equal(preview.stats.ttsRequests, 8);
   assert.equal((await preview.store.catalogue()).data.deliveries[0].state, "completada");
-  await shot("12-entrega-confirmada-siguiente");
+  await shot("13-envio-confirmado-siguiente");
   await page.reload();
-  await page.getByRole("button", { name: "4. Entregas", exact: true }).click();
+  await panel.getByRole("heading", { name: "Lote procesado y disponible" }).waitFor();
+  await panel.getByRole("button", { name: "Continuar lote", exact: true }).click();
   await recipient.getByRole("heading", { name: /Persona2/i }).waitFor();
   const stored = await preview.store.load(run.batch_id);
   assert.equal(stored.snapshot.workers.every(worker => worker.app_fields.audio_record), true);
-  assert.equal(stored.snapshot.workers[0].app_fields.recipient_authorization.scope, "evaluation");
   assert.equal(preview.stats.ttsRequests, 8);
+  assert.equal(preview.stats.reportRequests, 8);
+  assert.equal(preview.stats.chatOpens, 9, "Recovery never opens a chat for an existing verification");
   await page.setViewportSize({ width: 390, height: 844 });
-  await shot("10-entrega-movil");
-  await page.getByRole("button", { name: "Volver al panel", exact: true }).click();
-  await page.getByRole("button", { name: "1. Importar", exact: true }).click();
-  await panel.getByRole("heading", { name: "Lote procesado y disponible" }).waitFor();
-  await shot("11-resultado-movil");
+  await shot("14-envio-movil");
+  await page.getByRole("button", { name: "Volver a texto y audio", exact: true }).click();
+  await page.getByRole("textbox", { name: "Texto final editable PDF" }).waitFor();
+  await shot("15-texto-audio-movil");
   assert.deepEqual(errors, []);
   assert.equal(preview.stats.actualExternalRequests, 0);
   const result = { passed: true, evaluations: 8, ...preview.stats, catalogueUnchangedByRecovery: true,
-    originalPdfHashesUnchanged: true, realWindowsProtection: true, realConnectorPipeline: true,
+    originalPdfHashesUnchanged: true, originalRecoveredFromKnownLocation: true, noTaskTabs: true, workflowOrder: ["import", "whatsapp", "clinical-text", "audio", "manual-send"], realWindowsProtection: true, realConnectorPipeline: true,
     pageErrors: errors, safeDiagnostics: diagnostics, completedAt: new Date().toISOString() };
-  await writeFile("artifacts/delivery-flow/results.json", JSON.stringify(result, null, 2));
+  await writeFile("artifacts/sequential-flow/results.json", JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result));
   passed = true;
 } catch (error) {

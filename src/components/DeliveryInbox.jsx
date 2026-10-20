@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { deliveryAction } from "../services/mediwebService.js";
-import { canConfirmDeliveryRecipient, deliveryPreflight, deliveryState, matchesDeliveryFilter, nextDelivery, nextPendingDelivery } from "../lib/deliveryUx.js";
+import { canConfirmDeliveryRecipient, deliveryPreflight, deliveryState, deliveryTaskLabel, matchesDeliveryFilter, nextDelivery, nextPendingDelivery } from "../lib/deliveryUx.js";
 import { getTtsConfiguration } from "../lib/evaluationPersistence.js";
 import { openWhatsAppCheck } from "../lib/whatsappReview.js";
 
 const parts = [["message", "mensaje"], ["pdf", "PDF"], ["mp3", "MP3"]];
-export default function DeliveryInbox({ onClose, onCorrect, onAuthorizeRecipient, initialBatchId }) {
-  const [rows, setRows] = useState([]), [selectedId, setSelectedId] = useState(null), [filter, setFilter] = useState("pendientes");
+export default function DeliveryInbox({ onClose, onCorrect, onAuthorizeRecipient, initialBatchId, embedded = false }) {
+  const [allBatches, setAllBatches] = useState(false);
+  const [rows, setRows] = useState([]), [selectedId, setSelectedId] = useState(null), [filter, setFilter] = useState("preparables");
   const [busy, setBusy] = useState(""), [message, setMessage] = useState("");
   const [opened, setOpened] = useState(new Set()), [reason, setReason] = useState(""), [acknowledged, setAcknowledged] = useState(false);
   const [outcomes, setOutcomes] = useState({ message: "incierto", pdf: "incierto", mp3: "incierto" });
@@ -21,7 +22,8 @@ export default function DeliveryInbox({ onClose, onCorrect, onAuthorizeRecipient
     const interval = setInterval(() => { if (!lock.current) refresh().catch(error => setMessage(error.message)); }, 15000);
     return () => { mounted.current = false; clearTimeout(timer); clearInterval(interval); };
   }, [refresh, initialBatchId]);
-  const filtered = rows.filter(row => matchesDeliveryFilter(row, filter));
+  const scoped = rows.filter(row => allBatches || !initialBatchId || row.batch_id === initialBatchId);
+  const filtered = scoped.filter(row => matchesDeliveryFilter(row, filter));
   const selected = filtered.find(row => row.evaluation_id === selectedId) || filtered[0];
   const record = selected?.delivery;
   const ready = record?.state === "listo" && !selected.reasons.length;
@@ -32,7 +34,7 @@ export default function DeliveryInbox({ onClose, onCorrect, onAuthorizeRecipient
     if (lock.current) return;
     lock.current = true; setBusy(label); setMessage("");
     try { await task(); }
-    catch (error) { if (mounted.current) setMessage(error.message || "No se pudo completar la acción. Revisa su estado antes de repetir."); }
+    catch (error) { setFilter("pendientes"); openWhatsAppCheck.discardReservation(); if (mounted.current) setMessage(error.code === "FILE_NOT_FOUND" ? "El PDF completo no está disponible en las ubicaciones de este Connector [FILE_NOT_FOUND]. Los audios y el lote se conservan; comprueba el Connector que guardó el documento." : error.message || "No se pudo completar la accion. Revisa su estado antes de repetir."); }
     finally { await refresh().catch(() => {}); lock.current = false; if (mounted.current) setBusy(""); }
   }
   function select(id) {
@@ -42,7 +44,7 @@ export default function DeliveryInbox({ onClose, onCorrect, onAuthorizeRecipient
   }
   function openConversation() {
     if (lock.current || !ready) return;
-    try { openWhatsAppCheck.reserve(); } catch { setMessage("Permite ventanas emergentes; no se abrió una conversación ni se confirmó un envío."); return; }
+    try { openWhatsAppCheck.reserve({ fresh: true }); } catch { setMessage("Permite ventanas emergentes; no se abrió una conversación ni se confirmó un envío."); return; }
     execute("abriendo conversación", async () => {
       const proof = await deliveryPreflight(selected.evaluation_id);
       const begun = await deliveryAction("begin", { id: record.id, kind: "conversation", configuration: proof.configuration });
@@ -54,7 +56,7 @@ export default function DeliveryInbox({ onClose, onCorrect, onAuthorizeRecipient
   }
   function prepareAndOpen() {
     if (lock.current || !selected || (selected.reasons.length && !canConfirmDeliveryRecipient(selected))) return;
-    try { openWhatsAppCheck.reserve(); } catch { setMessage("Permite abrir WhatsApp para continuar."); return; }
+    try { openWhatsAppCheck.reserve({ fresh: true }); } catch { setMessage("Permite abrir WhatsApp para continuar."); return; }
     execute("preparando envío", async () => {
       if (!selected.checks.authorized && canConfirmDeliveryRecipient(selected)) await onAuthorizeRecipient(selected);
       const proof = await deliveryPreflight(selected.evaluation_id);
@@ -93,22 +95,24 @@ export default function DeliveryInbox({ onClose, onCorrect, onAuthorizeRecipient
     execute("confirmando entrega", async () => {
       const proof = await deliveryPreflight(selected.evaluation_id);
       await deliveryAction("complete", { id: record.id, confirmed: true, allParts: true, configuration: proof.configuration });
-      const current = await refresh(), next = nextPendingDelivery(current, selected.evaluation_id);
+      const current = await refresh(), next = nextPendingDelivery(current.filter(row => allBatches || !initialBatchId || row.batch_id === initialBatchId), selected.evaluation_id);
       if (next) { setSelectedId(next); setReason(""); setAcknowledged(false); }
       else setMessage("No quedan otras entregas autorizadas pendientes.");
     });
   }
-  return <main className="app-shell delivery-inbox">
-    <header className="panel__header"><div><h1>Bandeja de entregas</h1><p>Preparación asistida. Cada envío lo realiza y declara el operador en WhatsApp.</p></div><button type="button" disabled={Boolean(busy)} onClick={onClose}>Volver al panel</button></header>
-    <div className="delivery-toolbar"><p>Listas: {rows.filter(row => deliveryState(row) === "listos").length} · Completadas: {rows.filter(row => deliveryState(row) === "enviados").length} · Incidencias: {rows.filter(row => deliveryState(row) === "incidencias").length} · Total: {rows.length}</p>
-    <label>Filtrar entregas <select aria-label="Filtrar entregas" disabled={Boolean(busy)} value={filter} onChange={event => { setFilter(event.target.value); const next = rows.find(row => matchesDeliveryFilter(row, event.target.value)); if (next) select(next.evaluation_id); else setSelectedId(null); }}>
-      <option value="pendientes">Pendientes</option><option value="listos">Listos</option><option value="enviados">Enviados</option><option value="incidencias">Incidencias</option><option value="todos">Todos</option>
+  const Container = embedded ? "section" : "main";
+  return <Container className={`${embedded ? "" : "app-shell "}delivery-inbox`}>
+    <header className="panel__header"><div><h1>Enviar por WhatsApp</h1><p>Preparación asistida. Cada envío lo realiza y declara el operador en WhatsApp.</p></div><button type="button" disabled={Boolean(busy)} onClick={onClose}>Volver a texto y audio</button></header>
+    <div className="delivery-toolbar"><p>Listas: {scoped.filter(row => deliveryState(row) === "listos").length} · Completadas: {scoped.filter(row => deliveryState(row) === "enviados").length} · Incidencias: {scoped.filter(row => deliveryState(row) === "incidencias").length} · Total: {scoped.length}</p>
+    <label>Filtrar entregas <select aria-label="Filtrar entregas" disabled={Boolean(busy)} value={filter} onChange={event => { setFilter(event.target.value); const next = scoped.find(row => matchesDeliveryFilter(row, event.target.value)); if (next) select(next.evaluation_id); else setSelectedId(null); }}>
+      <option value="preparables">Para enviar</option><option value="pendientes">Todas las pendientes</option><option value="listos">Listos</option><option value="enviados">Enviados</option><option value="incidencias">Incidencias</option><option value="todos">Todos</option>
     </select></label>
+    <button type="button" disabled={Boolean(busy)} onClick={() => setAllBatches(value => !value)}>{allBatches ? "Solo este lote" : "Otros lotes"}</button>
     <button type="button" disabled={Boolean(busy)} onClick={() => refresh().catch(error => setMessage(error.message))}>Actualizar bandeja</button></div>
     <div className="delivery-layout">
       <div role="listbox" aria-label="Evaluaciones para entrega" className="delivery-list">{filtered.map(row => <button role="option" aria-selected={row.evaluation_id === selected?.evaluation_id} key={row.evaluation_id} disabled={Boolean(busy)} onClick={() => select(row.evaluation_id)}>
-        <strong>{row.name || "Identidad pendiente"}</strong><span>{row.phone} · {row.delivery?.state || (row.reasons.length ? "bloqueado" : "pendiente de preparación")}</span>
-      </button>)}{!filtered.length && <p>No hay registros para este filtro.</p>}</div>
+        <strong>{row.name || "Identidad pendiente"}</strong><span>{row.phone} · {deliveryTaskLabel(row)}</span>
+      </button>)}{!filtered.length && <p>No hay evaluaciones listas en este filtro. Puedes revisar las pendientes desde el selector.</p>}</div>
       {selected && <section className="panel" aria-label="Entrega seleccionada">
         <div className="delivery-person"><h2>{selected.name || "Identidad pendiente"}</h2><span>{selected.phone}</span></div>
         <div className="delivery-readiness">
@@ -118,12 +122,12 @@ export default function DeliveryInbox({ onClose, onCorrect, onAuthorizeRecipient
           <span className={record?.pdf && record?.mp3 ? "is-valid" : ""}>{record?.pdf && record?.mp3 ? "PDF y MP3 verificados" : "Archivos por preparar"}</span>
         </div>
         {record?.completed_at && <p>Entrega completada por declaracion del operador: {record.completed_at}</p>}
-        {selected.reasons.length > 0 && <ul>{selected.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>}
+        {selected.reasons.length > 0 && !canConfirmDeliveryRecipient(selected) && <ul>{selected.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>}
         {record?.reason && <p role="alert">{record.reason}</p>}
         {canConfirmDeliveryRecipient(selected) && !selected.checks.duplicateResolved && <p role="alert">Este teléfono figura en evaluaciones de personas distintas. Antes de continuar, comprueba que corresponde al destinatario mostrado y que está autorizado para recibir sus documentos.</p>}
-        {canConfirmDeliveryRecipient(selected) && <p className="muted-text">Al confirmar declaras que comprobaste la identidad, la autorización real para entregar por WhatsApp y que el PDF corresponde a esta evaluación. Se guarda para esta entrega, sin fecha manual. Tener WhatsApp no implica consentimiento.</p>}
+        {canConfirmDeliveryRecipient(selected) && <p className="muted-text">Al preparar, confirmas que comprobaste la identidad, la autorización real por WhatsApp y que el PDF corresponde a esta evaluación.</p>}
         <div className="delivery-main-actions">
-          {(!selected.reasons.length || canConfirmDeliveryRecipient(selected)) && !["completada", "incierta"].includes(record?.state) && <button type="button" className={preparedHere ? "secondary-button" : "primary-button"} disabled={Boolean(busy)} onClick={prepareAndOpen}>{canConfirmDeliveryRecipient(selected) ? (selected.checks.duplicateResolved ? "Confirmar destinatario y preparar envio" : "Confirmar identidad del teléfono compartido y preparar envio") : preparedHere ? "Volver a preparar adjuntos" : "Preparar envío por WhatsApp"}</button>}
+          {(!selected.reasons.length || canConfirmDeliveryRecipient(selected)) && !["completada", "incierta"].includes(record?.state) && <button type="button" className={preparedHere ? "secondary-button" : "primary-button"} disabled={Boolean(busy)} onClick={prepareAndOpen}>{canConfirmDeliveryRecipient(selected) ? (selected.checks.duplicateResolved ? "Confirmar destinatario y preparar envío" : "Confirmar identidad del teléfono compartido y preparar envío") : preparedHere ? "Volver a preparar adjuntos" : "Preparar envío por WhatsApp"}</button>}
           {ready && <button type="button" className="primary-button" disabled={!preparedHere || Boolean(busy)} onClick={complete}>Confirmo que envié mensaje, PDF y MP3 · siguiente</button>}
           <button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => onCorrect(selected.batch_id, selected.evaluation_id)}>Revisar o corregir evaluación</button>
         </div>
@@ -146,10 +150,10 @@ export default function DeliveryInbox({ onClose, onCorrect, onAuthorizeRecipient
           <label>Motivo de conciliación<input value={reason} onChange={event => setReason(event.target.value)} maxLength={500} /></label><label><input type="checkbox" checked={acknowledged} onChange={event => setAcknowledged(event.target.checked)} /> Declaro que comprobé estos resultados manualmente</label>
           <button type="button" disabled={Boolean(busy) || !acknowledged || reason.trim().length < 5} onClick={() => execute("conciliando", async () => deliveryAction("reconcile", { id: record.id, outcomes, reason, confirmed: true, configuration: await getTtsConfiguration() }))}>Guardar conciliación</button>
         </details>}
-        <div className="button-row"><button type="button" disabled={Boolean(busy) || filtered.length < 2} onClick={() => select(nextDelivery(rows, selected.evaluation_id, filter, -1))}>Anterior</button><button type="button" disabled={Boolean(busy) || filtered.length < 2} onClick={() => select(nextDelivery(rows, selected.evaluation_id, filter))}>Siguiente</button></div>
+        <div className="button-row"><button type="button" disabled={Boolean(busy) || filtered.length < 2} onClick={() => select(nextDelivery(scoped, selected.evaluation_id, filter, -1))}>Anterior</button><button type="button" disabled={Boolean(busy) || filtered.length < 2} onClick={() => select(nextDelivery(scoped, selected.evaluation_id, filter))}>Siguiente</button></div>
       </section>}
     </div>
     {busy && <p role="status">{busy}…</p>}{message && <p role="status">{message}</p>}
     <p className="delivery-footnote">Envío manual en WhatsApp. Solo se registra la entrega que declares.</p>
-  </main>;
+  </Container>;
 }

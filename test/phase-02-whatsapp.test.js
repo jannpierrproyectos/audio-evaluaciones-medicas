@@ -178,3 +178,23 @@ test("compatibilidad Fase 01 y persistencia cifrada de cola/comprobaciones despu
     assert.equal(ciphertext.includes(Buffer.from("999888777")), false);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test("delivery reserves its new window during the click and only discards an unused reservation", async () => {
+  const windows = [];
+  const open = createWhatsAppCheckWindow(() => {
+    const tab = { closed: false, opener: {}, location: { href: "", replace(url) { this.href = url; } }, close() { this.closed = true; } };
+    windows.push(tab); return tab;
+  });
+  await open(worker());
+  open.reserve({ fresh: true });
+  assert.equal(windows.length, 2, "New window exists before any awaited preflight");
+  assert.equal(windows[0].closed, false, "Checking chat remains untouched");
+  open.discardReservation();
+  assert.equal(windows[1].closed, true, "Missing PDF leaves no empty delivery tab");
+  assert.equal(windows[0].closed, false);
+  open.reserve({ fresh: true });
+  await open(worker("2", "988777666"));
+  open.discardReservation();
+  assert.equal(windows[2].closed, false, "An opened conversation is never discarded");
+  assert.equal(windows[2].location.href, "https://wa.me/51988777666");
+});

@@ -19,7 +19,7 @@ export async function deliveryPreflight(evaluationId, request = deliveryAction, 
 
 export function deliveryState(row) {
   if (row.delivery?.state === "completada") return "enviados";
-  if (row.reasons.length || ["incierta", "invalidada", "bloqueada"].includes(row.delivery?.state)) return "incidencias";
+  if ((row.reasons.length || ["incierta", "invalidada", "bloqueada"].includes(row.delivery?.state)) && !canConfirmDeliveryRecipient(row)) return "incidencias";
   if (row.delivery?.state === "listo") return "listos";
   return "pendientes";
 }
@@ -30,6 +30,7 @@ export function nextDelivery(rows, currentId, filter = "todos", direction = 1) {
   return candidates[(Math.max(0, index) + direction + candidates.length) % candidates.length].evaluation_id;
 }
 export function matchesDeliveryFilter(row, filter) {
+  if (filter === "preparables") return !["completada", "incierta"].includes(row.delivery?.state) && (!row.reasons.length || canConfirmDeliveryRecipient(row));
   return filter === "todos" || (filter === "pendientes" ? deliveryState(row) !== "enviados" : deliveryState(row) === filter);
 }
 export function nextPendingDelivery(rows, currentId) {
@@ -41,9 +42,13 @@ export function nextPendingDelivery(rows, currentId) {
   return null;
 }
 
+const recipientDeclarationReasons = new Set([
+  "Falta verificar la identidad del destinatario.", "Falta autorizacion vigente para este canal.",
+  "Falta confirmar el PDF de esta evaluacion.", "Resuelve el conflicto de identidad del telefono compartido.",
+]);
 // Explicit declaration for this delivery only; WhatsApp existence is never consent.
 export function canConfirmDeliveryRecipient(row) {
-  return Boolean(row?.checks?.whatsapp && row.checks.formatValid && row.approval && row.audio && !["completada", "incierta"].includes(row.delivery?.state) && !(row.checks.identity && row.checks.consent && row.checks.pdf && row.checks.duplicateResolved));
+  return Boolean(row?.checks?.whatsapp && row.checks.formatValid && row.approval && row.audio && row.reasons.every(reason => recipientDeclarationReasons.has(reason)) && !["completada", "incierta"].includes(row.delivery?.state) && !(row.checks.identity && row.checks.consent && row.checks.pdf && row.checks.duplicateResolved));
 }
 export async function confirmDeliveryRecipient(row, repository, request = deliveryAction, validate = validateManagedFile, saveEvidence) {
   if (!canConfirmDeliveryRecipient(row)) throw new Error("Revisa primero WhatsApp, el texto, el audio y cualquier conflicto de identidad.");
@@ -69,4 +74,15 @@ export async function confirmDeliveryRecipient(row, repository, request = delive
   const confirmed = recordWhatsAppDecision(worker, "confirmado_por_operador", evidence);
   const workers = snapshot.workers.map((value, position) => position === index ? confirmed : value);
   await repository.save({ ...snapshot, workers });
+}
+
+export function deliveryTaskLabel(row) {
+  if (row.delivery?.state === "completada") return "Envio registrado";
+  if (row.delivery?.state === "incierta") return "Resultado por aclarar";
+  if (canConfirmDeliveryRecipient(row)) return "Confirmar destinatario";
+  if (row.checks && !row.checks.whatsapp) return "WhatsApp sin confirmar";
+  if (row.approval === false) return "Revision clinica pendiente";
+  if (row.audio === false) return "Audio pendiente";
+  if (row.delivery?.state === "listo") return "Listo para adjuntar";
+  return row.reasons.length ? "Revisar incidencia" : "Preparar envio";
 }

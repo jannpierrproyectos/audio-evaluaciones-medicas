@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canConfirmDeliveryRecipient, confirmDeliveryRecipient, nextPendingDelivery } from "../src/lib/deliveryUx.js";
+import { canConfirmDeliveryRecipient, confirmDeliveryRecipient, deliveryState, deliveryTaskLabel, matchesDeliveryFilter, nextPendingDelivery } from "../src/lib/deliveryUx.js";
 import { EvaluationRepository } from "../src/lib/evaluationPersistence.js";
 import { deliveryFixture } from "../mediweb-downloader/test-support/deliveryFixture.js";
 
@@ -21,6 +21,11 @@ test("delivery declaration persists once without expiry, reuses WhatsApp and app
   const row = await pendingRecipient(f);
   const before = (await f.store.load(row.batch_id)).snapshot.workers[0];
   assert.equal(canConfirmDeliveryRecipient(row), true);
+  assert.equal(deliveryState(row), "pendientes");
+  assert.equal(deliveryTaskLabel(row), "Confirmar destinatario");
+  assert.equal(matchesDeliveryFilter(row, "preparables"), true);
+  assert.equal(matchesDeliveryFilter({ ...row, checks: { ...row.checks, whatsapp: false } }, "preparables"), false);
+  assert.equal(matchesDeliveryFilter({ ...row, delivery: { state: "incierta" } }, "preparables"), false);
   let validations = 0;
   await confirmDeliveryRecipient(row, repository(f), request(f), async id => { assert.equal(id, before.datos_operativos.archivo_pdf_completo_id); validations++; });
   const after = (await f.store.load(row.batch_id)).snapshot.workers[0];
@@ -70,4 +75,11 @@ test("shared phone requires the explicit contextual identity declaration for tha
   assert.equal(updated.checks.authorized, true);
   const other = (await f.store.load(row.batch_id)).snapshot.workers[1];
   assert.notEqual(other.app_fields.recipient_authorization?.duplicate_signature, (await f.store.load(row.batch_id)).snapshot.workers[0].app_fields.recipient_authorization.duplicate_signature);
+}));
+
+test("a real PDF link or audio mismatch cannot be resolved by declaring consent", async () => deliveryFixture(async f => {
+  const row = await pendingRecipient(f);
+  for (const reason of ["El MP3 no corresponde a esta version.", "No se pudo vincular documento y pagina del PDF."]) {
+    assert.equal(canConfirmDeliveryRecipient({ ...row, reasons: [...row.reasons, reason] }), false);
+  }
 }));

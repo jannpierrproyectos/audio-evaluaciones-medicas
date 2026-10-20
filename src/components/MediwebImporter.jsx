@@ -100,7 +100,7 @@ function JobMetrics({ job }) {
   );
 }
 
-export default function MediwebImporter({ onPdfSelected, onBatchStarted, onRestoreBatch, analysis, onReview }) {
+export default function MediwebImporter({ onPdfSelected, onBatchStarted, onRestoreBatch, analysis, onReview, nextActionLabel }) {
   const [connectorStatus, setConnectorStatus] = useState("checking");
   const [connectorVersion, setConnectorVersion] = useState("");
   const [releaseManifest, setReleaseManifest] = useState(null);
@@ -442,7 +442,7 @@ export default function MediwebImporter({ onPdfSelected, onBatchStarted, onResto
       </div>
 
       {connectorStatus !== "connected" && <div className="mediweb-live-region" aria-live="polite" aria-atomic="true">{feedback}</div>}
-      <IntegratedProcessing onPdfSelected={onPdfSelected} onBatchStarted={onBatchStarted} onRestoreBatch={onRestoreBatch} analysis={analysis} connected={connectorStatus === "connected" && !connectorIncompatible} onOpen={handleOpen} onReview={onReview} />
+      <IntegratedProcessing onPdfSelected={onPdfSelected} onBatchStarted={onBatchStarted} onRestoreBatch={onRestoreBatch} analysis={analysis} connected={connectorStatus === "connected" && !connectorIncompatible} onOpen={handleOpen} onReview={onReview} nextActionLabel={nextActionLabel} />
 
       {phase === "checking" ? <div className="mediweb-empty-state"><p>Comprobando el conector MediWeb…</p></div> : null}
 

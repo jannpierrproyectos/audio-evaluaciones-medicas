@@ -25,9 +25,19 @@ export function createManagedFileService({
   ensureProtectedFile = null,
   temporaryAttachments = null,
   readProtectedOutput = null,
+  readFallbacks = [],
 } = {}) {
   if (!downloadsDir) throw new Error("downloadsDir es obligatorio para administrar archivos locales.");
   const root = path.resolve(downloadsDir);
+  // Read only exact relative references in explicitly known download locations.
+  // Never scan by patient name, move originals or choose between colliding IDs.
+  const seenRoots = new Set([root.toLowerCase()]);
+  const readers = readFallbacks.filter(location => {
+    const key = path.resolve(location.downloadsDir).toLowerCase();
+    if (seenRoots.has(key)) return false;
+    seenRoots.add(key); return true;
+  }).map(location => createManagedFileService({ downloadsDir: location.downloadsDir, readProtectedOutput: location.readProtectedOutput,
+    ensureProtectedFile, temporaryAttachments: null, revealFile }));
 
   async function identifyAbsoluteFile(absolutePath, expectedExtension) {
     const resolved = path.resolve(String(absolutePath || ""));
@@ -51,7 +61,7 @@ export function createManagedFileService({
     };
   }
 
-  async function resolveFileId(fileId, expectedExtension) {
+  async function resolveLocalFileId(fileId, expectedExtension) {
     if (temporaryAttachments?.isReference(fileId)) {
       if (expectedExtension && expectedExtension !== ".mp3") throw new ManagedFileError(415, "FILE_TYPE_NOT_ALLOWED", "Tipo de adjunto incompatible.");
       const file = await temporaryAttachments.readAudio(fileId);
@@ -66,13 +76,29 @@ export function createManagedFileService({
     return identifyAbsoluteFile(candidate, expectedExtension);
   }
 
+  async function sourceFor(fileId, expectedExtension) {
+    if (!readers.length || temporaryAttachments?.isReference(fileId)) return { file: await resolveLocalFileId(fileId, expectedExtension), reader: null };
+    const sources = [{ resolveFileId: resolveLocalFileId }, ...readers];
+    const matches = []; let missing;
+    for (const reader of sources) {
+      try { matches.push({ file: await reader.resolveFileId(fileId, expectedExtension), reader: reader === sources[0] ? null : reader }); }
+      catch (error) { if (error.code !== "FILE_NOT_FOUND") throw error; missing ||= error; }
+    }
+    if (matches.length > 1) throw new ManagedFileError(409, "FILE_LOCATION_AMBIGUOUS", "Hay mas de un archivo con esta referencia en las ubicaciones del Connector. Revisa el original antes de preparar el envio.");
+    if (!matches.length) throw missing;
+    return matches[0];
+  }
+  async function resolveFileId(fileId, expectedExtension) { return (await sourceFor(fileId, expectedExtension)).file; }
+
   async function reveal(fileId) {
     if (temporaryAttachments) {
       const file = await inspectFile(fileId);
       const lease = await temporaryAttachments.reveal(file, revealFile);
       return { id: file.id, name: "Adjunto temporal", extension: file.extension, ...lease };
     }
-    const file = await resolveFileId(fileId);
+    const source = await sourceFor(fileId);
+    if (source.reader) return source.reader.reveal(fileId);
+    const file = source.file;
     if (ensureProtectedFile) {
       try { const absolute = path.resolve(root, file.id.replace(/\//g, path.sep)); await access(absolute, constants.R_OK); await ensureProtectedFile(absolute); }
       catch { throw new ManagedFileError(503, "FILE_PROTECTION_UNAVAILABLE", "No se puede mostrar el archivo sin comprobar su protección EFS y permisos."); }
@@ -136,7 +162,9 @@ export function createManagedFileService({
       if (expectedExtension && expectedExtension !== ".mp3") throw new ManagedFileError(415, "FILE_TYPE_NOT_ALLOWED", "Tipo de adjunto incompatible.");
       return temporaryAttachments.readAudio(fileId);
     }
-    const file = await resolveFileId(fileId, expectedExtension);
+    const source = await sourceFor(fileId, expectedExtension);
+    if (source.reader) return source.reader.inspectFile(fileId, expectedExtension);
+    const file = source.file;
     const absolute = path.resolve(root, file.id.replace(/\//g, path.sep));
     if (!ensureProtectedFile) throw new ManagedFileError(503, "FILE_PROTECTION_UNAVAILABLE", "No se puede comprobar la protección del archivo.");
     try { await access(absolute, constants.R_OK); await ensureProtectedFile(absolute); }

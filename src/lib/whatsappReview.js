@@ -4,6 +4,7 @@ import { normalizePhoneForWhatsApp } from "./whatsappMessage.js";
 export function createWhatsAppCheckWindow(openWindow = (...args) => window.open(...args)) {
   let chat = null;
   let opening = false;
+  let reserved = false;
   function freshWindow() {
     // Reuse our live WindowProxy, not a named target that may still be closing.
     const created = openWindow("about:blank", "_blank");
@@ -20,7 +21,7 @@ export function createWhatsAppCheckWindow(openWindow = (...args) => window.open(
     const url = `https://wa.me/${phone}`;
     try {
       if (!chat || chat.closed) chat = freshWindow();
-      try { chat.location.replace(url); }
+      try { chat.location.replace(url); reserved = false; }
       catch {
         // Disowning opener can remove cross-origin navigation permission in Edge.
         // Close our old checking window and safely replace it in the same gesture.
@@ -29,16 +30,24 @@ export function createWhatsAppCheckWindow(openWindow = (...args) => window.open(
         while (!chat.closed && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
         if (!chat.closed) throw new Error("CHAT_NOT_CLOSED");
         chat = freshWindow();
-        chat.location.replace(url);
+        chat.location.replace(url); reserved = false;
       }
       return true;
     } catch { if (chat?.closed) chat = null; throw new Error("Permite ventanas emergentes y cierra la conversación anterior si Windows impide reemplazarla. Vuelve a abrir WhatsApp. No se registró una confirmación."); }
     finally { opening = false; }
   };
-  openChat.reserve = () => {
+  openChat.reserve = ({ fresh = false } = {}) => {
     if (opening) throw new Error("Espera a que termine de abrirse WhatsApp.");
-    if (!chat || chat.closed) chat = freshWindow();
+    // Delivery can take seconds to validate protected files. Reserve a fresh
+    // window during the click, rather than navigating an old cross-origin tab
+    // and trying to open its replacement after browser activation has expired.
+    if (!chat || chat.closed || (fresh && !reserved)) chat = freshWindow();
+    reserved = true;
     return true;
+  };
+  openChat.discardReservation = () => {
+    if (reserved && chat && !chat.closed) { chat.close(); chat = null; }
+    reserved = false;
   };
   return openChat;
 }

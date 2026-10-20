@@ -61,7 +61,17 @@ export async function startConnectorService({
   await temporaryAttachments.initialize().catch(() => logger.warn?.("Adjuntos temporales bloqueados: revisa los permisos o archivos abiertos y reinicia el Connector."));
   const output = createEncryptedOutput({ downloadsDir: runtimePaths.downloadsDir, getStore: getEvaluationStore });
   engine.protectOutput = output.protectOutput; engine.writeOutput = output.write; engine.readOutput = output.read;
-  const managedFiles = createManagedFileService({ downloadsDir: runtimePaths.downloadsDir, ensureProtectedFile: restrictFile, temporaryAttachments, readProtectedOutput: output.read });
+  const readFallbacks = [];
+  if (!packaged) {
+    const installedPaths = getRuntimePaths({ moduleRoot, packaged: true });
+    const installedConfig = await loadConnectorConfig({ runtimePaths: installedPaths, createIfMissing: false }).catch(() => null);
+    const locations = new Set([installedConfig?.downloadsDir, installedPaths.downloadsDir, getRuntimePaths({ moduleRoot }).downloadsDir].filter(Boolean));
+    for (const downloadsDir of locations) {
+      if (path.resolve(downloadsDir).toLowerCase() === path.resolve(runtimePaths.downloadsDir).toLowerCase()) continue;
+      readFallbacks.push({ downloadsDir, readProtectedOutput: createEncryptedOutput({ downloadsDir, getStore: getEvaluationStore }).read });
+    }
+  }
+  const managedFiles = createManagedFileService({ readFallbacks, downloadsDir: runtimePaths.downloadsDir, ensureProtectedFile: restrictFile, temporaryAttachments, readProtectedOutput: output.read });
   const server = createServer(createApp({ engine, jobManager, managedFiles, updateService, getEvaluationStore, version: packageJson.version, allowedOrigins }));
   let shuttingDown = false;
   let updateTimer = null;
