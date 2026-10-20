@@ -155,10 +155,11 @@ test("prepara WhatsApp sin MP3 y confirma únicamente el teléfono revisado", ()
   assert.equal(isWhatsAppConfirmed(worker), false);
 });
 
-test("delivery UI groups preparation and keeps explicit operator confirmation", async () => {
+test("delivery UI prepares chat and attachments; next worker never declares a send", async () => {
   const source = await readFile(new URL("../src/components/DeliveryInbox.jsx", import.meta.url), "utf8");
   assert.match(source, /function prepareAndOpen/);
-  assert.match(source, /allParts: true/);
+  assert.match(source, /Siguiente trabajador/);
+  assert.doesNotMatch(source, /allParts: true|deliveryAction\("(?:complete|confirm|uncertain|reconcile)"|Confirmo que envi|Declaraciones de env/);
   assert.match(source, /navigator.clipboard.writeText/);
   const editor = await readFile(new URL("../src/components/PdfWorkersPreview.jsx", import.meta.url), "utf8");
   assert.doesNotMatch(editor, /WhatsAppPreparationPanel|recipient_expiry_draft/);

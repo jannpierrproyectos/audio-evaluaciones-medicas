@@ -128,10 +128,12 @@ test("Fase04: clics repetidos, parcial y reinicio recuperan resultados cifrados 
   }
 }));
 
-test("Fase04: reserva interrumpida queda incierta y no permite otra descarga", async () => fixture(async f => {
+test("reserva de PDF interrumpida no impide una nueva descarga pedida por el operador", async () => fixture(async f => {
   await f.store.processingState(state => { state.runs.push({ id: crypto.randomUUID(), status: "running", checkpoint: null }); });
   const restarted = await f.restart(); assert.equal((await restarted.flow.status()).runs[0].status, "uncertain");
-  await assert.rejects(restarted.flow.start({ manualConfirmed: true }), error => error.code === "PROCESS_UNCERTAIN"); assert.equal(f.runs, 0);
+  const next = await restarted.flow.start({ manualConfirmed: true, manualToken: (await restarted.flow.confirmSearch()).token });
+  await restarted.manager.get(next.id).completion;
+  assert.equal(f.runs, 1);
 }));
 
 test("Fase04: fallo de protección de archivos bloquea la descarga", async () => fixture(async f => {
@@ -169,7 +171,7 @@ test("Fase04: cancelación conserva resultados parciales cifrados y no los vuelv
   assert.equal(f.manager.workerMetadata(start.id).workers.length, 1); assert.equal(f.runs, 1);
 }));
 
-test("Fase04: cambio de paciente con el mismo identificador y búsqueda solapada no autorizan redescarga", async () => fixture(async f => {
+test("tabla cambiada exige nueva comprobacion; nueva accion permite volver a descargar", async () => fixture(async f => {
   const token = (await f.flow.confirmSearch()).token;
   await f.page.setContent(f.html.replace("PERSONA FICTICIA", "OTRA PERSONA"));
   await assert.rejects(f.flow.start({ manualConfirmed: true, manualToken: token }), error => error.code === "SEARCH_CONFIRMATION_CHANGED");
@@ -177,8 +179,10 @@ test("Fase04: cambio de paciente con el mismo identificador y búsqueda solapada
   const created = await f.flow.start({ manualConfirmed: true, manualToken: (await f.flow.confirmSearch()).token });
   await f.manager.get(created.id).completion;
   await f.page.setContent(f.html.replace("PERSONA FICTICIA", "OTRA PERSONA"));
-  await assert.rejects(f.flow.start({ manualConfirmed: true, manualToken: (await f.flow.confirmSearch()).token }), error => error.code === "PROCESS_ALREADY_DOWNLOADED");
-  assert.equal(f.runs, 1);
+  const second = await f.flow.start({ manualConfirmed: true, manualToken: (await f.flow.confirmSearch()).token });
+  await f.manager.get(second.id).completion;
+  assert.notEqual(second.id, created.id);
+  assert.equal(f.runs, 2);
 }));
 
 test("Fase04: fallo de checkpoint se convierte en incierto al volver el almacenamiento, sin reintento", async () => fixture(async f => {
@@ -190,6 +194,7 @@ test("Fase04: fallo de checkpoint se convierte en incierto al volver el almacena
   await f.manager.get(created.id).completion;
   assert.equal(f.manager.hasActiveJob, false);
   assert.equal((await f.flow.status()).runs[0].status, "uncertain");
-  await assert.rejects(f.flow.start({ manualConfirmed: true }), error => error.code === "PROCESS_UNCERTAIN");
-  assert.equal(f.runs, 1);
+  const second = await f.flow.start({ manualConfirmed: true, manualToken: (await f.flow.confirmSearch()).token });
+  await f.manager.get(second.id).completion;
+  assert.equal(f.runs, 2);
 }));

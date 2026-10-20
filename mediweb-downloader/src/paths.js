@@ -5,6 +5,22 @@ import { mkdir, readdir, rmdir } from "node:fs/promises";
 
 export const CONNECTOR_DATA_DIRECTORY = "AudioEvaluacionesConnector";
 
+// These paths are server-owned checkpoints inside the encrypted catalogue.
+// They let the installed Connector read originals made by the source service
+// without moving files or accepting arbitrary paths from the browser.
+export function previousDownloadDirectories(processing) {
+  const roots = new Set();
+  for (const run of processing?.runs || []) {
+    const directory = run.checkpoint?.result?.paths?.root;
+    if (typeof directory !== "string" || !path.isAbsolute(directory)) continue;
+    if (!/^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_[a-f0-9]{8}$/i.test(path.basename(directory))) continue;
+    const parent = path.dirname(directory);
+    if (parent === path.parse(parent).root) continue;
+    roots.add(parent);
+  }
+  return [...roots];
+}
+
 export function getRuntimePaths({ moduleRoot, packaged = false, env = process.env, homeDir = os.homedir() } = {}) {
   if (!moduleRoot) throw new Error("moduleRoot es obligatorio para resolver las rutas del Connector.");
   if (!packaged) {

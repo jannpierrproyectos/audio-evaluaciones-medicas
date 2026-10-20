@@ -1,7 +1,7 @@
 import WhatsAppReviewQueue from "./components/WhatsAppReviewQueue.jsx";
 import { flowSummary, suggestedFlowStep } from "./lib/operationalFlow.js";
 import { confirmDeliveryRecipient } from "./lib/deliveryUx.js";
-import { EvaluationRepository, sha256, canonical, restoreWorker, recoverAudio, getTtsConfiguration, generatePersistentAudio, batchCounts, initialVerification } from "./lib/evaluationPersistence.js";
+import { EvaluationRepository, sha256, canonical, restoreWorker, recoverAudio, getTtsConfiguration, generatePersistentAudio, initialVerification } from "./lib/evaluationPersistence.js";
 import { synthesizeAudioFromText } from "./lib/ttsClient.js";
 import { validateManagedFile } from "./services/mediwebService.js";
 import { reconcileWorkerReview } from "./lib/clinicalApproval.js";
@@ -40,18 +40,15 @@ function App() {
   const batchOperationIdRef = useRef(0);
   const [repository] = useState(() => new EvaluationRepository());
   const currentAnalysisRef = useRef(null);
-  const [savedBatches, setSavedBatches] = useState([]);
   const [storageMessage, setStorageMessage] = useState("Comprobando almacenamiento seguro...");
   const [saving, setSaving] = useState(0);
   const [storageFailed, setStorageFailed] = useState(false);
   const [workStage, setWorkStage] = useState("import");
   const [, setAuthorizationClock] = useState(0);
   const audioActiveRef = useRef(new Set());
-  const historyRef = useRef(null);
 
   const refreshBatches = useCallback(async () => {
     const result = await repository.list();
-    setSavedBatches(result.batches);
     setStorageMessage(result.recovered ? "Catálogo recuperado desde copia cifrada." : "Almacenamiento seguro disponible.");
   }, [repository]);
 
@@ -59,9 +56,8 @@ function App() {
     let active = true;
     repository.list().then(result => {
       if (!active) return;
-      setSavedBatches(result.batches);
-      setStorageMessage(result.recovered ? "Catálogo recuperado desde copia cifrada." : "Almacenamiento seguro disponible.");
-    }).catch(() => { if (active) setStorageMessage("Abre o actualiza el Connector para guardar y recuperar el progreso."); });
+      setStorageMessage(result.recovered ? "Almacenamiento disponible." : "Almacenamiento seguro disponible.");
+    }).catch(() => { if (active) setStorageMessage("Abre el Connector para trabajar con los PDF y audios."); });
     return () => { active = false; };
   }, [repository]);
 
@@ -141,7 +137,6 @@ function App() {
       setStorageFailed(false);
       setStorageMessage(warnings.length ? `Evaluaciones abiertas. Contactos sin actualizar [${warnings[0].code}].` : "Almacenamiento seguro disponible.");
       warnings.forEach(reportRecoveryDiagnostic);
-      if (historyRef.current) historyRef.current.open = false;
       // Audio recovery uses its own encrypted reference, without blocking review.
       for (const worker of snapshot.workers) {
         const reference = worker.app_fields?.audio_record || worker.app_fields?.audio_request;
@@ -371,26 +366,6 @@ function App() {
         <p className={`storage-status${storageFailed ? " is-error" : ""}`} role={storageFailed ? "alert" : "status"}>{saving ? "Guardando cambios..." : storageMessage}</p>
         <section className="surface">
           <div className="tab-content">
-              <details hidden={workStage === "delivery"} ref={historyRef} className="batch-history" aria-label="Lotes guardados"><summary>Historial y recuperación de lotes</summary>
-                <h2>Progreso y lotes guardados</h2>
-                <button type="button" className="secondary-button" onClick={() => refreshBatches().catch(() => setStorageMessage("Connector no disponible."))}>Actualizar lotes</button>
-                {savedBatches.map(batch => <div key={batch.id} className="detail-actions">
-                  <span>{batch.file_name || "Lote"} · {batch.workers} evaluaciones · {batch.updated_at}</span>
-                  <button type="button" className="secondary-button" disabled={Boolean(saving) || isPdfProcessing} onClick={() => { restoreBatch(batch.id).then(analysis => { const step = suggestedFlowStep(analysis); if (step === "whatsapp") return openContacts(); goToFlow(step); }).catch(() => {}); }}>Recuperar lote</button>
-                  <button type="button" className="secondary-button" onClick={async () => {
-                    if (!window.confirm("¿Eliminar el lote y sus MP3 del almacén cifrado? No elimina PDFs de origen ni copias exportadas. Esta acción no se puede deshacer.")) return;
-                    try {
-                      await repository.load(batch.id);
-                      await repository.remove(batch.id);
-                      if (currentAnalysisRef.current?.batch_id === batch.id) resetCurrentBatch();
-                      await refreshBatches();
-                    } catch (error) { setStorageMessage(error.code === "STORE_DELIVERY_HISTORY_PRESENT" ? "El lote tiene acciones de entrega registradas. Se conserva para revisar su historial y evitar reenvíos duplicados desde la bandeja." : "No se pudo eliminar el lote."); }
-                  }}>Eliminar lote</button>
-                </div>)}
-                {pdfAnalysis ? <p>{Object.entries(batchCounts(pdfAnalysis)).map(([label, count]) => `${label}: ${count}`).join(" · ")}</p> : null}
-                {pdfAnalysis?.duplicate_batch_ids?.length ? <p>Se omitieron evaluaciones ya guardadas en otros lotes; puedes recuperarlas desde la lista.</p> : null}
-              </details>
-
               <div id="import-workspace" className="import-workspace" hidden={workStage !== "import"}>
               <section className="pdf-source-selector" aria-label="Origen de evaluaciones">
                 <div className="pdf-source-options" role="group" aria-label="Origen del PDF">

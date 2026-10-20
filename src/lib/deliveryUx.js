@@ -30,6 +30,7 @@ export function nextDelivery(rows, currentId, filter = "todos", direction = 1) {
   return candidates[(Math.max(0, index) + direction + candidates.length) % candidates.length].evaluation_id;
 }
 export function matchesDeliveryFilter(row, filter) {
+  if (filter === "whatsapp") return Boolean(row.checks?.whatsapp) && row.delivery?.state !== "completada";
   if (filter === "preparables") return !["completada", "incierta"].includes(row.delivery?.state) && (!row.reasons.length || canConfirmDeliveryRecipient(row));
   return filter === "todos" || (filter === "pendientes" ? deliveryState(row) !== "enviados" : deliveryState(row) === filter);
 }

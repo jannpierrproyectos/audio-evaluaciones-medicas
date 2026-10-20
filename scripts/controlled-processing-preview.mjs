@@ -83,7 +83,7 @@ export async function startControlledPreview(port = 4180, { manualResultsOnly = 
       return (...args) => (fileMode === "missing" ? missingFiles : fileMode === "fallback" ? fallbackFiles : target)[key](...args);
     } });
     const app = createApp({ engine, jobManager: manager, processingService: processing, getEvaluationStore: getStore,
-      managedFiles: controlledFiles, version: "0.6.0-rc.2", allowedOrigins: new Set([url]) });
+      managedFiles: controlledFiles, version: "0.6.0-rc.3", allowedOrigins: new Set([url]) });
     connector = createHttpServer(app);
     await new Promise(resolve => connector.listen(0, "127.0.0.1", resolve));
     const connectorUrl = `http://127.0.0.1:${connector.address().port}`;

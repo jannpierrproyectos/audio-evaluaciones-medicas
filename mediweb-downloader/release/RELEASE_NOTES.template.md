@@ -1,11 +1,13 @@
 # AudioEvaluaciones Connector {{VERSION}}
 
 Novedades:
-- Soporte para el flujo asistido y manual de WhatsApp de AudioEvaluaciones.
-- Apertura segura en Explorer del PDF completo y del MP3 preparado.
-- Persistencia local y deduplicación SHA-256 del audio generado.
-- Nuevos endpoints `POST /files/audio`, `POST /files/validate` y `POST /files/reveal`.
-- Asociación del PDF completo con cada trabajador mediante un identificador relativo controlado.
+- Reconoce los MP3 aprobados con la politica actual, independiente de WhatsApp y del destinatario. Recupera audios sin otra sintesis.
+- Recupera originales cifrados de las descargas hechas anteriormente por el servicio de fuentes, sin moverlos ni descargarlos otra vez.
+- PDF y MP3 preparados con el nombre del trabajador.
+- Importacion manual sin exigir un formulario de filtros guardable; reconoce la pestana de resultados del Connector.
+- Permite descargar nuevamente una busqueda sin bloquearla por descargas anteriores.
+- Saludo institucional preparado para la apertura del chat de entrega; comprobacion de WhatsApp sin mensaje.
+- Conserva lotes, archivos cifrados, clave DPAPI y configuracion existente al actualizar sobre la instalacion anterior.
 
 Seguridad:
 - Esta versión de prueba se distribuye SIN firma digital Authenticode. Windows puede mostrar «Editor desconocido» o una advertencia de SmartScreen. Verifica que la descarga provenga del Release oficial y confirma la instalación manualmente.

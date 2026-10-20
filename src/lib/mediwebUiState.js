@@ -58,7 +58,7 @@ export function createNewImportSnapshot(browserOpen) {
     detectionSummary: null,
     jobId: null,
     jobProgress: null,
-    mode: "first",
+    mode: "both",
     advancedOptions: { ...EMPTY_MEDIWEB_ADVANCED_OPTIONS },
     importCompleted: false,
     importedWorkerCount: 0,

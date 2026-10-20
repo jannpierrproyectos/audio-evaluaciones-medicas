@@ -12,7 +12,6 @@ import {
 import { classifyConnectorCompatibility, getConnectorReleaseManifest } from "../lib/connectorRelease.js";
 import { startConnectorUpdateFlow, supportsLocalUpdater } from "../lib/connectorCapabilities.js";
 import { importMediwebPdfIntoExistingFlow } from "../lib/importMediwebPdf.js";
-import IntegratedProcessing from "./IntegratedProcessing.jsx";
 import {
   EMPTY_MEDIWEB_ADVANCED_OPTIONS,
   createNewImportSnapshot,
@@ -100,7 +99,7 @@ function JobMetrics({ job }) {
   );
 }
 
-export default function MediwebImporter({ onPdfSelected, onBatchStarted, onRestoreBatch, analysis, onReview, nextActionLabel }) {
+export default function MediwebImporter({ onPdfSelected, onBatchStarted, onReview, nextActionLabel }) {
   const [connectorStatus, setConnectorStatus] = useState("checking");
   const [connectorVersion, setConnectorVersion] = useState("");
   const [releaseManifest, setReleaseManifest] = useState(null);
@@ -110,7 +109,7 @@ export default function MediwebImporter({ onPdfSelected, onBatchStarted, onResto
   const [manualDownloadStarted, setManualDownloadStarted] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [detectionSummary, setDetectionSummary] = useState(null);
-  const [mode, setMode] = useState("first");
+  const [mode, setMode] = useState("both");
   const [advancedOptions, setAdvancedOptions] = useState({ ...EMPTY_MEDIWEB_ADVANCED_OPTIONS });
   const [jobId, setJobId] = useState(null);
   const [jobProgress, setJobProgress] = useState(null);
@@ -124,6 +123,7 @@ export default function MediwebImporter({ onPdfSelected, onBatchStarted, onResto
   const requestControllers = useRef(new Set());
   const releaseManifestRef = useRef(null);
   const importGuard = useRef(createSingleFlight());
+  const importLatest = useRef(null), autoImportAttempts = useRef(new Set());
 
   const createTrackedController = useCallback(() => {
     const controller = new AbortController();
@@ -355,7 +355,7 @@ export default function MediwebImporter({ onPdfSelected, onBatchStarted, onResto
   }
 
   async function handleCancel() {
-    if (!jobId || !window.confirm("¿Cancelar el procesamiento de forma segura?")) return;
+    if (!jobId) return;
     const controller = createTrackedController();
     setPendingAction("cancel");
     setFeedback("Cancelando de forma segura…");
@@ -382,7 +382,7 @@ export default function MediwebImporter({ onPdfSelected, onBatchStarted, onResto
       setFeedback("Cargando evaluaciones…");
       try {
         const { processingResult } = await importMediwebPdfIntoExistingFlow(jobId, onPdfSelected, { signal: controller.signal });
-        if (!processingResult) throw new Error("No se pudo procesar el PDF de primeras hojas.");
+        if (!processingResult?.workers?.length) throw new Error("No se pudieron abrir las evaluaciones del PDF descargado.");
         const workerCount = processingResult?.workers?.length ?? jobProgress?.firstPagesAdded ?? 0;
         setImportedWorkerCount(workerCount);
         setImportCompleted(true);
@@ -393,6 +393,7 @@ export default function MediwebImporter({ onPdfSelected, onBatchStarted, onResto
         if (error?.code !== "REQUEST_ABORTED") {
           logMediwebDiagnostic("first-pages import failed", error);
           setFeedback(getMediwebErrorMessage(error));
+          setFormError(getMediwebErrorMessage(error));
         }
       } finally {
         releaseController(controller);
@@ -400,6 +401,16 @@ export default function MediwebImporter({ onPdfSelected, onBatchStarted, onResto
       }
     });
   }
+
+  useEffect(() => { importLatest.current = handleImportPdf; });
+  useEffect(() => {
+    if (!jobId || jobProgress?.status !== "completed" || !jobProgress.firstPagesAdded || autoImportAttempts.current.has(jobId)) return;
+    const timer = setTimeout(() => {
+      autoImportAttempts.current.add(jobId);
+      importLatest.current();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [jobId, jobProgress?.status, jobProgress?.firstPagesAdded]);
 
   function handleNewImport() {
     const snapshot = createNewImportSnapshot(browserOpen);
@@ -442,7 +453,6 @@ export default function MediwebImporter({ onPdfSelected, onBatchStarted, onResto
       </div>
 
       {connectorStatus !== "connected" && <div className="mediweb-live-region" aria-live="polite" aria-atomic="true">{feedback}</div>}
-      <IntegratedProcessing onPdfSelected={onPdfSelected} onBatchStarted={onBatchStarted} onRestoreBatch={onRestoreBatch} analysis={analysis} connected={connectorStatus === "connected" && !connectorIncompatible} onOpen={handleOpen} onReview={onReview} nextActionLabel={nextActionLabel} />
 
       {phase === "checking" ? <div className="mediweb-empty-state"><p>Comprobando el conector MediWeb…</p></div> : null}
 
@@ -485,7 +495,7 @@ export default function MediwebImporter({ onPdfSelected, onBatchStarted, onResto
         </div>
       ) : null}
 
-      <details className="mediweb-advanced"><summary>Descarga por pasos y opciones anteriores</summary>
+      <div className="mediweb-download-steps" aria-label="Descarga por pasos">
       {phase === "ready" ? (
         <div className="mediweb-primary-step">
           <button type="button" className="primary-button" onClick={handleOpen} disabled={pendingAction === "open"}>{pendingAction === "open" ? "Abriendo…" : "Abrir MediWeb"}</button>
@@ -533,7 +543,6 @@ export default function MediwebImporter({ onPdfSelected, onBatchStarted, onResto
             </div>
           </details>
 
-          {formError ? <p className="inline-feedback is-error" role="alert">{formError}</p> : null}
           <button type="button" className="primary-button mediweb-start-button" onClick={handleStartJob} disabled={Boolean(pendingAction) || detectionSummary.eligible < 1}>{pendingAction === "start" ? "Iniciando…" : getMediwebStartLabel(mode)}</button>
         </div>
       ) : null}
@@ -574,11 +583,12 @@ export default function MediwebImporter({ onPdfSelected, onBatchStarted, onResto
       {phase === "imported" ? (
         <section className="mediweb-imported-summary" aria-label="Importación desde MediWeb completada">
           <div><p className="section-label">Importación completada</p><h3>Importación desde MediWeb completada</h3><p>{importedWorkerCount} {pluralize(importedWorkerCount, "trabajador cargado", "trabajadores cargados")}.</p></div>
-          <div className="mediweb-outcome-actions"><button type="button" className="secondary-button is-quiet" onClick={() => setShowImportedDetails((current) => !current)} aria-expanded={showImportedDetails}>{showImportedDetails ? "Ocultar detalles" : "Ver detalles"}</button><button type="button" className="primary-button" onClick={handleNewImport}>Nueva importación</button></div>
+          <div className="mediweb-outcome-actions"><button type="button" className="primary-button" onClick={onReview}>{nextActionLabel || "Verificar WhatsApp"}</button><button type="button" className="secondary-button is-quiet" onClick={handleNewImport}>Nueva descarga</button><button type="button" className="secondary-button is-quiet" onClick={() => setShowImportedDetails((current) => !current)} aria-expanded={showImportedDetails}>{showImportedDetails ? "Ocultar detalles" : "Ver detalles"}</button></div>
           {showImportedDetails ? <JobMetrics job={jobProgress} /> : null}
         </section>
       ) : null}
-      </details>
+      </div>
+      {formError ? <p className="inline-feedback is-error" role="alert">{formError}</p> : null}
     </section>
   );
 }

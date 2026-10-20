@@ -369,7 +369,7 @@ test("Nueva importación conserva el navegador y limpia solo el estado MediWeb",
   assert.equal(reset.detectionSummary, null);
   assert.equal(reset.jobId, null);
   assert.equal(reset.jobProgress, null);
-  assert.equal(reset.mode, "first");
+  assert.equal(reset.mode, "both");
   assert.match(reset.feedback, /sigue abierto/);
 });
 

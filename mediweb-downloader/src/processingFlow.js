@@ -94,14 +94,13 @@ export class ProcessingFlow {
       controls: inspection.controls, confirmed_at: new Date().toISOString() }; return null; });
     return { token };
   }
-  start({ profileId = null, manualConfirmed = false, manualToken = null } = {}) {
+  start({ profileId = null, manualConfirmed = false, manualToken = null, requestId = null } = {}) {
     return this.exclusive(async () => {
       await this.initialize();
       const store = await this.getStore();
       const state = await store.processingState();
       const active = state.runs.find(run => run.status === "running");
       if (active) return { id: active.id, reused: true };
-      if (state.runs.some(run => run.status === "uncertain")) throw flowError("PROCESS_UNCERTAIN");
       if (this.jobManager.hasActiveJob) throw flowError("PROCESS_BUSY");
       await this.engine.open();
       let inspection;
@@ -119,15 +118,11 @@ export class ProcessingFlow {
       const signature = verifySearchRows(inspection.extraction, controls);
       if (!profileId && (manualToken !== state.confirmation?.token || signature !== state.confirmation?.signature ||
         inspection.structure !== state.confirmation?.structure || JSON.stringify(controls) !== JSON.stringify(state.confirmation?.controls))) throw flowError("SEARCH_CONFIRMATION_CHANGED");
-      const key = createHash("sha256").update(JSON.stringify({ signature, controls, mode: "both" })).digest("hex");
+      // A new operator action may download the same search again. Only retries
+      // of the same action share a key; audio credit reservations are separate.
+      const key = createHash("sha256").update(JSON.stringify({ signature, controls, mode: "both", request: requestId || manualToken || randomUUID() })).digest("hex");
       const previous = state.runs.find(run => run.key === key);
       if (previous) return { id: previous.id, reused: true };
-      const historical = new Set(state.runs.flatMap(run => [ ...(run.attention_keys || []),
-        ...(run.checkpoint?.result?.manifest?.atenciones || []).filter(entry => entry.estado === "correcto").map(createAttentionKey) ]));
-      const ensureNotPreviouslyDownloaded = extraction => {
-        if (extraction.atenciones.some(row => historical.has(createAttentionKey(row)))) throw flowError("PROCESS_ALREADY_DOWNLOADED");
-      };
-      ensureNotPreviouslyDownloaded(inspection.extraction);
       const id = randomUUID();
       // Reserve before launching; even a lost POST response cannot create a duplicate.
       await store.processingState(value => { value.runs.push({ id, key, attention_keys: inspection.extraction.atenciones.map(createAttentionKey), status: "running", created_at: new Date().toISOString(), checkpoint: null }); return null; });
@@ -140,7 +135,7 @@ export class ProcessingFlow {
             if (verifySearchRows(current.extraction, controls) !== signature) throw flowError("SEARCH_RESULTS_CHANGED");
           },
           beforeOutput: this.protectOutput,
-          validateExtraction: extraction => { verifySearchRows(extraction, controls); ensureNotPreviouslyDownloaded(extraction); },
+          validateExtraction: extraction => { verifySearchRows(extraction, controls); },
           checkpoint: async checkpoint => store.processingState(value => {
             const run = value.runs.find(item => item.id === id);
             run.checkpoint = checkpoint; run.status = checkpoint.status; return null;

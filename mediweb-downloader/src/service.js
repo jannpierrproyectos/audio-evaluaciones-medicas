@@ -6,7 +6,7 @@ import { createApp, parseAllowedOrigins } from "./http/app.js";
 import { JobManager } from "./http/jobManager.js";
 import { DownloaderRunner } from "./runner.js";
 import { loadConnectorConfig } from "./config.js";
-import { getRuntimePaths } from "./paths.js";
+import { getRuntimePaths, previousDownloadDirectories } from "./paths.js";
 import { EventEmitter } from "node:events";
 import { UpdateService } from "./updateService.js";
 import { createManagedFileService } from "./managedFiles.js";
@@ -62,10 +62,12 @@ export async function startConnectorService({
   const output = createEncryptedOutput({ downloadsDir: runtimePaths.downloadsDir, getStore: getEvaluationStore });
   engine.protectOutput = output.protectOutput; engine.writeOutput = output.write; engine.readOutput = output.read;
   const readFallbacks = [];
-  if (!packaged) {
+  {
     const installedPaths = getRuntimePaths({ moduleRoot, packaged: true });
     const installedConfig = await loadConnectorConfig({ runtimePaths: installedPaths, createIfMissing: false }).catch(() => null);
-    const locations = new Set([installedConfig?.downloadsDir, installedPaths.downloadsDir, getRuntimePaths({ moduleRoot }).downloadsDir].filter(Boolean));
+    const saved = await getEvaluationStore().then(store => store.catalogue()).catch(() => null);
+    const locations = new Set([installedConfig?.downloadsDir, installedPaths.downloadsDir, getRuntimePaths({ moduleRoot }).downloadsDir,
+      ...previousDownloadDirectories(saved?.data?.processing)].filter(Boolean));
     for (const downloadsDir of locations) {
       if (path.resolve(downloadsDir).toLowerCase() === path.resolve(runtimePaths.downloadsDir).toLowerCase()) continue;
       readFallbacks.push({ downloadsDir, readProtectedOutput: createEncryptedOutput({ downloadsDir, getStore: getEvaluationStore }).read });

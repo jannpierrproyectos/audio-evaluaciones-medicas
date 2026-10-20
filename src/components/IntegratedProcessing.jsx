@@ -13,7 +13,6 @@ const problems = {
   SEARCH_CONFIRMATION_CHANGED: "La búsqueda cambió mientras se comprobaba. Revisa los resultados y reintenta.",
   SEARCH_INTERFACE_CHANGED: "La búsqueda guardada no coincide con esta pantalla de MediWeb. Prepara otra búsqueda.",
   PROCESS_UNCERTAIN: "Hay una descarga interrumpida. Recupera sus archivos antes de iniciar otra.",
-  PROCESS_ALREADY_DOWNLOADED: "Estas evaluaciones ya se descargaron. Abre el proceso anterior desde el historial.",
 };
 
 export default function IntegratedProcessing({ onPdfSelected, onBatchStarted, onRestoreBatch, analysis, connected, onOpen, onReview, nextActionLabel = "Verificar WhatsApp" }) {
@@ -33,7 +32,6 @@ export default function IntegratedProcessing({ onPdfSelected, onBatchStarted, on
     processingAction("status").then(result => {
       if (!active) return;
       setState(result);
-      if (result.runs.length) setRunId(result.runs.at(-1).id);
     }).catch(error => {
       if (active) setNotice(`No se pudo leer el historial [${recoveryDiagnostic(error, "PROCESS_STATUS").code}].`);
     });
@@ -89,7 +87,7 @@ export default function IntegratedProcessing({ onPdfSelected, onBatchStarted, on
       // The existing Connector verifies filters/table and binds a short-lived
       // snapshot token. No extra declaration, clinical approval or consent.
       const proof = profileId ? null : await processingAction("confirm");
-      const created = await processingAction("start", { profileId: profileId || null, manualConfirmed: !profileId, manualToken: proof?.token || null });
+      const created = await processingAction("start", { profileId: profileId || null, manualConfirmed: !profileId, manualToken: proof?.token || null, requestId: crypto.randomUUID() });
       if (!created.reused) callbacks.current.onBatchStarted?.();
       openings.current.delete(created.id);
       setRecovery({ status: "idle" }); setJob(null); setRunId(created.id); setNewSearch(false);

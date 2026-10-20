@@ -103,6 +103,7 @@ export class DownloaderRunner {
   }
 
   async inspectResults() {
+    await this.selectResultsPage();
     if (!this.browserOpen) return { ready: false };
     const validTable = await hasValidResultsTable(this.mainPage);
     if (!validTable) return { ready: false };
