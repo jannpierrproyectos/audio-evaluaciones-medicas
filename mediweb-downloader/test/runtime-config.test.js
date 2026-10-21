@@ -6,6 +6,8 @@ import path from "node:path";
 import { configurationRequiresRestart, DEFAULT_CONFIG, loadConnectorConfig } from "../src/config.js";
 import { createOutputPaths, getRuntimePaths } from "../src/paths.js";
 import { parseAllowedOrigins } from "../src/http/app.js";
+import { createEncryptedOutput } from "../src/encryptedOutput.js";
+import { stat, readdir } from "node:fs/promises";
 
 test("default config versionada coincide con defaults y autoriza solo los tres origins exactos", async () => {
   const versioned = JSON.parse(await readFile(new URL("../config/default-config.json", import.meta.url), "utf8"));
@@ -116,3 +118,23 @@ test("salidas packaged separan reportes de temporales", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+for (const mode of ["first", "full", "both"]) {
+  test(`output contract: ${mode} can start twice with every declared directory protected`, async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), `connector-mode-${mode}-`));
+    try {
+      const runtimePaths = { packaged: true, downloadsDir: path.join(directory, "downloads"), tmpDir: path.join(directory, "tmp") };
+      const checked = [];
+      const output = createEncryptedOutput({ downloadsDir: runtimePaths.downloadsDir, getStore: async () => ({}), protect: async () => {},
+        verify: async folder => { assert.equal((await stat(folder)).isDirectory(), true); checked.push(folder); } });
+      const first = await createOutputPaths(directory, null, mode, runtimePaths);
+      await output.protectOutput(first);
+      const repeated = await createOutputPaths(directory, null, mode, runtimePaths);
+      await output.protectOutput(repeated);
+      assert.notEqual(first.root, repeated.root);
+      assert.equal(checked.length, 10);
+      assert.deepEqual(await readdir(first.full), []);
+      assert.deepEqual(await readdir(first.audio), []);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+}

@@ -20,6 +20,7 @@ import {
   focusPdfResults,
   getMediwebCompletionSummary,
   getMediwebStartLabel,
+  getMediwebJobFailure,
 } from "../lib/mediwebUiState.js";
 
 const MODES = [
@@ -571,7 +572,7 @@ export default function MediwebImporter({ onPdfSelected, onBatchStarted, onRevie
       {phase === "failed" || phase === "cancelled" ? (
         <section className={`mediweb-job is-${phase} mediweb-outcome`} aria-label="Procesamiento detenido">
           <div><p className="section-label">Resultado MediWeb</p><h3>{phase === "failed" ? "Procesamiento detenido" : "Procesamiento cancelado"}</h3></div>
-          <p>{phase === "failed" ? "El procesamiento se detuvo. Los archivos ya generados fueron conservados." : "Los archivos ya generados fueron conservados."}</p>
+          <p role={phase === "failed" ? "alert" : undefined}>{phase === "failed" ? getMediwebJobFailure(jobProgress) : "Los archivos ya generados fueron conservados."}</p>
           <JobMetrics job={jobProgress} />
           <div className="mediweb-outcome-actions">
             {phase === "failed" ? <button type="button" className="primary-button" onClick={handleStartJob} disabled={Boolean(pendingAction)}>Reintentar</button> : null}

@@ -3,7 +3,7 @@
 import { createServer } from "vite";
 import react from "@vitejs/plugin-react";
 import { chromium } from "../mediweb-downloader/node_modules/playwright-core/index.mjs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createServer as createHttpServer } from "node:http";
@@ -67,7 +67,7 @@ export async function startControlledPreview(port = 4180, { manualResultsOnly = 
     const downloadsDir = path.join(directory, "downloads");
     const engine = new DownloaderRunner({ runtimePaths: { packaged: false, downloadsDir }, logger: { log() {}, warn() {} } });
     engine.context = mediweb; engine.mainPage = mainPage;
-    const output = createEncryptedOutput({ downloadsDir, getStore });
+    const output = createEncryptedOutput({ downloadsDir, getStore, readableDocuments: true });
     engine.writeOutput = output.write; engine.readOutput = output.read; engine.protectOutput = output.protectOutput;
     temporary = new TemporaryAttachments({ directory: path.join(directory, "attachments"), getStore });
     await temporary.initialize();
@@ -83,7 +83,7 @@ export async function startControlledPreview(port = 4180, { manualResultsOnly = 
       return (...args) => (fileMode === "missing" ? missingFiles : fileMode === "fallback" ? fallbackFiles : target)[key](...args);
     } });
     const app = createApp({ engine, jobManager: manager, processingService: processing, getEvaluationStore: getStore,
-      managedFiles: controlledFiles, version: "0.6.0-rc.3", allowedOrigins: new Set([url]) });
+      managedFiles: controlledFiles, version: JSON.parse(await readFile(new URL("../mediweb-downloader/package.json", import.meta.url), "utf8")).version, allowedOrigins: new Set([url]) });
     connector = createHttpServer(app);
     await new Promise(resolve => connector.listen(0, "127.0.0.1", resolve));
     const connectorUrl = `http://127.0.0.1:${connector.address().port}`;

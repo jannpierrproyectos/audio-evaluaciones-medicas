@@ -1,6 +1,7 @@
 # AudioEvaluaciones Connector {{VERSION}}
 
 Novedades:
+- Corrige el inicio de descargas de solo primeras hojas o solo reportes completos: las carpetas declaradas existen antes de validar permisos. Permite repetir los tres modos sin usar el historial como bloqueo.
 - PDF y MP3 normales, permanentes y con el nombre del paciente en Documentos/PDF y Documentos/MP3 dentro de la carpeta de descargas. Recupera documentos anteriores sin descargas ni sintesis nuevas.
 - Importa revisiones de evaluaciones ya descargadas como versiones nuevas pendientes de revision, sin bloquear el lote ni sobrescribir aprobaciones o audios anteriores.
 - Muestra el motivo seguro de una discrepancia de importacion en vez de un error generico.

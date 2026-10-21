@@ -81,9 +81,10 @@ export async function createOutputPaths(moduleRoot, customBase, mode, runtimePat
     audio: path.join(root, "audioevaluaciones"),
     consolidated: path.join(root, "audioevaluaciones", "primeras-hojas.pdf"),
   };
-  await Promise.all([mkdir(paths.control, { recursive: true }), mkdir(paths.tmp, { recursive: true })]);
-  if (mode === "full" || mode === "both") await mkdir(paths.full, { recursive: true });
-  if (mode === "first" || mode === "both") await mkdir(paths.audio, { recursive: true });
+  // Every directory declared by this output contract must exist before the
+  // protection checks, regardless of which document types the operator chose.
+  // The mode still controls which PDF files are generated, never folder safety.
+  await Promise.all([paths.control, paths.tmp, paths.full, paths.audio].map(directory => mkdir(directory, { recursive: true })));
   return paths;
 }
 

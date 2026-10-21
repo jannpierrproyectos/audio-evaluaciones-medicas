@@ -5,6 +5,14 @@ export const EMPTY_MEDIWEB_ADVANCED_OPTIONS = Object.freeze({
   singlePage: false,
 });
 
+export function getMediwebJobFailure(job) {
+  const code = /^[A-Z][A-Z0-9_]{0,63}$/.test(job?.errorCode || "") ? job.errorCode : "PROCESS_FAILED";
+  const reason = code === "ENOENT"
+    ? "No se encontró una carpeta o archivo necesario del Connector. Actualiza el Connector y reintenta."
+    : "El procesamiento se detuvo. Los archivos ya generados se conservan.";
+  return `${reason} [${code}]`;
+}
+
 export function deriveMediwebPhase({
   connectorStatus,
   browserOpen,
